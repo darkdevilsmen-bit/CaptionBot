@@ -145,34 +145,79 @@ async def check_subscription(bot: Bot, user_id: int) -> bool:
     return False
 
 
-def create_word_image(text: str, text_color: tuple, font_size: int, output_path: Path):
-    font_path = FONTS_DIR / "KomikaAxis.ttf"
-    try:
-        font = ImageFont.truetype(str(font_path), font_size)
-    except Exception:
-        font = ImageFont.load_default()
+def format_ass_time(seconds: float) -> str:
+    hours = int(seconds // 3600)
+    mins = int((seconds % 3600) // 60)
+    secs = int(seconds % 60)
+    centis = int(round((seconds - int(seconds)) * 100))
+    if centis >= 100:
+        centis = 99
+    return f"{hours}:{mins:02d}:{secs:02d}.{centis:02d}"
 
-    canvas_width = 1080
-    canvas_height = 300
-    img = Image.new("RGBA", (canvas_width, canvas_height), (0, 0, 0, 0))
-    d = ImageDraw.Draw(img)
 
-    bbox = d.textbbox((0, 0), text, font=font)
-    text_w = bbox[2] - bbox[0]
-    text_h = bbox[3] - bbox[1]
-    
-    x = (canvas_width - text_w) // 2
-    y = (canvas_height - text_h) // 2
+def rgb_to_ass(rgb: tuple) -> str:
+    r, g, b = rgb
+    return f"&H00{b:02X}{g:02X}{r:02X}"
 
-    # Qalin qora kontur (MrBeast / TikTok style outline)
-    outline_color = (0, 0, 0, 255)
-    for ox in range(-4, 5):
-        for oy in range(-4, 5):
-            if ox != 0 or oy != 0:
-                d.text((x + ox, y + oy), text, font=font, fill=outline_color)
 
-    d.text((x, y), text, font=font, fill=(*text_color, 255))
-    img.save(output_path, "PNG")
+def generate_word_by_word_ass(words: List[Any], ass_path: Path, text_color: tuple, font_size: int) -> int:
+    color_hex = rgb_to_ass(text_color)
+    font_file = (FONTS_DIR / "KomikaAxis.ttf").resolve()
+    font_path_str = str(font_file).replace("\\", "/")
+    font_tag = f"\\fn{font_path_str}"
+
+    header = f"""[Script Info]
+ScriptType: v4.00+
+PlayResX: 1080
+PlayResY: 1920
+ScaledBorderAndShadow: yes
+
+[V4+ Styles]
+Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding
+Style: WordStyle,Arial,{font_size},{color_hex},&H000000FF,&HFF000000,&H80000000,0,0,0,0,100,100,2,0,1,4.0,2.0,2,40,40,450,1
+
+[Events]
+Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
+"""
+    cleaned_words = []
+    for w in words:
+        raw_text = getattr(w, "text", None) or getattr(w, "word", None) or ""
+        start = float(getattr(w, "start", 0.0))
+        end = float(getattr(w, "end", start + 0.35))
+        clean = str(raw_text).strip().upper()
+        for ch in [".", ",", "!", "?", ":", ";", '"', "'", "-", "—", "_"]:
+            clean = clean.replace(ch, "")
+        if clean:
+            if (end - start) < 0.4:
+                end = start + 0.4
+            cleaned_words.append({"word": clean, "start": start, "end": end})
+
+    if not cleaned_words:
+        return 0
+
+    count = 0
+    with open(ass_path, "w", encoding="utf-8") as f:
+        f.write(header)
+        for i, w in enumerate(cleaned_words):
+            start_sec = w["start"]
+            if i + 1 < len(cleaned_words):
+                next_start = cleaned_words[i + 1]["start"]
+                end_sec = min(w["end"], next_start)
+                if end_sec <= start_sec:
+                    end_sec = start_sec + 0.4
+            else:
+                end_sec = w["end"]
+
+            start_fmt = format_ass_time(start_sec)
+            end_fmt = format_ass_time(end_sec)
+            word_text = w["word"]
+
+            # MrBeast pop-up animatsiya teglari
+            pro_anim = f"{{\\an2{font_tag}\\fad(50,100)\\fscx120\\fscy120\\t(0,60,\\fscx100\\fscy100)\\b0}}"
+            f.write(f"Dialogue: 0,{start_fmt},{end_fmt},WordStyle,,0,0,0,,{pro_anim}{word_text}\n")
+            count += 1
+
+    return count
 
 
 async def process_job(bot: Bot, job: Dict[str, Any]) -> None:
@@ -189,13 +234,12 @@ async def process_job(bot: Bot, job: Dict[str, Any]) -> None:
 
     input_video = work_dir / "input.mp4"
     audio_path = work_dir / "audio.mp3"
+    ass_path = work_dir / "subtitles.ass"
     output_video = work_dir / "output.mp4"
-    images_dir = work_dir / "images"
-    images_dir.mkdir(exist_ok=True)
 
     status_msg = await bot.send_message(
         chat_id,
-        "⚡ <b>Komika Axis MrBeast AI ishga tushdi!</b>\n\n"
+        "⚡ <b>Komika Axis AI ishga tushdi!</b>\n\n"
         "▓░░░░░░░░░ 15%\n\n"
         "📥 <i>Video yuklanmoqda...</i>",
         parse_mode="HTML"
@@ -209,7 +253,7 @@ async def process_job(bot: Bot, job: Dict[str, Any]) -> None:
         await bot.download_file(file.file_path, destination=input_video)
 
         await status_msg.edit_text(
-            "⚡ <b>Komika Axis MrBeast AI ishga tushdi!</b>\n\n"
+            "⚡ <b>Komika Axis AI ishga tushdi!</b>\n\n"
             "▓▓▓░░░░░░░ 40%\n\n"
             "🎙 <i>Audio tahlil qilinmoqda...</i>",
             parse_mode="HTML"
@@ -223,7 +267,7 @@ async def process_job(bot: Bot, job: Dict[str, Any]) -> None:
         await asyncio.to_thread(subprocess.run, cmd_extract, cwd=str(work_dir), capture_output=True, text=True)
 
         await status_msg.edit_text(
-            "⚡ <b>Komika Axis MrBeast AI ishga tushdi!</b>\n\n"
+            "⚡ <b>Komika Axis AI ishga tushdi!</b>\n\n"
             "▓▓▓▓▓▓░░░░ 70%\n\n"
             "✨ <i>Subtitrlar tayyorlanmoqda...</i>",
             parse_mode="HTML"
@@ -241,65 +285,21 @@ async def process_job(bot: Bot, job: Dict[str, Any]) -> None:
         transcription = await asyncio.to_thread(transcribe_audio)
         words = getattr(transcription, "words", []) or []
 
-        cleaned_words = []
-        for w in words:
-            raw_text = getattr(w, "text", None) or getattr(w, "word", None) or ""
-            start = float(getattr(w, "start", 0.0))
-            end = float(getattr(w, "end", start + 0.4))
-            clean = str(raw_text).strip().upper()
-            for ch in [".", ",", "!", "?", ":", ";", '"', "'", "-", "—", "_"]:
-                clean = clean.replace(ch, "")
-            if clean:
-                if (end - start) < 0.35:
-                    end = start + 0.35
-                cleaned_words.append({"word": clean, "start": start, "end": end})
-
-        if not cleaned_words:
+        count = generate_word_by_word_ass(words, ass_path, color, font_size)
+        if count == 0:
             await status_msg.edit_text("❌ Videoda nutq aniqlanmadi.")
             return
 
-        chunks = []
-        chunk_size = 2
-        for i in range(0, len(cleaned_words), chunk_size):
-            chunk = cleaned_words[i:i + chunk_size]
-            start_t = chunk[0]["start"]
-            end_t = chunk[-1]["end"]
-            text = " ".join([c["word"] for c in chunk])
-            chunks.append({"text": text, "start": start_t, "end": end_t})
-
-        filter_parts = ["[0:v]"]
-        last_out = "v0"
-
-        for i, ch in enumerate(chunks):
-            img_path = images_dir / f"chunk_{i}.png"
-            create_word_image(ch["text"], color, font_size, img_path)
-
-            start_t = ch["start"]
-            end_t = ch["end"]
-            next_input = f"v{i+1}"
-            
-            # Matnni videoning o'rtasidan biroz pastroqqa (bel qismiga, xuddi MrBeast kabi) joylashtiramiz
-            filter_parts.append(
-                f"[{last_out}][{i+1}:v] overlay=(W-w)/2:H-h-550:enable='between(t,{start_t},{end_t})'[{next_input}];"
-            )
-            last_out = next_input
-
-        filter_complex = "".join(filter_parts)[:-1]
-
-        cmd_render = ["ffmpeg", "-y", "-i", "input.mp4"]
-        for i in range(len(chunks)):
-            cmd_render.extend(["-i", str(images_dir / f"chunk_{i}.png")])
-
-        cmd_render.extend([
-            "-filter_complex", filter_complex,
-            "-map", f"[{last_out}]",
-            "-map", "0:a",
+        abs_fonts_dir = str(FONTS_DIR.resolve())
+        cmd_render = [
+            "ffmpeg", "-y", "-i", "input.mp4",
+            "-vf", f"ass=subtitles.ass:fontsdir='{abs_fonts_dir}'",
             "-c:v", "libx264",
             "-preset", "ultrafast",
             "-crf", "23",
             "-c:a", "copy",
             "output.mp4"
-        ])
+        ]
 
         res = await asyncio.to_thread(subprocess.run, cmd_render, cwd=str(work_dir), capture_output=True, text=True)
         if res.returncode != 0:
@@ -665,7 +665,7 @@ async def on_size(call: CallbackQuery) -> None:
     _, key, skey = parts
     job = jobs.get(key)
     if not job:
-        await call.answer("Eskirgan so'rov.", show_alert=True)
+        await call.answer("Eskirgan so'rov yoki vaqt o'tdi.", show_alert=True)
         return
 
     job["size"] = SIZES[skey][1]
