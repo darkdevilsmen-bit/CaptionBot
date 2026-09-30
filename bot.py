@@ -26,6 +26,7 @@ from aiogram.types import (
 from aiogram.utils.keyboard import InlineKeyboardBuilder
 from aiogram.client.session.aiohttp import AiohttpSession
 from aiogram.fsm.context import FSMContext
+from aiogram.fsm.state import State, StatesGroup
 from aiogram.fsm.storage.memory import MemoryStorage
 from elevenlabs.client import ElevenLabs
 
@@ -46,7 +47,7 @@ CARD_HOLDER = "Toshpulatov Shoxrux"
 
 MAX_VIDEO_BYTES = 50 * 1024 * 1024
 WORK_ROOT = Path("temp_processing")
-FONTS_DIR = Path("fonts")
+FONTS_DIR = Path(".")  # Shrift fayli to'g'ridan-to'g'ri asosiy papkada turgani uchun
 DB_FILE = Path("database.db")
 INITIAL_CREDITS = 3
 
@@ -194,7 +195,7 @@ async def process_job(bot: Bot, job: Dict[str, Any]) -> None:
     file_id = job["file_id"]
     lang = job["lang"]
     color = job["color"]
-    font_size = 95  # Matn katta va aniq ko'rinishi uchun
+    font_size = 95
     job_key = job["key"]
 
     work_dir = WORK_ROOT / job_key
@@ -291,7 +292,6 @@ async def process_job(bot: Bot, job: Dict[str, Any]) -> None:
             end_t = ch["end"]
             next_input = f"v{i+1}"
             
-            # Matnni videoning qoq markaziga joylashtiramiz
             filter_parts.append(
                 f"[{last_out}][{i+1}:v] overlay=(W-w)/2:(H-h)/2:enable='between(t,{start_t},{end_t})'[{next_input}];"
             )
@@ -678,7 +678,7 @@ async def on_style(call: CallbackQuery) -> None:
     _, key, skey = parts
     job = jobs.get(key)
     if not job:
-        await call.answer("Eskirgan so'rov yoki vaqt o'tdi.", show_alert=True)
+        await call.answer("Eskirgan so'rov.", show_alert=True)
         return
 
     job["style"] = skey
@@ -748,7 +748,6 @@ async def start_bot_polling():
 
 async def main() -> None:
     init_db()
-    FONTS_DIR.mkdir(parents=True, exist_ok=True)
     WORK_ROOT.mkdir(parents=True, exist_ok=True)
     asyncio.create_task(web_server())
     await start_bot_polling()
