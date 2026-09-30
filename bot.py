@@ -10,7 +10,6 @@ import subprocess
 from pathlib import Path
 from typing import Dict, Any, List
 
-from PIL import Image, ImageDraw, ImageFont
 from aiohttp import web
 from aiogram import Bot, Dispatcher, F, Router
 from aiogram.filters import CommandStart, Command
@@ -26,7 +25,6 @@ from aiogram.types import (
 from aiogram.utils.keyboard import InlineKeyboardBuilder
 from aiogram.client.session.aiohttp import AiohttpSession
 from aiogram.fsm.context import FSMContext
-from aiogram.fsm.state import State, StatesGroup
 from aiogram.fsm.storage.memory import MemoryStorage
 from elevenlabs.client import ElevenLabs
 
@@ -47,7 +45,7 @@ CARD_HOLDER = "Toshpulatov Shoxrux"
 
 MAX_VIDEO_BYTES = 50 * 1024 * 1024
 WORK_ROOT = Path("temp_processing")
-FONTS_DIR = Path(".")  # Shrift fayli to'g'ridan-to'g'ri asosiy papkada turgani uchun
+FONTS_DIR = Path(".")
 DB_FILE = Path("database.db")
 INITIAL_CREDITS = 3
 
@@ -159,43 +157,12 @@ async def check_subscription(bot: Bot, user_id: int) -> bool:
     return False
 
 
-def create_word_image(text: str, text_color: tuple, font_size: int, output_path: Path):
-    font_path = FONTS_DIR / "KomikaAxis.ttf"
-    try:
-        font = ImageFont.truetype(str(font_path), font_size)
-    except Exception:
-        font = ImageFont.load_default()
-
-    canvas_width = 1080
-    canvas_height = 400
-    img = Image.new("RGBA", (canvas_width, canvas_height), (0, 0, 0, 0))
-    d = ImageDraw.Draw(img)
-
-    bbox = d.textbbox((0, 0), text, font=font)
-    text_w = bbox[2] - bbox[0]
-    text_h = bbox[3] - bbox[1]
-    
-    x = (canvas_width - text_w) // 2
-    y = (canvas_height - text_h) // 2
-
-    # Qalin qora kontur (Outline)
-    outline_color = (0, 0, 0, 255)
-    for ox in range(-5, 6):
-        for oy in range(-5, 6):
-            if ox != 0 or oy != 0:
-                d.text((x + ox, y + oy), text, font=font, fill=outline_color)
-
-    d.text((x, y), text, font=font, fill=(*text_color, 255))
-    img.save(output_path, "PNG")
-
-
 async def process_job(bot: Bot, job: Dict[str, Any]) -> None:
     chat_id = job["chat_id"]
     user_id = job["user_id"]
     file_id = job["file_id"]
     lang = job["lang"]
     color = job["color"]
-    font_size = 95
     job_key = job["key"]
 
     work_dir = WORK_ROOT / job_key
@@ -204,12 +171,10 @@ async def process_job(bot: Bot, job: Dict[str, Any]) -> None:
     input_video = work_dir / "input.mp4"
     audio_path = work_dir / "audio.mp3"
     output_video = work_dir / "output.mp4"
-    images_dir = work_dir / "images"
-    images_dir.mkdir(exist_ok=True)
 
     status_msg = await bot.send_message(
         chat_id,
-        "⚡ <b>Komika Axis Pro AI ishga tushdi!</b>\n\n"
+        "⚡ <b>Komika Axis AI ishga tushdi!</b>\n\n"
         "▓░░░░░░░░░ 15%\n\n"
         "📥 <i>Video yuklanmoqda...</i>",
         parse_mode="HTML"
@@ -223,7 +188,7 @@ async def process_job(bot: Bot, job: Dict[str, Any]) -> None:
         await bot.download_file(file.file_path, destination=input_video)
 
         await status_msg.edit_text(
-            "⚡ <b>Komika Axis Pro AI ishga tushdi!</b>\n\n"
+            "⚡ <b>Komika Axis AI ishga tushdi!</b>\n\n"
             "▓▓▓░░░░░░░ 40%\n\n"
             "🎙 <i>Audio tahlil qilinmoqda...</i>",
             parse_mode="HTML"
@@ -237,9 +202,9 @@ async def process_job(bot: Bot, job: Dict[str, Any]) -> None:
         await asyncio.to_thread(subprocess.run, cmd_extract, cwd=str(work_dir), capture_output=True, text=True)
 
         await status_msg.edit_text(
-            "⚡ <b>Komika Axis Pro AI ishga tushdi!</b>\n\n"
+            "⚡ <b>Komika Axis AI ishga tushdi!</b>\n\n"
             "▓▓▓▓▓▓░░░░ 70%\n\n"
-            "✨ <i>Komika Axis shriftida matnlar tayyorlanmoqda...</i>",
+            "✨ <i>Subtitrlar tayyorlanmoqda...</i>",
             parse_mode="HTML"
         )
 
@@ -272,47 +237,40 @@ async def process_job(bot: Bot, job: Dict[str, Any]) -> None:
             await status_msg.edit_text("❌ Videoda nutq aniqlanmadi.")
             return
 
-        chunks = []
-        chunk_size = 2
-        for i in range(0, len(cleaned_words), chunk_size):
-            chunk = cleaned_words[i:i + chunk_size]
-            start_t = chunk[0]["start"]
-            end_t = chunk[-1]["end"]
-            text = " ".join([c["word"] for c in chunk])
-            chunks.append({"text": text, "start": start_t, "end": end_t})
-
-        filter_parts = ["[0:v]"]
-        last_out = "v0"
-
-        for i, ch in enumerate(chunks):
-            img_path = images_dir / f"chunk_{i}.png"
-            create_word_image(ch["text"], color, font_size, img_path)
-
-            start_t = ch["start"]
-            end_t = ch["end"]
-            next_input = f"v{i+1}"
+        font_path = str(Path("KomikaAxis.ttf").resolve()).replace("\\", "/").replace(":", "\\:")
+        
+        drawtext_filters = []
+        for w in cleaned_words:
+            safe_word = w["word"].replace("'", "").replace('"', "")
+            start_t = w["start"]
+            end_t = w["end"]
             
-            filter_parts.append(
-                f"[{last_out}][{i+1}:v] overlay=(W-w)/2:(H-h)/2:enable='between(t,{start_t},{end_t})'[{next_input}];"
+            if color == (255, 255, 0):
+                box_color = "yellow"
+            elif color == (0, 255, 0):
+                box_color = "green"
+            else:
+                box_color = "white"
+
+            dt = (
+                f"drawtext=fontfile='{font_path}':text='{safe_word}':"
+                f"fontcolor={box_color}:fontsize=70:x=(w-text_w)/2:y=(h-text_h)/2:"
+                f"borderw=4:bordercolor=black:"
+                f"enable='between(t,{start_t},{end_t})'"
             )
-            last_out = next_input
+            drawtext_filters.append(dt)
 
-        filter_complex = "".join(filter_parts)[:-1]
+        video_filter = ",".join(drawtext_filters)
 
-        cmd_render = ["ffmpeg", "-y", "-i", "input.mp4"]
-        for i in range(len(chunks)):
-            cmd_render.extend(["-i", str(images_dir / f"chunk_{i}.png")])
-
-        cmd_render.extend([
-            "-filter_complex", filter_complex,
-            "-map", f"[{last_out}]",
-            "-map", "0:a",
+        cmd_render = [
+            "ffmpeg", "-y", "-i", "input.mp4",
+            "-vf", video_filter,
             "-c:v", "libx264",
             "-preset", "ultrafast",
             "-crf", "23",
             "-c:a", "copy",
             "output.mp4"
-        ])
+        ]
 
         res = await asyncio.to_thread(subprocess.run, cmd_render, cwd=str(work_dir), capture_output=True, text=True)
         if res.returncode != 0:
@@ -637,7 +595,7 @@ async def on_video(message: Message, state: FSMContext, bot: Bot) -> None:
         "file_id": media.file_id,
         "lang": "uz",
         "style": "mrbeast_style",
-        "color": None,
+        "color": (255, 255, 0),
         "ts": time.time()
     }
 
