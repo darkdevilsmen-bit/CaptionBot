@@ -61,41 +61,6 @@ COLORS = {
     "green":  ("🟢 Yashil", "&H0000FF00"),
 }
 
-# 100% ishlaydigan va xato bermaydigan professional shriftlar
-FONTS = {
-    "coolvetica": {
-        "title": "🖤 Coolvetica (Standart Pro)",
-        "font_name": "Arial"
-    },
-    "arial_black": {
-        "title": "🅰️ Arial Bold (Pro)",
-        "font_name": "Arial"
-    },
-    "bangers": {
-        "title": "🔥 Pro Bold Style",
-        "font_name": "Arial"
-    }
-}
-
-ANIMATION_STYLES = {
-    "mrbeast_style": {
-        "title": "🟢 MrBeast Style (Tavsiya etiladi ⭐)",
-        "desc": "So'zma-so'z pop-up va qalin qora konturli dinamik uslub"
-    },
-    "active_bold_regular": {
-        "title": "🔥 Active Bold / Regular",
-        "desc": "Gapirilayotgan so'z qalin, qolganlari oddiy ko'rinishda"
-    },
-    "active_word_box": {
-        "title": "⬛ Active Word Highlight (Box Style)",
-        "desc": "So'z orqasida qora fonli to'rtburchak blok bo'ladi"
-    },
-    "word_fade_in_out": {
-        "title": "✨ Smooth Fade In & Out",
-        "desc": "Mayin paydo bo'lib, sekin so'nib yo'qoluvchi klassik uslub"
-    }
-}
-
 jobs: Dict[str, Dict[str, Any]] = {}
 router = Router()
 el_client = ElevenLabs(api_key=ELEVENLABS_API_KEY)
@@ -223,7 +188,6 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
             clean = clean.replace(ch, "")
 
         if clean:
-            # So'zlar o'qishga juda qulay bo'lishi uchun vaqt oralig'i to'g'irlandi
             if (end - start) < 0.45:
                 end = start + 0.45
             cleaned_words.append({"word": clean, "start": start, "end": end})
@@ -307,7 +271,6 @@ async def process_job(bot: Bot, job: Dict[str, Any]) -> None:
             parse_mode="HTML"
         )
 
-        # Audio aniqligini kuchaytirish uchun sozlash
         cmd_extract = [
             "ffmpeg", "-y", "-i", "input.mp4",
             "-vn", "-acodec", "libmp3lame", "-ar", "24000", "-ac", "1", "-b:a", "192k",
@@ -395,6 +358,65 @@ OFERTA_FULL_TEXT = (
 )
 
 
+# --- ADMIN PANEL BUYRUĞI ---
+@router.message(Command("panel"))
+async def cmd_admin_panel(message: Message):
+    if message.from_user.id != ADMIN_ID:
+        await message.answer("❌ Sizda bu buyruqdan foydalanish huquqi yo'q!")
+        return
+
+    # Bazadan jami foydalanuvchilar sonini hisoblash
+    with sqlite3.connect(DB_FILE) as conn:
+        cursor = conn.cursor()
+        cursor.execute("SELECT COUNT(*) FROM users")
+        total_users = cursor.fetchone()[0]
+
+    panel_text = (
+        "🛠 <b>ADMIN PANEL</b>\n\n"
+        f"👥 Jami foydalanuvchilar: <b>{total_users} ta</b>\n\n"
+        "<b>Qo'mitalar va buyruqlar:</b>\n"
+        "💎 Foydalanuvchiga kredit qo'shish:\n"
+        "<code>/add [user_id] [kredit_soni]</code>\n\n"
+        "<i>Misol: /add 7662888182 10</i>"
+    )
+
+    kb = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="🔄 Statistikani yangilash", callback_data="refresh_stats")]
+    ])
+
+    await message.answer(panel_text, reply_markup=kb, parse_mode="HTML")
+
+
+@router.callback_query(F.data == "refresh_stats")
+async def refresh_stats(call: CallbackQuery):
+    if call.from_user.id != ADMIN_ID:
+        await call.answer("Huquqingiz yo'q!", show_alert=True)
+        return
+
+    with sqlite3.connect(DB_FILE) as conn:
+        cursor = conn.cursor()
+        cursor.execute("SELECT COUNT(*) FROM users")
+        total_users = cursor.fetchone()[0]
+
+    panel_text = (
+        "🛠 <b>ADMIN PANEL</b>\n\n"
+        f"👥 Jami foydalanuvchilar: <b>{total_users} ta</b>\n\n"
+        "<b>Qo'mitalar va buyruqlar:</b>\n"
+        "💎 Foydalanuvchiga kredit qo'shish:\n"
+        "<code>/add [user_id] [kredit_soni]</code>"
+    )
+    
+    kb = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="🔄 Statistikani yangilash", callback_data="refresh_stats")]
+    ])
+
+    try:
+        await call.message.edit_text(panel_text, reply_markup=kb, parse_mode="HTML")
+    except Exception:
+        pass
+    await call.answer("Statistika yangilandi!")
+
+
 @router.message(Command("add"))
 async def cmd_add_credits(message: Message, bot: Bot):
     if message.from_user.id != ADMIN_ID:
@@ -402,7 +424,7 @@ async def cmd_add_credits(message: Message, bot: Bot):
     
     parts = message.text.split()
     if len(parts) < 3:
-        await message.reply("⚠️️ Xato format! Ishlatilishi:\n<code>/add [user_id] [kredit_soni]</code>", parse_mode="HTML")
+        await message.reply("⚠️ Xato format! Ishlatilishi:\n<code>/add [user_id] [kredit_soni]</code>", parse_mode="HTML")
         return
     
     try:
@@ -595,7 +617,7 @@ async def cmd_payment(message: Message):
 
 @router.message(F.text == "👨‍💻 Admin bilan bog'lanish")
 async def cmd_contact_admin(message: Message):
-    await message.answer(f"👨‍‍💻 Admin: @{ADMIN_USERNAME}\n📞 Tel: {ADMIN_PHONE}", parse_mode="HTML")
+    await message.answer(f"👨‍💻 Admin: @{ADMIN_USERNAME}\n📞 Tel: {ADMIN_PHONE}", parse_mode="HTML")
 
 
 @router.message(F.video | (F.document & F.document.mime_type.startswith("video/")))
