@@ -61,7 +61,7 @@ COLORS = {
     "green":  ("🟢 Yashil", "&H0000FF00"),
 }
 
-# Shrift nomlari sizdagi fayllarning aniq turlariga moslashtirildi
+# Shriftlarning aniq ichki nomlari (Bangers uchun bazadagi aniq nomi)
 FONTS = {
     "coolvetica": {
         "title": "🖤 Coolvetica (Standart Pro)",
@@ -223,7 +223,6 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
             clean = clean.replace(ch, "")
 
         if clean:
-            # So'zlar o'qishga qulay bo'lishi va juda tez o'tib ketmasligi uchun vaqt maromi uzaytirildi
             if (end - start) < 0.40:
                 end = start + 0.40
             cleaned_words.append({"word": clean, "start": start, "end": end})
@@ -249,7 +248,6 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
             end_fmt = format_ass_time(end_t)
             word_text = w["word"]
 
-            # Animatsiya maromi silliq va o'qishga qulay qilindi
             if anim_style == "mrbeast_style":
                 pro_anim = r"{\an2\fad(80,150)\fscx125\fscy125\t(0,70,\fscx100\fscy100)\b1}"
             elif anim_style == "active_bold_regular":
@@ -261,7 +259,8 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
             else:
                 pro_anim = r"{\an2\fad(120,180)\b1}"
 
-            f.write(f"Dialogue: 0,{start_fmt},{end_fmt},WordStyle,,0,0,0,,{pro_anim}{word_text}\n")
+            # Matnning o'ziga ham shrifni aniq qilib majburlab yozamiz
+            f.write(f"Dialogue: 0,{start_fmt},{end_fmt},WordStyle,,0,0,0,,{{\\fn{font_name}}}{pro_anim}{word_text}\n")
             count += 1
 
     return count
@@ -310,7 +309,6 @@ async def process_job(bot: Bot, job: Dict[str, Any]) -> None:
             parse_mode="HTML"
         )
 
-        # Audio aniqligini oshirish uchun bitreytni ko'taramiz
         cmd_extract = [
             "ffmpeg", "-y", "-i", "input.mp4",
             "-vn", "-acodec", "libmp3lame", "-ar", "24000", "-ac", "1", "-b:a", "192k",
@@ -353,7 +351,7 @@ async def process_job(bot: Bot, job: Dict[str, Any]) -> None:
         fonts_dir = Path(__file__).parent / "fonts"
         fonts_dir_str = str(fonts_dir.resolve())
 
-        # Shriftlar papkasini FFmpeg'ga majburiy ko'rsatib render qilamiz
+        # Shrift papkasini hamda to'g'ridan-to'g'ri fontattachment yoki fontsdir orqali qo'shamiz
         cmd_render = [
             "ffmpeg", "-y", "-i", "input.mp4",
             "-vf", f"ass=subtitles.ass:fontsdir='{fonts_dir_str}'",
