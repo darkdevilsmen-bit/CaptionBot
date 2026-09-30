@@ -99,8 +99,8 @@ el_client = ElevenLabs(api_key=ELEVENLABS_API_KEY)
 def get_main_keyboard() -> ReplyKeyboardMarkup:
     keyboard = [
         [KeyboardButton(text="⚡ Auto Subtitr qo'yish")],
-        [KeyboardButton(text="🎨 Subtitr uslublari"), KeyboardButton(text="💳 Balans")],
-        [KeyboardButton(text="💰 To'lov qilish"), KeyboardButton(text="📜 Oferta")],
+        [KeyboardButton(text="🎨 Subtitr uslublari"), KeyboardButton(text="💎 PRO Tarif")],
+        [KeyboardButton(text="💳 Balans & To'lov"), KeyboardButton(text="📜 Oferta")],
         [KeyboardButton(text="👨‍💻 Admin bilan bog'lanish")]
     ]
     return ReplyKeyboardMarkup(keyboard=keyboard, resize_keyboard=True)
@@ -114,6 +114,7 @@ def init_db():
                 user_id INTEGER PRIMARY KEY,
                 username TEXT,
                 credits INTEGER DEFAULT 3,
+                is_pro INTEGER DEFAULT 0,
                 bot_lang TEXT DEFAULT 'uz',
                 terms_accepted INTEGER DEFAULT 0,
                 joined_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
@@ -125,18 +126,18 @@ def init_db():
 def get_user_data(user_id: int):
     with sqlite3.connect(DB_FILE) as conn:
         cursor = conn.cursor()
-        cursor.execute("SELECT credits, bot_lang, terms_accepted FROM users WHERE user_id = ?", (user_id,))
+        cursor.execute("SELECT credits, bot_lang, terms_accepted, is_pro FROM users WHERE user_id = ?", (user_id,))
         return cursor.fetchone()
 
 
 def get_user_credits(user_id: int, username: str = "") -> int:
     with sqlite3.connect(DB_FILE) as conn:
         cursor = conn.cursor()
-        cursor.execute("SELECT credits FROM users WHERE user_id = ?", (user_id,))
+        cursor.execute("SELECT credits, is_pro FROM users WHERE user_id = ?", (user_id,))
         row = cursor.fetchone()
         if row is None:
             cursor.execute(
-                "INSERT OR IGNORE INTO users (user_id, username, credits, bot_lang, terms_accepted) VALUES (?, ?, ?, 'uz', 0)",
+                "INSERT OR IGNORE INTO users (user_id, username, credits, is_pro, bot_lang, terms_accepted) VALUES (?, ?, ?, 0, 'uz', 0)",
                 (user_id, username, INITIAL_CREDITS)
             )
             conn.commit()
@@ -144,7 +145,17 @@ def get_user_credits(user_id: int, username: str = "") -> int:
         return row[0]
 
 
+def is_user_pro(user_id: int) -> bool:
+    with sqlite3.connect(DB_FILE) as conn:
+        cursor = conn.cursor()
+        cursor.execute("SELECT is_pro FROM users WHERE user_id = ?", (user_id,))
+        row = cursor.fetchone()
+        return bool(row and row[0] == 1)
+
+
 def deduct_user_credit(user_id: int) -> bool:
+    if is_user_pro(user_id):
+        return True  # PRO foydalanuvchilardan kredit ayrilmaydi
     with sqlite3.connect(DB_FILE) as conn:
         cursor = conn.cursor()
         cursor.execute("SELECT credits FROM users WHERE user_id = ?", (user_id,))
@@ -274,7 +285,7 @@ async def process_job(bot: Bot, data: Dict[str, Any], chat_id: int, user_id: int
 
     try:
         await status_msg.edit_text(
-            "📥 <b>1/4 Bosqich:</b> Video serverga yuklab olinmoqda...",
+            "📥 <b>1/4 Bosqich:</b> Video yuklab olinmoqda...",
             parse_mode="HTML"
         )
         file = await bot.get_file(file_id)
@@ -284,7 +295,7 @@ async def process_job(bot: Bot, data: Dict[str, Any], chat_id: int, user_id: int
         await bot.download_file(file.file_path, destination=input_video)
 
         await status_msg.edit_text(
-            "🎙 <b>2/4 Bosqich:</b> Ovoz matnga aylantirilishiga tayyorlanmoqda...",
+            "🎙 <b>2/4 Bosqich:</b> Ovoz matnga aylantirilmoqda...",
             parse_mode="HTML"
         )
 
@@ -331,7 +342,7 @@ async def process_job(bot: Bot, data: Dict[str, Any], chat_id: int, user_id: int
             return
 
         await status_msg.edit_text(
-            "🎨 <b>4/4 Bosqich:</b> Komika Axis shriftida professional subtitrlar yondirilmoqda...",
+            "🎨 <b>4/4 Bosqich:</b> Komika Axis shriftida subtitrlar yondirilmoqda...",
             parse_mode="HTML"
         )
 
@@ -360,12 +371,19 @@ async def process_job(bot: Bot, data: Dict[str, Any], chat_id: int, user_id: int
 
         deduct_user_credit(user_id)
         current_bal = get_user_credits(user_id)
+        pro_status = is_user_pro(user_id)
 
-        await status_msg.edit_text("📤 <b>Tayyor! Video sizga yuborilmoqda...</b>", parse_mode="HTML")
+        # Sifat va tarif haqida eslatma
+        if pro_status:
+            quality_note = "🎬 Sifat: <b>2K HD (PRO Tarifi)</b>"
+        else:
+            quality_note = "🎬 Sifat: <b>720p (Bepul versiya)</b>\n💎 2K HD sifatda yuklab olish uchun <b>PRO Tarif</b> oling!"
+
+        await status_msg.edit_text("📤 <b>Tayyor! Video yuborilmoqda...</b>", parse_mode="HTML")
         await bot.send_video(
             chat_id,
             video=FSInputFile(str(output_video)),
-            caption=f"🔥 <b>Subtitr Tayyor!</b> (Komika Axis)\n\n💳 Qolgan balans: <b>{current_bal} ta video</b>",
+            caption=f"🔥 <b>Subtitr Tayyor!</b> (Komika Axis)\n\n{quality_note}\n\n💳 Qolgan balans: <b>{current_bal} ta video</b>",
             reply_markup=get_main_keyboard(),
             parse_mode="HTML"
         )
@@ -387,9 +405,9 @@ OFERTA_FULL_TEXT = (
     "<b>2. XIZMAT KO'RSATISH TARTIBI</b>\n"
     "2.1. Bot yuborilgan videolarga sun'iy intellekt yordamida avtomatik ravishda dinamik subtitrlar qo'shib beradi.\n"
     "2.2. Videolar <b>9:16 vertikal (1080x1920)</b> formatda va hajmi <b>50 MB dan oshmagan</b> bo'lishi shart.\n"
-    "2.3. Bepul versiyadagi videolar optimallashtirilgan sifatda (720p) ishlov beriladi, obuna/kredit egalariga esa yuqori sifatli (2K) formatda taqdim etiladi.\n\n"
+    "2.3. Bepul versiyadagi videolar <b>720p</b> sifatda ishlov beriladi. **PRO Tarif (1 oylik)** egalariga esa yuqori aniqlikdagi **2K HD** formatda taqdim etiladi.\n\n"
     "<b>3. TO'LOV VA QAYTARIB BERMASLIK SHARTI</b>\n"
-    "3.1. Sotib olingan kreditlar hech qanday holatda ortga qaytarilmaydi.\n"
+    "3.1. Sotib olingan kreditlar va tariflar hech qanday holatda ortga qaytarilmaydi.\n"
     "3.2. To'lov faqat ko'rsatilgan karta raqamiga amalga oshirilishi shart.\n"
 )
 
@@ -408,8 +426,9 @@ async def cmd_admin_panel(message: Message):
     panel_text = (
         "🛠 <b>ADMIN PANEL</b>\n\n"
         f"👥 Jami foydalanuvchilar: <b>{total_users} ta</b>\n\n"
-        "<b>Buyruq:</b>\n"
-        "<code>/add [user_id] [kredit_soni]</code>"
+        "<b>Buyruqlar:</b>\n"
+        "<code>/add [user_id] [kredit]</code>\n"
+        "<code>/pro [user_id]</code> (1 oylik PRO berish)"
     )
 
     kb = InlineKeyboardMarkup(inline_keyboard=[
@@ -431,9 +450,7 @@ async def refresh_stats(call: CallbackQuery):
 
     panel_text = (
         "🛠 <b>ADMIN PANEL</b>\n\n"
-        f"👥 Jami foydalanuvchilar: <b>{total_users} ta</b>\n\n"
-        "<b>Buyruq:</b>\n"
-        "<code>/add [user_id] [kredit_soni]</code>"
+        f"👥 Jami foydalanuvchilar: <b>{total_users} ta</b>"
     )
     kb = InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text="🔄 Yangilash", callback_data="refresh_stats")]
@@ -444,28 +461,44 @@ async def refresh_stats(call: CallbackQuery):
         pass
 
 
+@router.message(Command("pro"))
+async def cmd_make_pro(message: Message, bot: Bot):
+    if message.from_user.id != ADMIN_ID:
+        return
+    parts = message.text.split()
+    if len(parts) < 2:
+        await message.reply("⚠️ Ishlatilishi: <code>/pro [user_id]</code>", parse_mode="HTML")
+        return
+    try:
+        target_id = int(parts[1])
+        with sqlite3.connect(DB_FILE) as conn:
+            cursor = conn.cursor()
+            cursor.execute("UPDATE users SET is_pro = 1 WHERE user_id = ?", (target_id,))
+            conn.commit()
+        await message.reply(f"✅ Foydalanuvchi (ID: <code>{target_id}</code>) ga **1 oylik PRO tarif** berildi!")
+        await bot.send_message(target_id, "🎉 <b>Tabriklaymiz! Sizga 1 oylik PRO tarif berildi!</b>\n\n✨ Endi barcha videolaringiz <b>2K HD sifatda</b> tayyorlanadi!", parse_mode="HTML", reply_markup=get_main_keyboard())
+    except Exception as e:
+        await message.reply(f"❌ Xatolik: {e}")
+
+
 @router.message(Command("add"))
 async def cmd_add_credits(message: Message, bot: Bot):
     if message.from_user.id != ADMIN_ID:
         return
-    
     parts = message.text.split()
     if len(parts) < 3:
-        await message.reply("⚠️ Xato format! Ishlatilishi:\n<code>/add [user_id] [kredit_soni]</code>", parse_mode="HTML")
+        await message.reply("⚠️ Xato format! Ishlatilishi:\n<code>/add [user_id] [kredit]</code>", parse_mode="HTML")
         return
-    
     try:
         target_user_id = int(parts[1])
         amount = int(parts[2])
-        
         with sqlite3.connect(DB_FILE) as conn:
             cursor = conn.cursor()
             cursor.execute("SELECT credits FROM users WHERE user_id = ?", (target_user_id,))
             row = cursor.fetchone()
-            
             if row is None:
                 cursor.execute(
-                    "INSERT INTO users (user_id, username, credits, bot_lang, terms_accepted) VALUES (?, '', ?, 'uz', 1)",
+                    "INSERT INTO users (user_id, username, credits, is_pro, bot_lang, terms_accepted) VALUES (?, '', ?, 0, 'uz', 1)",
                     (target_user_id, amount)
                 )
                 new_balance = amount
@@ -473,22 +506,9 @@ async def cmd_add_credits(message: Message, bot: Bot):
                 cursor.execute("UPDATE users SET credits = credits + ? WHERE user_id = ?", (amount, target_user_id))
                 new_balance = row[0] + amount
             conn.commit()
-            
-        await message.reply(f"✅ Foydalanuvchi (ID: <code>{target_user_id}</code>) balansiga <b>{amount} ta</b> kredit qo'shildi!\n💎 Yangi balans: <b>{new_balance} ta</b>", parse_mode="HTML")
-        
-        try:
-            user_msg = (
-                "🎉 <b>Tabriklaymiz! Balansingiz to'ldirildi!</b> 🚀\n\n"
-                f"💎 Hisobingizga qo'shildi: <b>+{amount} ta video</b>\n"
-                f"📊 Jami qolgan urinishlar: <b>{new_balance} ta video</b>\n\n"
-                "✨ Endi bemalol videolaringizga professional subtitrlar qo'shishingiz mumkin!"
-            )
-            await bot.send_message(target_user_id, user_msg, parse_mode="HTML", reply_markup=get_main_keyboard())
-        except Exception as e:
-            log.warning(f"Foydalanuvchiga xabar yuborib bo'lmadi: {e}")
-
+        await message.reply(f"✅ Foydalanuvchi (ID: <code>{target_user_id}</code>) balansiga <b>{amount} ta</b> kredit qo'shildi!")
     except Exception as e:
-        await message.reply(f"❌ Xatolik yuz berdi: {e}")
+        await message.reply(f"❌ Xatolik: {e}")
 
 
 @router.message(CommandStart())
@@ -501,13 +521,13 @@ async def cmd_start(message: Message, state: FSMContext, bot: Bot):
         with sqlite3.connect(DB_FILE) as conn:
             cursor = conn.cursor()
             cursor.execute(
-                "INSERT OR IGNORE INTO users (user_id, username, credits, bot_lang, terms_accepted) VALUES (?, ?, ?, 'uz', 0)",
+                "INSERT OR IGNORE INTO users (user_id, username, credits, is_pro, bot_lang, terms_accepted) VALUES (?, ?, ?, 0, 'uz', 0)",
                 (user_id, message.from_user.username or "", INITIAL_CREDITS)
             )
             conn.commit()
-        row = (INITIAL_CREDITS, 'uz', 0)
+        row = (INITIAL_CREDITS, 'uz', 0, 0)
 
-    credits, bot_lang, terms_accepted = row
+    credits, bot_lang, terms_accepted, is_pro = row
 
     if terms_accepted == 0:
         kb = InlineKeyboardMarkup(inline_keyboard=[
@@ -547,7 +567,6 @@ async def on_terms_accept(call: CallbackQuery, bot: Bot):
         cursor = conn.cursor()
         cursor.execute("UPDATE users SET terms_accepted = 1 WHERE user_id = ?", (user_id,))
         conn.commit()
-
     try:
         await call.message.delete()
     except Exception:
@@ -589,7 +608,7 @@ async def cmd_auto_subtitr(message: Message, state: FSMContext, bot: Bot):
         "🎬 <b>Auto Subtitr tayyorlash uchun ko'rsatma:</b>\n\n"
         "1️⃣ Video formati: <b>9:16 (vertikal)</b>\n"
         "2️⃣ Maksimal hajmi: <b>50 MB gacha</b>\n"
-        "3️⃣ Sifat: Bepul versiya uchun <b>720p</b>, obunachilar va kredit egalari uchun yuqori aniqlikdagi <b>2K</b> formatda tayyorlanadi!\n\n"
+        "3️⃣ Sifat: Bepul versiya uchun <b>720p</b>, <b>1 oylik PRO tarif</b> egalari uchun esa yuqori aniqlikdagi <b>2K HD</b> formatda tayyorlanadi!\n\n"
         "👇 <i>Hozir menga mos keladigan videongizni yuboring:</i>"
     )
     await message.answer(warning_text, parse_mode="HTML")
@@ -600,76 +619,80 @@ async def cmd_subtitr_styles(message: Message):
     await message.answer("🎨 <b>Subtitrlar Komika Axis shriftida va tanlangan animatsiya uslubida</b> ishlaydi. Videongizni yuborib sozlab olishingiz mumkin!", parse_mode="HTML")
 
 
+@router.message(F.text == "💎 PRO Tarif")
+async def cmd_pro_tariff(message: Message):
+    pro_text = (
+        "💎 <b>1 Oylik PRO Tarif (Cheksiz 2K Sifat)</b>\n\n"
+        "PRO tarif imkoniyatlari:\n"
+        "✅ Barcha videolarni <b>2K HD</b> sifatda yuklab olish\n"
+        "✅ Ustuvor (navbatsiz) tezkor ishlov berish\n"
+        "✅ Komika Axis va barcha professional uslublar\n\n"
+        "💰 <b>Narxi:</b> 50,000 so'm / 1 oy\n\n"
+        "💳 <b>To'lov uchun karta raqami:</b>\n"
+        f"<code>{CARD_NUMBER}</code>\n"
+        f"👤 <b>Karta egasi:</b> {CARD_HOLDER}\n\n"
+        f"📸 To'lovni amalga oshirgach, chekni adminga yuboring:\n"
+        f"👨‍💻 <b>Admin:</b> @{ADMIN_USERNAME}"
+    )
+    await message.answer(pro_text, parse_mode="HTML")
+
+
 @router.message(F.text == "📜 Oferta")
 async def show_oferta(message: Message):
     await message.answer(OFERTA_FULL_TEXT, parse_mode="HTML")
 
 
-@router.message(F.text == "💳 Balans")
+@router.message(F.text == "💳 Balans & To'lov")
 async def cmd_balans(message: Message):
-    credits = get_user_credits(message.from_user.id)
+    user_id = message.from_user.id
+    credits = get_user_credits(user_id)
+    pro_active = is_user_pro(user_id)
     
-    if credits <= 0:
-        text = (
-            f"📊 <b>Sizning profilingiz va balansingiz:</b>\n\n"
-            f"🆔 ID: <code>{message.from_user.id}</code>\n"
-            f"💎 Qolgan urinishlar: <b>0 ta video</b>\n\n"
-            f"⚠️ <i>Sizda bepul foydalanish limiti tugadi!</i>\n"
-            f"🚀 2K sifatda subtitr qo'shishni davom ettirish uchun balansni to'ldiring:"
-        )
-    else:
-        text = (
-            f"📊 <b>Sizning profilingiz va balansingiz:</b>\n\n"
-            f"🆔 ID: <code>{message.from_user.id}</code>\n"
-            f"💎 Qolgan urinishlar: <b>{credits} ta video (2K sifat)</b>\n\n"
-            f"📌 <i>Har bir video uchun 1 ta kredit sarflanadi.</i>"
-        )
+    status_str = "💎 <b>PRO Tarif faol (2K Sifat)</b>" if pro_active else f"📊 Qolgan bepul urinishlar: <b>{credits} ta video (720p)</b>"
+    
+    text = (
+        f"📊 <b>Sizning profilingiz:</b>\n\n"
+        f"🆔 ID: <code>{user_id}</code>\n"
+        f"{status_str}\n\n"
+        f"🚀 1 oylik PRO tarif sotib olish yoki balansni to'ldirish uchun quyidagi tugmani bosing:"
+    )
     
     kb = InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="💎 Tariflarni ko'rish va to'ldirish", callback_data="show_tariffs")]
+        [InlineKeyboardButton(text="💎 1 oylik PRO Tarifni ko'rish", callback_data="show_pro_info")]
     ])
     await message.answer(text, reply_markup=kb, parse_mode="HTML")
 
 
-@router.callback_query(F.data == "show_tariffs")
-async def on_show_tariffs(call: CallbackQuery):
+@router.callback_query(F.data == "show_pro_info")
+async def on_show_pro_info(call: CallbackQuery):
     await call.answer()
-    payment_text = (
-        "💰 <b>Kreditlarni to'ldirish tariflari (2K Sifat):</b>\n\n"
-        "💎 <b>10 ta video</b> — 45,000 so'm\n"
-        "💎 <b>25 ta video</b> — 95,000 so'm\n"
-        "💎 <b>50 ta video</b> — 175,000 so'm\n\n"
+    pro_text = (
+        "💎 <b>1 Oylik PRO Tarif (Cheksiz 2K Sifat)</b>\n\n"
+        "PRO tarif imkoniyatlari:\n"
+        "✅ Barcha videolarni <b>2K HD</b> sifatda yuklab olish\n"
+        "✅ Ustuvor (navbatsiz) tezkor ishlov berish\n"
+        "✅ Komika Axis va barcha professional uslublar\n\n"
+        "💰 <b>Narxi:</b> 50,000 so'm / 1 oy\n\n"
         "💳 <b>To'lov uchun karta raqami:</b>\n"
         f"<code>{CARD_NUMBER}</code>\n"
         f"👤 <b>Karta egasi:</b> {CARD_HOLDER}\n\n"
-        f"📸 Pulni o'tkazgandan so'ng, to'lov chekini quyidagi adminga yuboring:\n"
+        f"📸 To'lovni amalga oshirgach, chekni adminga yuboring:\n"
         f"👨‍💻 <b>Admin:</b> @{ADMIN_USERNAME}"
     )
     try:
-        await call.message.edit_text(payment_text, parse_mode="HTML")
+        await call.message.edit_text(pro_text, parse_mode="HTML")
     except Exception:
         pass
 
 
 @router.message(F.text == "💰 To'lov qilish")
 async def cmd_payment(message: Message):
-    payment_text = (
-        "💰 <b>Kreditlarni to'ldirish tariflari (2K Sifat):</b>\n\n"
-        "💎 <b>10 ta video</b> — 45,000 so'm\n"
-        "💎 <b>25 ta video</b> — 95,000 so'm\n"
-        "💎 <b>50 ta video</b> — 175,000 so'm\n\n"
-        "💳 <b>To'lov uchun karta raqami:</b>\n"
-        f"<code>{CARD_NUMBER}</code>\n"
-        f"👤 <b>Karta egasi:</b> {CARD_HOLDER}\n\n"
-        f"📸 Pulni o'tkazgandan so'ng, to'lov chekini quyidagi adminga yuboring:\n"
-        f"👨‍💻 <b>Admin:</b> @{ADMIN_USERNAME}"
-    )
-    await message.answer(payment_text, parse_mode="HTML")
+    await cmd_pro_tariff(message)
 
 
 @router.message(F.text == "👨‍💻 Admin bilan bog'lanish")
 async def cmd_contact_admin(message: Message):
-    await message.answer(f"👨‍💻 Admin: @{ADMIN_USERNAME}\n📞 Tel: {ADMIN_PHONE}", parse_mode="HTML")
+    await message.answer(f"👨‍‍💻 Admin: @{ADMIN_USERNAME}\n📞 Tel: {ADMIN_PHONE}", parse_mode="HTML")
 
 
 @router.message(F.video | (F.document & F.document.mime_type.startswith("video/")))
@@ -680,12 +703,13 @@ async def on_video(message: Message, state: FSMContext, bot: Bot) -> None:
 
     user_id = message.from_user.id
     credits = get_user_credits(user_id, message.from_user.username or "")
+    pro_active = is_user_pro(user_id)
     
-    if credits <= 0:
+    if credits <= 0 and not pro_active:
         kb = InlineKeyboardMarkup(inline_keyboard=[
-            [InlineKeyboardButton(text="💎 Tariflarni ko'rish", callback_data="show_tariffs")]
+            [InlineKeyboardButton(text="💎 1 oylik PRO Tarifni olish", callback_data="show_pro_info")]
         ])
-        await message.reply("❌ <b>Balansingiz tugagan!</b>\n\nBepul foydalanish limiti tugadi. Davom etish uchun balansni to'ldiring:", reply_markup=kb, parse_mode="HTML")
+        await message.reply("❌ <b>Bepul urinishlar tugadi!</b>\n\n2K HD sifatda video yaratishni davom ettirish uchun <b>PRO Tarif</b>ga o'ting:", reply_markup=kb, parse_mode="HTML")
         return
 
     media = message.video or message.document
@@ -764,7 +788,7 @@ async def on_animation(call: CallbackQuery, state: FSMContext, bot: Bot) -> None
     await state.clear()
 
     try:
-        await call.message.edit_text("⚡ <b>Tayyorlanmoqda!</b> Video navbatga qo'yildi va qisqa fursatda ishlov beriladi...")
+        await call.message.edit_text("⚡ <b>Tayyorlanmoqda!</b> Video navbatga qo'yildi va tezkor ishlov berilmoqda...")
     except Exception:
         pass
 
