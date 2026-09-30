@@ -182,6 +182,7 @@ def generate_word_by_word_ass(words: List[Any], ass_path: Path, text_color: str,
         border_style = 1
         outline_val = 4.0 if (anim_style == "mrbeast_style" or anim_style == "smooth_tracking") else 2.0
     
+    # Shrift nomi sifatida to'g'ridan-to'g'ri Bangers ko'rsatiladi
     header = f"""[Script Info]
 ScriptType: v4.00+
 PlayResX: 1080
@@ -236,7 +237,6 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
             if duration_ms < 200:
                 duration_ms = 200
 
-            # Tanlangan animatsiya uslubiga ko'ra teglarni tanlaymiz
             if anim_style == "mrbeast_style":
                 pro_anim = r"{\an2\fad(80,150)\fscx125\fscy125\t(0,70,\fscx100\fscy100)\b0}"
             elif anim_style == "smooth_tracking":
@@ -307,7 +307,7 @@ async def process_job(bot: Bot, job: Dict[str, Any]) -> None:
         await status_msg.edit_text(
             "⚡ <b>Pro Subtitle AI ishga tushdi!</b>\n\n"
             "▓▓▓▓▓▓░░░░ 70%\n\n"
-            "✨ <i>Tanlangan uslub va Bangers shrifti ulanmoqda...</i>",
+            "✨ <i>Bangers shrifti va animatsiya ulanmoqda...</i>",
             parse_mode="HTML"
         )
 
@@ -335,6 +335,7 @@ async def process_job(bot: Bot, job: Dict[str, Any]) -> None:
             await status_msg.edit_text("❌ Videoda nutq aniqlanmadi.")
             return
 
+        # FFmpeg shrifitni aniq topishi uchun fontsdir va fontfile birgalikda beriladi
         abs_fonts_dir = str(FONTS_DIR.resolve())
         cmd_render = [
             "ffmpeg", "-y", "-i", "input.mp4",
