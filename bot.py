@@ -31,7 +31,6 @@ from elevenlabs.client import ElevenLabs
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
 log = logging.getLogger(__name__)
 
-# --- SOZLAMALAR ---
 BOT_TOKEN = "8933394511:AAGS2vZzoGop39HMYQTzn5HppFLeqvs-LEg"
 ELEVENLABS_API_KEY = "sk_2645eb8c6ab7457d5661f30bc9935e8107560bec586b14c8"
 ADMIN_ID = 7662888182
@@ -53,12 +52,6 @@ VIDEO_LANGS = {
     "uz": ("🇺🇿 O'zbekcha", "uz"),
     "ru": ("🇷🇺 Ruscha", "ru"),
     "en": ("🇬🇧 Inglizcha", "en"),
-}
-
-FONTS = {
-    "komika": ("🔥 Komika Axis", "KomikaAxis.ttf"),
-    "coolvetica": ("✨ Coolvetica", "Coolvetica.ttf"),
-    "arial": ("📌 Arial Bold", "ArialBold.ttf"),
 }
 
 COLORS = {
@@ -184,9 +177,9 @@ def rgb_to_ass(rgb: tuple) -> str:
     return f"&H00{b:02X}{g:02X}{r:02X}"
 
 
-def generate_word_by_word_ass(words: List[Any], ass_path: Path, text_color: tuple, font_size: int, font_filename: str, anim_style: str) -> int:
+def generate_word_by_word_ass(words: List[Any], ass_path: Path, text_color: tuple, font_size: int, anim_style: str) -> int:
     color_hex = rgb_to_ass(text_color)
-    font_file = (FONTS_DIR / font_filename).resolve()
+    font_file = (FONTS_DIR / "KomikaAxis.ttf").resolve()
     font_path_str = str(font_file).replace("\\", "/")
     font_tag = f"\\fn{font_path_str}"
 
@@ -198,7 +191,7 @@ ScaledBorderAndShadow: yes
 
 [V4+ Styles]
 Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding
-Style: WordStyle,CustomFont,{font_size},{color_hex},&H000000FF,&HFF000000,&H80000000,0,0,0,0,100,100,2,0,1,5.0,2.0,2,40,40,450,1
+Style: WordStyle,Komika Axis,{font_size},{color_hex},&H000000FF,&HFF000000,&H80000000,0,0,0,0,100,100,2,0,1,5.0,2.0,2,40,40,450,1
 
 [Events]
 Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
@@ -259,7 +252,6 @@ async def process_job(bot: Bot, job: Dict[str, Any]) -> None:
     user_id = job["user_id"]
     file_id = job["file_id"]
     lang = job["lang"]
-    font_file = job["font_file"]
     color = job["color"]
     font_size = job["size"]
     anim_style = job["style"]
@@ -305,7 +297,7 @@ async def process_job(bot: Bot, job: Dict[str, Any]) -> None:
         await status_msg.edit_text(
             "⚡ <b>Pro Subtitr AI ishga tushdi!</b>\n\n"
             "▓▓▓▓▓▓░░░░ 70%\n\n"
-            "✨ <i>Tanlangan shrift va animatsiyada video tayyorlanmoqda...</i>",
+            "✨ <i>Subtitrlar yuqori tezlikda render qilinmoqda...</i>",
             parse_mode="HTML"
         )
 
@@ -321,7 +313,7 @@ async def process_job(bot: Bot, job: Dict[str, Any]) -> None:
         transcription = await asyncio.to_thread(transcribe_audio)
         words = getattr(transcription, "words", []) or []
 
-        count = generate_word_by_word_ass(words, ass_path, color, font_size, font_file, anim_style)
+        count = generate_word_by_word_ass(words, ass_path, color, font_size, anim_style)
         if count == 0:
             await status_msg.edit_text("❌ Videoda nutq aniqlanmadi.")
             return
@@ -559,7 +551,7 @@ async def cmd_auto_subtitr(message: Message, bot: Bot):
 
 @router.message(F.text == "🎨 Subtitr uslublari")
 async def cmd_subtitr_styles(message: Message):
-    await message.answer("🎨 <b>Subtitrlar tanlanadigan shriftlar (Komika, Coolvetica, Arial) va 4 xil animatsiya uslubida</b> ishlaydi!", parse_mode="HTML")
+    await message.answer("🎨 <b>Subtitrlar Komika Axis shriftida va 4 xil animatsiya uslubida</b> ishlaydi!", parse_mode="HTML")
 
 
 @router.message(F.text == "📜 Oferta")
@@ -660,7 +652,6 @@ async def on_video(message: Message, state: FSMContext, bot: Bot) -> None:
         "chat_id": message.chat.id,
         "file_id": media.file_id,
         "lang": "uz",
-        "font_file": "KomikaAxis.ttf",
         "size": 85,
         "color": (255, 255, 0),
         "style": "mrbeast_style",
@@ -688,31 +679,10 @@ async def on_lang(call: CallbackQuery) -> None:
 
     job["lang"] = code
     kb = InlineKeyboardBuilder()
-    for fcode, (ftitle, _) in FONTS.items():
-        kb.button(text=ftitle, callback_data=f"font:{key}:{fcode}")
-    kb.adjust(1)
-    await call.message.edit_text("2️⃣ Shrift turini tanlang:", reply_markup=kb.as_markup())
-    await call.answer()
-
-
-@router.callback_query(F.data.startswith("font:"))
-async def on_font(call: CallbackQuery) -> None:
-    parts = call.data.split(":")
-    if len(parts) < 3:
-        await call.answer("Eskirgan so'rov.", show_alert=True)
-        return
-    _, key, fcode = parts
-    job = jobs.get(key)
-    if not job:
-        await call.answer("Eskirgan so'rov yoki vaqt o'tdi.", show_alert=True)
-        return
-
-    job["font_file"] = FONTS[fcode][1]
-    kb = InlineKeyboardBuilder()
     for skey, (title, _) in SIZES.items():
         kb.button(text=title, callback_data=f"size:{key}:{skey}")
     kb.adjust(1)
-    await call.message.edit_text("3️⃣ Subtitr o'lchamini tanlang:", reply_markup=kb.as_markup())
+    await call.message.edit_text("2️⃣ Subtitr o'lchamini tanlang:", reply_markup=kb.as_markup())
     await call.answer()
 
 
@@ -733,7 +703,7 @@ async def on_size(call: CallbackQuery) -> None:
     for cname, (title, _) in COLORS.items():
         kb.button(text=title, callback_data=f"col:{key}:{cname}")
     kb.adjust(2)
-    await call.message.edit_text("4️⃣ Subtitr rangini tanlang:", reply_markup=kb.as_markup())
+    await call.message.edit_text("3️⃣ Subtitr rangini tanlang:", reply_markup=kb.as_markup())
     await call.answer()
 
 
@@ -746,7 +716,7 @@ async def on_color(call: CallbackQuery) -> None:
     _, key, cname = parts
     job = jobs.get(key)
     if not job:
-        await call.answer("Eskirgan so'rov.", show_alert=True)
+        await call.answer("Eskirgan so'rov yoki vaqt o'tdi.", show_alert=True)
         return
 
     job["color"] = COLORS[cname][1]
@@ -754,7 +724,7 @@ async def on_color(call: CallbackQuery) -> None:
     for skey, sinfo in ANIMATION_STYLES.items():
         kb.button(text=sinfo["title"], callback_data=f"anim:{key}:{skey}")
     kb.adjust(1)
-    await call.message.edit_text("5️⃣ Animatsiya uslubini tanlang:", reply_markup=kb.as_markup())
+    await call.message.edit_text("4️⃣ Animatsiya uslubini tanlang:", reply_markup=kb.as_markup())
     await call.answer()
 
 
@@ -774,7 +744,7 @@ async def on_animation(call: CallbackQuery, bot: Bot) -> None:
 
     job["style"] = skey
     jobs.pop(key, None)
-    await call.message.edit_text("✅ Sozlamalar qabul qilindi. Tanlangan shrift va animatsiyada video tezkor tayyorlanmoqda...")
+    await call.message.edit_text("✅ Sozlamalar qabul qilindi. Komika Axis shriftida video tezkor tayyorlanmoqda...")
     asyncio.create_task(process_job(bot, job))
 
 
