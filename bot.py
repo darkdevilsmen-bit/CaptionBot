@@ -63,8 +63,8 @@ COLORS = {
 
 ANIMATION_STYLES = {
     "mrbeast_style": {
-        "title": "🟢 Smooth Text Tracking (⭐ Tavsiya etiladi)",
-        "desc": "Standard matnning silliq tarqalib kengayish effekti"
+        "title": "🟢 Continuous Smooth Tracking (⭐ Tavsiya etiladi)",
+        "desc": "So'z davomida oxirigacha sekin va silliq kengayib boruvchi uslub"
     },
     "active_bold_regular": {
         "title": "🔥 Active Bold / Regular",
@@ -213,30 +213,36 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
         f.write(header)
 
         for i, w in enumerate(cleaned_words):
-            start_fmt = format_ass_time(w["start"])
+            start_sec = w["start"]
             
             if i + 1 < len(cleaned_words):
                 next_start = cleaned_words[i + 1]["start"]
-                end_t = min(w["end"], next_start)
-                if end_t <= w["start"]:
-                    end_t = w["start"] + 0.45
+                end_sec = min(w["end"], next_start)
+                if end_sec <= start_sec:
+                    end_sec = start_sec + 0.45
             else:
-                end_t = w["end"]
+                end_sec = w["end"]
 
-            end_fmt = format_ass_time(end_t)
+            start_fmt = format_ass_time(start_sec)
+            end_fmt = format_ass_time(end_sec)
             word_text = w["word"]
 
-            # STANDART TEXTNI SILIQ TARQATISH: boshida normal (\fsp2), chiqish davomida silliq kengayib boradi (\fsp16)
+            # So'z davomiyligini millisekundga o'tkizamiz (animatsiya oxirigacha silliq davom etishi uchun)
+            duration_ms = int((end_sec - start_sec) * 1000)
+            if duration_ms < 200:
+                duration_ms = 200
+
+            # ANIMATSIYA SO'Z OXIRIGACHA CHO'ZILADI: boshidan oxirigacha sekin kengayib boradi
             if anim_style == "mrbeast_style":
-                pro_anim = r"{\an2\fad(80,150)\fsp2\t(0,180,\fsp16)\b1}"
+                pro_anim = f"{{\\an2\\fad(60,100)\\fsp2\\t(0,{duration_ms},\\fsp18)\\b1}}"
             elif anim_style == "active_bold_regular":
-                pro_anim = r"{\an2\fad(100,150)\b1}"
+                pro_anim = r"{\an2\fad(80,120)\b1}"
             elif anim_style == "active_word_box":
-                pro_anim = r"{\an2\fad(100,150)\b1}"
+                pro_anim = r"{\an2\fad(80,120)\b1}"
             elif anim_style == "word_fade_in_out":
-                pro_anim = r"{\an2\fad(300,350)\b1}"
+                pro_anim = r"{\an2\fad(250,300)\b1}"
             else:
-                pro_anim = r"{\an2\fad(120,180)\b1}"
+                pro_anim = r"{\an2\fad(100,150)\b1}"
 
             f.write(f"Dialogue: 0,{start_fmt},{end_fmt},WordStyle,,0,0,0,,{pro_anim}{word_text}\n")
             count += 1
@@ -264,7 +270,7 @@ async def process_job(bot: Bot, job: Dict[str, Any]) -> None:
 
     status_msg = await bot.send_message(
         chat_id,
-        "⚡ <b>Smooth Text Tracking AI ishga tushdi!</b>\n\n"
+        "⚡ <b>Continuous Tracking AI ishga tushdi!</b>\n\n"
         "▓░░░░░░░░░ 15%\n\n"
         "📥 <i>Video yuklanmoqda...</i>\n"
         "⏱ <i>Tez orada tayyor bo'ladi</i>",
@@ -279,7 +285,7 @@ async def process_job(bot: Bot, job: Dict[str, Any]) -> None:
         await bot.download_file(file.file_path, destination=input_video)
 
         await status_msg.edit_text(
-            "⚡ <b>Smooth Text Tracking AI ishga tushdi!</b>\n\n"
+            "⚡ <b>Continuous Tracking AI ishga tushdi!</b>\n\n"
             "▓▓▓░░░░░░░ 40%\n\n"
             "🎙 <i>Audio yuqori aniqlikda tahlil qilinmoqda...</i>",
             parse_mode="HTML"
@@ -293,9 +299,9 @@ async def process_job(bot: Bot, job: Dict[str, Any]) -> None:
         await asyncio.to_thread(subprocess.run, cmd_extract, cwd=str(work_dir), capture_output=True, text=True)
 
         await status_msg.edit_text(
-            "⚡ <b>Smooth Text Tracking AI ishga tushdi!</b>\n\n"
+            "⚡ <b>Continuous Tracking AI ishga tushdi!</b>\n\n"
             "▓▓▓▓▓▓░░░░ 70%\n\n"
-            "✨ <i>Matnni silliq tarqatish effekti qo'shilmoqda...</i>",
+            "✨ <i>Matn davomida cho'ziluvchi silliq animatsiya qo'shilmoqda...</i>",
             parse_mode="HTML"
         )
 
@@ -344,7 +350,7 @@ async def process_job(bot: Bot, job: Dict[str, Any]) -> None:
         await bot.send_video(
             chat_id,
             video=FSInputFile(str(output_video)),
-            caption=f"🔥 <b>Smooth Tracking Subtitr Tayyor!</b>\n\n💳 Balans: <b>{current_bal} ta video</b>",
+            caption=f"🔥 <b>Continuous Tracking Subtitr Tayyor!</b>\n\n💳 Balans: <b>{current_bal} ta video</b>",
             reply_markup=get_main_keyboard(),
             parse_mode="HTML"
         )
