@@ -6,7 +6,7 @@ from aiogram import Bot, Dispatcher, types
 from aiogram.filters import CommandStart
 
 # Bot tokeningizni shu yerga yozasiz (yoki Render Environment'dan o'qiydi)
-TOKEN = os.getenv("BOT_TOKEN", "8933394511:AAH...") # Kerak bo'lsa tokeningizni tirnoq ichiga yozib qo'ying
+TOKEN = os.getenv("8933394511:AAF1-V046gT-ohnnh6Z0_weaLItustLEbhs") # Kerak bo'lsa tokeningizni tirnoq ichiga yozib qo'ying
 
 bot = Bot(token=TOKEN)
 dp = Dispatcher()
