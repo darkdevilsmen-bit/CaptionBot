@@ -57,8 +57,7 @@ VIDEO_LANGS = {
 
 FONTS_LIST = {
     "komika": ("Komika Axis (MrBeast Style)", "KomikaAxis.ttf"),
-    "coolvetica": ("Coolvetica (Clean & Modern)", "Coolvetica.ttf"),
-    "arial": ("Arial Bold (Classic)", "arialbd.ttf"),
+    "coolvetica": ("Coolvetica (Clean & Modern)", "coolvetica.ttf"),
 }
 
 COLORS = {
@@ -189,7 +188,6 @@ def generate_word_by_word_ass(words: List[Any], ass_path: Path, text_color: tupl
     font_filename = FONTS_LIST.get(font_key, ("KOMIKA AXIS", "KomikaAxis.ttf"))[1]
     font_file = (FONTS_DIR / font_filename).resolve()
     
-    # Agar tanlangan shrift fayli topilmasa, zahira sifatida KomikaAxis.ttf ishlatiladi
     if not font_file.exists():
         font_file = (FONTS_DIR / "KomikaAxis.ttf").resolve()
 
@@ -307,7 +305,6 @@ async def process_job(bot: Bot, job: Dict[str, Any]) -> None:
             "audio.mp3"
         ]
         
-        # Qotib qolmasligi uchun alohida oqimda ishlatamiz
         proc = await asyncio.create_subprocess_exec(
             *cmd_extract, cwd=str(work_dir),
             stdout=asyncio.subprocess.PIPE,
@@ -344,7 +341,7 @@ async def process_job(bot: Bot, job: Dict[str, Any]) -> None:
             "ffmpeg", "-y", "-i", "input.mp4",
             "-vf", f"ass=subtitles.ass:fontsdir='{abs_fonts_dir}'",
             "-c:v", "libx264",
-            "-preset", "ultrafast",  # Tez ishlashi uchun ultrafast qilindi (qotishning oldini oladi)
+            "-preset", "ultrafast",
             "-crf", "22",
             "-pix_fmt", "yuv420p",
             "-c:a", "copy",
@@ -454,7 +451,7 @@ async def cmd_add_credits(message: Message, bot: Bot):
     
     parts = message.text.split()
     if len(parts) < 3:
-        await message.reply("⚠️️ Xato format! Ishlatilishi:\n<code>/add [user_id] [kredit_soni]</code>", parse_mode="HTML")
+        await message.reply("⚠️ Xato format! Ishlatilishi:\n<code>/add [user_id] [kredit_soni]</code>", parse_mode="HTML")
         return
     
     try:
@@ -578,7 +575,7 @@ async def cmd_auto_subtitr(message: Message, bot: Bot):
 
 @router.message(F.text == "🎨 Subtitr uslublari")
 async def cmd_subtitr_styles(message: Message):
-    await message.answer("🎨 <b>Subtitrlar tanlangan shrift va 4 xil animatsiya uslubida</b> ishlaydi. Videongizni yuborib sozlab olishingiz mumkin!", parse_mode="HTML")
+    await message.answer("🎨 <b>Subtitrlar tanlangan shrift va animatsiya uslubida</b> ishlaydi. Videongizni yuborib sozlab olishingiz mumkin!", parse_mode="HTML")
 
 
 @router.message(F.text == "📜 Oferta")
@@ -765,7 +762,7 @@ async def on_color(call: CallbackQuery) -> None:
     _, key, cname = parts
     job = jobs.get(key)
     if not job:
-        await call.answer("Eskirgan so'rov yoki vaqt o'tdi.", show_alert=True)
+        await call.answer("Eskirgan so'rov.", show_alert=True)
         return
 
     job["color"] = COLORS[cname][1]
