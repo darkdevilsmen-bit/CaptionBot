@@ -25,7 +25,6 @@ from aiogram.types import (
 from aiogram.utils.keyboard import InlineKeyboardBuilder
 from aiogram.client.session.aiohttp import AiohttpSession
 from aiogram.fsm.context import FSMContext
-from aiogram.fsm.state import State, StatesGroup
 from aiogram.fsm.storage.memory import MemoryStorage
 from elevenlabs.client import ElevenLabs
 
@@ -182,9 +181,7 @@ def generate_word_by_word_ass(words: List[Any], ass_path: Path, text_color: str,
         border_style = 1
         outline_val = 4.0 if (anim_style == "mrbeast_style" or anim_style == "smooth_tracking") else 2.0
     
-    # Shrift fayliga to'g'ridan-to'g'ri absolyut yo'l
-    font_path = str((FONTS_DIR / "Bangers.ttf").resolve()).replace("\\", "/")
-
+    # Shrift nomi aniq "Bangers" qilib belgilanadi
     header = f"""[Script Info]
 ScriptType: v4.00+
 PlayResX: 1080
@@ -239,21 +236,18 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
             if duration_ms < 200:
                 duration_ms = 200
 
-            # Har bir so'zga Bangers shriftini to'g'ridan-to'g'ri fayl yo'li orqali majburiy ulaymiz
-            font_tag = f"\\fn{font_path}"
-
             if anim_style == "mrbeast_style":
-                pro_anim = f"{{\\an2{font_tag}\\fad(80,150)\\fscx125\\fscy125\\t(0,70,\\fscx100\\fscy100)\\b0}}"
+                pro_anim = r"{\an2\fad(80,150)\fscx125\fscy125\t(0,70,\fscx100\fscy100)\b0}"
             elif anim_style == "smooth_tracking":
-                pro_anim = f"{{\\an2{font_tag}\\fad(60,100)\\fsp2\\t(0,{duration_ms},\\fsp16)\\b0}}"
+                pro_anim = f"{{\\an2\\fad(60,100)\\fsp2\\t(0,{duration_ms},\\fsp16)\\b0}}"
             elif anim_style == "active_bold_regular":
-                pro_anim = f"{{\\an2{font_tag}\\fad(80,120)\\b0}}"
+                pro_anim = r"{\an2\fad(80,120)\b0}"
             elif anim_style == "active_word_box":
-                pro_anim = f"{{\\an2{font_tag}\\fad(80,120)\\b0}}"
+                pro_anim = r"{\an2\fad(80,120)\b0}"
             elif anim_style == "word_fade_in_out":
-                pro_anim = f"{{\\an2{font_tag}\\fad(250,300)\\b0}}"
+                pro_anim = r"{\an2\fad(250,300)\b0}"
             else:
-                pro_anim = f"{{\\an2{font_tag}\\fad(100,150)\\b0}}"
+                pro_anim = r"{\an2\fad(100,150)\b0}"
 
             f.write(f"Dialogue: 0,{start_fmt},{end_fmt},WordStyle,,0,0,0,,{pro_anim}{word_text}\n")
             count += 1
@@ -340,6 +334,7 @@ async def process_job(bot: Bot, job: Dict[str, Any]) -> None:
             await status_msg.edit_text("❌ Videoda nutq aniqlanmadi.")
             return
 
+        # FFmpeg shrifitni to'g'ri o'qishi uchun fontsdir ko'rsatiladi
         abs_fonts_dir = str(FONTS_DIR.resolve())
         cmd_render = [
             "ffmpeg", "-y", "-i", "input.mp4",
@@ -717,7 +712,7 @@ async def on_style(call: CallbackQuery) -> None:
     _, key, skey = parts
     job = jobs.get(key)
     if not job:
-        await call.answer("Eskirgan so'rov.", show_alert=True)
+        await call.answer("Eskirgan so'rov yoki vaqt o'tdi.", show_alert=True)
         return
 
     job["style"] = skey
