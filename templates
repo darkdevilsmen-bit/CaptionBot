@@ -1,0 +1,133 @@
+index.html
+<!DOCTYPE html>
+<html lang="uz">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Captions Pro Mini App</title>
+    <script src="https://telegram.org/js/telegram-web-app.js"></script>
+    <style>
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background-color: #111;
+            color: #fff;
+            margin: 0;
+            padding: 20px;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+        }
+        h2 { margin-bottom: 10px; color: #f39c12; text-align: center; }
+        .card {
+            background: #222;
+            padding: 15px;
+            border-radius: 12px;
+            width: 100%;
+            max-width: 400px;
+            margin-bottom: 15px;
+            box-shadow: 0 4px 10px rgba(0,0,0,0.3);
+        }
+        label { font-size: 14px; font-weight: bold; display: block; margin-bottom: 5px; margin-top: 10px; }
+        select, input[type="file"] {
+            width: 100%;
+            padding: 10px;
+            border-radius: 8px;
+            border: 1px solid #444;
+            background: #333;
+            color: #fff;
+            box-sizing: border-box;
+        }
+        button {
+            width: 100%;
+            padding: 12px;
+            background: #f39c12;
+            color: #000;
+            border: none;
+            border-radius: 8px;
+            font-size: 16px;
+            font-weight: bold;
+            cursor: pointer;
+            margin-top: 15px;
+        }
+        button:hover { background: #d68910; }
+        #status { text-align: center; margin-top: 15px; font-weight: bold; color: #3498db; }
+    </style>
+</head>
+<body>
+
+    <h2>🎬 Captions Pro</h2>
+    <div class="card">
+        <label>1️⃣ 9:16 Videoni tanlang (Max 50MB):</label>
+        <input type="file" id="videoFile" accept="video/*">
+
+        <label>2️⃣ Tilni tanlang:</label>
+        <select id="lang">
+            <option value="uz">🇺🇿 O'zbekcha</option>
+            <option value="ru">🇷🇺 Ruscha</option>
+            <option value="en">🇬🇧 Inglizcha</option>
+        </select>
+
+        <label>3️⃣ Shrift o'lchami:</label>
+        <select id="fontSize">
+            <option value="60">📉 Kichik</option>
+            <option value="85" selected>📐 Standart</option>
+            <option value="110">📈 Katta (MrBeast)</option>
+        </select>
+
+        <label>4️⃣ Animatsiya uslubi:</label>
+        <select id="animStyle">
+            <option value="mrbeast_style">🟢 Komika Axis Pop-up Style</option>
+            <option value="smooth_tracking">✨ Smooth Text Tracking</option>
+            <option value="active_bold_regular">🔥 Active Bold / Regular</option>
+            <option value="active_word_box">⬛ Active Word Highlight (Box)</option>
+        </select>
+
+        <button onclick="uploadVideo()">⚡ Subtitr qo'shish</button>
+        <div id="status"></div>
+    </div>
+
+    <script>
+        let tg = window.Telegram.WebApp;
+        tg.expand();
+
+        async function uploadVideo() {
+            let fileInput = document.getElementById('videoFile');
+            let lang = document.getElementById('lang').value;
+            let fontSize = document.getElementById('fontSize').value;
+            let animStyle = document.getElementById('animStyle').value;
+            let statusDiv = document.getElementById('status');
+
+            if (fileInput.files.length === 0) {
+                alert("Iltimos, video tanlang!");
+                return;
+            }
+
+            let formData = new FormData();
+            formData.append("video", fileInput.files[0]);
+            formData.append("lang", lang);
+            formData.append("size", fontSize);
+            formData.append("style", animStyle);
+            formData.append("user_id", tg.initDataUnsafe?.user?.id || 7662888182);
+
+            statusDiv.innerHTML = "⏳ Video yuklanmoqda va ishlov berilmoqda...";
+
+            try {
+                let response = await fetch('/process-video', {
+                    method: 'POST',
+                    body: formData
+                });
+                let result = await response.json();
+
+                if (result.success) {
+                    statusDiv.innerHTML = "✅ Video tayyor! Bot sizga yuboradi.";
+                    setTimeout(() => tg.close(), 2000);
+                } else {
+                    statusDiv.innerHTML = "❌ Xatolik: " + result.error;
+                }
+            } catch (err) {
+                statusDiv.innerHTML = "❌ Tarmoq xatosi yuz berdi.";
+            }
+        }
+    </script>
+</body>
+</html>
