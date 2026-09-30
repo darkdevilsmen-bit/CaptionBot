@@ -10,6 +10,7 @@ import subprocess
 from pathlib import Path
 from typing import Dict, Any, List
 
+from PIL import Image, ImageDraw, ImageFont
 from aiohttp import web
 from aiogram import Bot, Dispatcher, F, Router
 from aiogram.filters import CommandStart, Command
@@ -56,9 +57,9 @@ VIDEO_LANGS = {
 }
 
 COLORS = {
-    "white":  ("⚪ 100% Oppoq (Pro)", "&H00FFFFFF"),
-    "yellow": ("🟡 Sariq (Tracking Style)", "&H0000FFFF"),
-    "green":  ("🟢 Yashil", "&H0000FF00"),
+    "white":  ("⚪ 100% Oppoq (Pro)", (255, 255, 255)),
+    "yellow": ("🟡 Sariq (Tracking Style)", (255, 255, 0)),
+    "green":  ("🟢 Yashil", (0, 255, 0)),
 }
 
 ANIMATION_STYLES = {
@@ -157,102 +158,34 @@ async def check_subscription(bot: Bot, user_id: int) -> bool:
     return False
 
 
-def format_ass_time(seconds: float) -> str:
-    hours = int(seconds // 3600)
-    mins = int((seconds % 3600) // 60)
-    secs = int(seconds % 60)
-    centis = int(round((seconds - int(seconds)) * 100))
-    if centis >= 100:
-        centis = 99
-    return f"{hours}:{mins:02d}:{secs:02d}.{centis:02d}"
+def create_word_image(text: str, text_color: tuple, font_size: int, output_path: Path):
+    font_path = FONTS_DIR / "KomikaAxis.ttf"
+    try:
+        font = ImageFont.truetype(str(font_path), font_size)
+    except Exception:
+        font = ImageFont.load_default()
 
+    canvas_width = 1080
+    canvas_height = 400
+    img = Image.new("RGBA", (canvas_width, canvas_height), (0, 0, 0, 0))
+    d = ImageDraw.Draw(img)
 
-def generate_word_by_word_ass(words: List[Any], ass_path: Path, text_color: str, anim_style: str = "mrbeast_style") -> int:
-    margin_v = 500
-    font_size = 75
-
-    if anim_style == "active_word_box":
-        border_style = 3
-        outline_val = 2.0
-    else:
-        border_style = 1
-        outline_val = 4.0
+    bbox = d.textbbox((0, 0), text, font=font)
+    text_w = bbox[2] - bbox[0]
+    text_h = bbox[3] - bbox[1]
     
-    # Shrift fayliga to'g'ridan-to'g'ri mutlaq yo'l ko'rsatamiz
-    font_file = (FONTS_DIR / "KomikaAxis.ttf").resolve()
-    font_path_str = str(font_file).replace("\\", "/")
-    # Windows/Linux da ass 'fontfile' parametrini tushunishi uchun format
-    font_tag = f"\\fn{font_path_str}"
+    x = (canvas_width - text_w) // 2
+    y = (canvas_height - text_h) // 2
 
-    header = f"""[Script Info]
-ScriptType: v4.00+
-PlayResX: 1080
-PlayResY: 1920
-ScaledBorderAndShadow: yes
+    # Qalin qora kontur (Outline)
+    outline_color = (0, 0, 0, 255)
+    for ox in range(-5, 6):
+        for oy in range(-5, 6):
+            if ox != 0 or oy != 0:
+                d.text((x + ox, y + oy), text, font=font, fill=outline_color)
 
-[V4+ Styles]
-Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding
-Style: WordStyle,Arial,{font_size},{text_color},&H000000FF,&HFF000000,&H80000000,0,0,0,0,100,100,2,0,{border_style},{outline_val},2.0,2,40,40,{margin_v},1
-
-[Events]
-Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
-"""
-    cleaned_words = []
-    for w in words:
-        raw_text = getattr(w, "text", None) or getattr(w, "word", None) or ""
-        start = float(getattr(w, "start", 0.0))
-        end = float(getattr(w, "end", start + 0.35))
-
-        clean = str(raw_text).strip().upper()
-        for ch in [".", ",", "!", "?", ":", ";", '"', "'", "-", "—", "_"]:
-            clean = clean.replace(ch, "")
-
-        if clean:
-            if (end - start) < 0.45:
-                end = start + 0.45
-            cleaned_words.append({"word": clean, "start": start, "end": end})
-
-    if not cleaned_words:
-        return 0
-
-    count = 0
-    with open(ass_path, "w", encoding="utf-8") as f:
-        f.write(header)
-
-        for i, w in enumerate(cleaned_words):
-            start_sec = w["start"]
-            
-            if i + 1 < len(cleaned_words):
-                next_start = cleaned_words[i + 1]["start"]
-                end_sec = min(w["end"], next_start)
-                if end_sec <= start_sec:
-                    end_sec = start_sec + 0.45
-            else:
-                end_sec = w["end"]
-
-            start_fmt = format_ass_time(start_sec)
-            end_fmt = format_ass_time(end_sec)
-            word_text = w["word"]
-
-            duration_ms = int((end_sec - start_sec) * 1000)
-            if duration_ms < 200:
-                duration_ms = 200
-
-            if anim_style == "mrbeast_style":
-                pro_anim = f"{{\\an2{font_tag}\\fad(80,150)\\fscx125\\fscy125\\t(0,70,\\fscx100\\fscy100)\\b0}}"
-            elif anim_style == "smooth_tracking":
-                pro_anim = f"{{\\an2{font_tag}\\fad(60,100)\\fsp2\\t(0,{duration_ms},\\fsp16)\\b0}}"
-            elif anim_style == "active_bold_regular":
-                pro_anim = f"{{\\an2{font_tag}\\fad(80,120)\\b0}}"
-            elif anim_style == "active_word_box":
-                pro_anim = f"{{\\an2{font_tag}\\fad(80,120)\\b0}}"
-            else:
-                pro_anim = f"{{\\an2{font_tag}\\fad(100,150)\\b0}}"
-
-            f.write(f"Dialogue: 0,{start_fmt},{end_fmt},WordStyle,,0,0,0,,{pro_anim}{word_text}\n")
-            count += 1
-
-    return count
+    d.text((x, y), text, font=font, fill=(*text_color, 255))
+    img.save(output_path, "PNG")
 
 
 async def process_job(bot: Bot, job: Dict[str, Any]) -> None:
@@ -261,7 +194,7 @@ async def process_job(bot: Bot, job: Dict[str, Any]) -> None:
     file_id = job["file_id"]
     lang = job["lang"]
     color = job["color"]
-    anim_style = job.get("style", "mrbeast_style")
+    font_size = 95  # Matn katta va aniq ko'rinishi uchun
     job_key = job["key"]
 
     work_dir = WORK_ROOT / job_key
@@ -269,12 +202,13 @@ async def process_job(bot: Bot, job: Dict[str, Any]) -> None:
 
     input_video = work_dir / "input.mp4"
     audio_path = work_dir / "audio.mp3"
-    ass_path = work_dir / "subtitles.ass"
     output_video = work_dir / "output.mp4"
+    images_dir = work_dir / "images"
+    images_dir.mkdir(exist_ok=True)
 
     status_msg = await bot.send_message(
         chat_id,
-        "⚡ <b>Komika Axis AI ishga tushdi!</b>\n\n"
+        "⚡ <b>Komika Axis Pro AI ishga tushdi!</b>\n\n"
         "▓░░░░░░░░░ 15%\n\n"
         "📥 <i>Video yuklanmoqda...</i>",
         parse_mode="HTML"
@@ -288,7 +222,7 @@ async def process_job(bot: Bot, job: Dict[str, Any]) -> None:
         await bot.download_file(file.file_path, destination=input_video)
 
         await status_msg.edit_text(
-            "⚡ <b>Komika Axis AI ishga tushdi!</b>\n\n"
+            "⚡ <b>Komika Axis Pro AI ishga tushdi!</b>\n\n"
             "▓▓▓░░░░░░░ 40%\n\n"
             "🎙 <i>Audio tahlil qilinmoqda...</i>",
             parse_mode="HTML"
@@ -302,9 +236,9 @@ async def process_job(bot: Bot, job: Dict[str, Any]) -> None:
         await asyncio.to_thread(subprocess.run, cmd_extract, cwd=str(work_dir), capture_output=True, text=True)
 
         await status_msg.edit_text(
-            "⚡ <b>Komika Axis AI ishga tushdi!</b>\n\n"
+            "⚡ <b>Komika Axis Pro AI ishga tushdi!</b>\n\n"
             "▓▓▓▓▓▓░░░░ 70%\n\n"
-            "✨ <i>Komika Axis shrifti ulanmoqda...</i>",
+            "✨ <i>Komika Axis shriftida matnlar tayyorlanmoqda...</i>",
             parse_mode="HTML"
         )
 
@@ -320,27 +254,65 @@ async def process_job(bot: Bot, job: Dict[str, Any]) -> None:
         transcription = await asyncio.to_thread(transcribe_audio)
         words = getattr(transcription, "words", []) or []
 
-        count = generate_word_by_word_ass(
-            words=words,
-            ass_path=ass_path,
-            text_color=color,
-            anim_style=anim_style
-        )
+        cleaned_words = []
+        for w in words:
+            raw_text = getattr(w, "text", None) or getattr(w, "word", None) or ""
+            start = float(getattr(w, "start", 0.0))
+            end = float(getattr(w, "end", start + 0.4))
+            clean = str(raw_text).strip().upper()
+            for ch in [".", ",", "!", "?", ":", ";", '"', "'", "-", "—", "_"]:
+                clean = clean.replace(ch, "")
+            if clean:
+                if (end - start) < 0.35:
+                    end = start + 0.35
+                cleaned_words.append({"word": clean, "start": start, "end": end})
 
-        if count == 0:
+        if not cleaned_words:
             await status_msg.edit_text("❌ Videoda nutq aniqlanmadi.")
             return
 
-        abs_fonts_dir = str(FONTS_DIR.resolve())
-        cmd_render = [
-            "ffmpeg", "-y", "-i", "input.mp4",
-            "-vf", f"ass=subtitles.ass:fontsdir='{abs_fonts_dir}'",
+        chunks = []
+        chunk_size = 2
+        for i in range(0, len(cleaned_words), chunk_size):
+            chunk = cleaned_words[i:i + chunk_size]
+            start_t = chunk[0]["start"]
+            end_t = chunk[-1]["end"]
+            text = " ".join([c["word"] for c in chunk])
+            chunks.append({"text": text, "start": start_t, "end": end_t})
+
+        filter_parts = ["[0:v]"]
+        last_out = "v0"
+
+        for i, ch in enumerate(chunks):
+            img_path = images_dir / f"chunk_{i}.png"
+            create_word_image(ch["text"], color, font_size, img_path)
+
+            start_t = ch["start"]
+            end_t = ch["end"]
+            next_input = f"v{i+1}"
+            
+            # Matnni videoning qoq markaziga joylashtiramiz
+            filter_parts.append(
+                f"[{last_out}][{i+1}:v] overlay=(W-w)/2:(H-h)/2:enable='between(t,{start_t},{end_t})'[{next_input}];"
+            )
+            last_out = next_input
+
+        filter_complex = "".join(filter_parts)[:-1]
+
+        cmd_render = ["ffmpeg", "-y", "-i", "input.mp4"]
+        for i in range(len(chunks)):
+            cmd_render.extend(["-i", str(images_dir / f"chunk_{i}.png")])
+
+        cmd_render.extend([
+            "-filter_complex", filter_complex,
+            "-map", f"[{last_out}]",
+            "-map", "0:a",
             "-c:v", "libx264",
             "-preset", "ultrafast",
             "-crf", "23",
             "-c:a", "copy",
             "output.mp4"
-        ]
+        ])
 
         res = await asyncio.to_thread(subprocess.run, cmd_render, cwd=str(work_dir), capture_output=True, text=True)
         if res.returncode != 0:
