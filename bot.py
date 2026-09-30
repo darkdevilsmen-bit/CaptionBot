@@ -61,7 +61,7 @@ COLORS = {
     "green":  ("🟢 Yashil", "&H0000FF00"),
 }
 
-# Shrift nomlari va ularning fayl nomlari to'liq moslandi
+# Shrift nomlari to'g'ri ichki nomlarga moslandi
 FONTS = {
     "coolvetica": {
         "title": "🖤 Coolvetica (Standart Pro)",
@@ -73,7 +73,7 @@ FONTS = {
     },
     "bangers": {
         "title": "🔥 Bangers",
-        "font_name": "Bangers-Regular"
+        "font_name": "Bangers"  # Bangers faylining ichki rasmiy nomi
     }
 }
 
@@ -347,11 +347,9 @@ async def process_job(bot: Bot, job: Dict[str, Any]) -> None:
             await status_msg.edit_text("❌ Videoda nutq aniqlanmadi.")
             return
 
-        # Absolyut yo'lni ko'rsatamiz
         fonts_dir = Path(__file__).parent / "fonts"
         fonts_dir_str = str(fonts_dir.resolve())
 
-        # FFmpeg render buyrug'i (fontsdir orqali aniq ko'rsatiladi)
         cmd_render = [
             "ffmpeg", "-y", "-i", "input.mp4",
             "-vf", f"ass=subtitles.ass:fontsdir='{fonts_dir_str}'",
@@ -496,16 +494,58 @@ async def show_oferta(message: Message):
 @router.message(F.text == "💳 Balans")
 async def cmd_balans(message: Message):
     credits = get_user_credits(message.from_user.id)
-    await message.answer(f"📊 Qolgan urinishlar: <b>{credits} ta video</b>", parse_mode="HTML")
+    
+    if credits <= 0:
+        text = (
+            f"📊 <b>Sizning profilingiz va balansingiz:</b>\n\n"
+            f"🆔 ID: <code>{message.from_user.id}</code>\n"
+            f"💎 Qolgan urinishlar: <b>0 ta video</b>\n\n"
+            f"⚠️ <i>Sizda bepul foydalanish limiti tugadi!</i>\n"
+            f"🚀 Videolarga professional subtitr qo'shishni davom ettirish uchun quyidagi tariflardan birini tanlang va balansingizni to'ldiring:"
+        )
+    else:
+        text = (
+            f"📊 <b>Sizning profilingiz va balansingiz:</b>\n\n"
+            f"🆔 ID: <code>{message.from_user.id}</code>\n"
+            f"💎 Qolgan urinishlar: <b>{credits} ta video</b>\n\n"
+            f"📌 <i>Har bir video uchun 1 ta kredit sarflanadi.</i>"
+        )
+    
+    kb = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="💎 Tariflarni ko'rish va to'ldirish", callback_data="show_tariffs")]
+    ])
+    await message.answer(text, reply_markup=kb, parse_mode="HTML")
+
+
+@router.callback_query(F.data == "show_tariffs")
+async def on_show_tariffs(call: CallbackQuery):
+    payment_text = (
+        "💰 <b>Kreditlarni to'ldirish tariflari:</b>\n\n"
+        "💎 <b>10 ta video</b> — 45,000 so'm\n"
+        "💎 <b>25 ta video</b> — 95,000 so'm\n"
+        "💎 <b>50 ta video</b> — 175,000 so'm\n\n"
+        "💳 <b>To'lov uchun karta raqami:</b>\n"
+        f"<code>{CARD_NUMBER}</code>\n"
+        f"👤 <b>Karta egasi:</b> {CARD_HOLDER}\n\n"
+        f"📸 Pulni o'tkazgandan so'ng, to'lov chekini quyidagi adminga yuboring:\n"
+        f"👨‍💻 <b>Admin:</b> @{ADMIN_USERNAME}"
+    )
+    await call.message.edit_text(payment_text, parse_mode="HTML")
+    await call.answer()
 
 
 @router.message(F.text == "💰 To'lov qilish")
 async def cmd_payment(message: Message):
     payment_text = (
-        f"💰 <b>To'lov uchun karta:</b>\n"
+        "💰 <b>Kreditlarni to'ldirish tariflari:</b>\n\n"
+        "💎 <b>10 ta video</b> — 45,000 so'm\n"
+        "💎 <b>25 ta video</b> — 95,000 so'm\n"
+        "💎 <b>50 ta video</b> — 175,000 so'm\n\n"
+        "💳 <b>To'lov uchun karta raqami:</b>\n"
         f"<code>{CARD_NUMBER}</code>\n"
-        f"👤 {CARD_HOLDER}\n\n"
-        f"📸 Chekni adminga yuboring: @{ADMIN_USERNAME}"
+        f"👤 <b>Karta egasi:</b> {CARD_HOLDER}\n\n"
+        f"📸 Pulni o'tkazgandan so'ng, to'lov chekini quyidagi adminga yuboring:\n"
+        f"👨‍💻 <b>Admin:</b> @{ADMIN_USERNAME}"
     )
     await message.answer(payment_text, parse_mode="HTML")
 
@@ -526,7 +566,10 @@ async def on_video(message: Message, state: FSMContext, bot: Bot) -> None:
     credits = get_user_credits(user_id, message.from_user.username or "")
     
     if credits <= 0:
-        await message.reply("❌ Balansingiz tugagan!")
+        kb = InlineKeyboardMarkup(inline_keyboard=[
+            [InlineKeyboardButton(text="💎 Tariflarni ko'rish", callback_data="show_tariffs")]
+        ])
+        await message.reply("❌ <b>Balansingiz tugagan!</b>\n\nBepul foydalanish limiti tugadi. Davom etish uchun balansni to'ldiring:", reply_markup=kb, parse_mode="HTML")
         return
 
     media = message.video or message.document
