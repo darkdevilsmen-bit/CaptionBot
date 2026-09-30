@@ -61,18 +61,19 @@ COLORS = {
     "green":  ("🟢 Yashil", "&H0000FF00"),
 }
 
+# Shrift nomlari sizdagi fayllarga to'liq moslandi
 FONTS = {
     "coolvetica": {
         "title": "🖤 Coolvetica (Standart Pro)",
-        "font_name": "Coolvetica"
+        "font_name": "Coolvetica Rg Cond"
     },
     "arial_black": {
         "title": "🅰️ Arial Bold (Pro)",
-        "font_name": "Arial"
+        "font_name": "Arial Bold"
     },
     "bangers": {
         "title": "🔥 Bangers",
-        "font_name": "Bangers"
+        "font_name": "Bangers-Regular"
     }
 }
 
@@ -98,6 +99,25 @@ ANIMATION_STYLES = {
 jobs: Dict[str, Dict[str, Any]] = {}
 router = Router()
 el_client = ElevenLabs(api_key=ELEVENLABS_API_KEY)
+
+
+def install_fonts_to_system():
+    """Loyiha ichidagi fonts papkasidagi shriftlarni Render tizimiga o'rnatadi"""
+    try:
+        fonts_src = Path(__file__).parent / "fonts"
+        if fonts_src.exists():
+            system_fonts_dir = Path("/root/.local/share/fonts")
+            system_fonts_dir.mkdir(parents=True, exist_ok=True)
+            
+            for font_file in fonts_src.glob("*.*"):
+                if font_file.suffix.lower() in [".ttf", ".otf"]:
+                    dest = system_fonts_dir / font_file.name
+                    shutil.copy(font_file, dest)
+                    log.info(f"Shrift tizimga o'rnatildi: {font_file.name}")
+            
+            subprocess.run(["fc-cache", "-f", "-v"], capture_output=True)
+    except Exception as e:
+        log.warning(f"Shriftlarni o'rnatishda xatolik: {e}")
 
 
 def get_main_keyboard() -> ReplyKeyboardMarkup:
@@ -289,7 +309,7 @@ async def process_job(bot: Bot, job: Dict[str, Any]) -> None:
         "⚡ <b>Pro AI ishga tushdi!</b>\n\n"
         "▓░░░░░░░░░ 15%\n\n"
         "📥 <i>Video yuklanmoqda...</i>\n"
-        "⏱ <i>Taxminan 15–20 soniya</i>",
+        "⏱ <i>Tez orada tayyor bo'ladi</i>",
         parse_mode="HTML"
     )
 
@@ -317,7 +337,7 @@ async def process_job(bot: Bot, job: Dict[str, Any]) -> None:
         await status_msg.edit_text(
             "⚡ <b>Pro AI ishga tushdi!</b>\n\n"
             "▓▓▓▓▓▓░░░░ 70%\n\n"
-            "✨ <i>Animatsiya ulanmoqda...</i>",
+            "✨ <i>Animatsiya va shriftlar ulanmoqda...</i>",
             parse_mode="HTML"
         )
 
@@ -346,15 +366,14 @@ async def process_job(bot: Bot, job: Dict[str, Any]) -> None:
             await status_msg.edit_text("❌ Videoda nutq aniqlanmadi.")
             return
 
-        # Fonts papkasining yo'lini ko'rsatamiz, shunda FFmpeg maxsus shriftlarni topadi
         fonts_dir = str(Path(__file__).parent / "fonts")
 
         cmd_render = [
             "ffmpeg", "-y", "-i", "input.mp4",
             "-vf", f"ass=subtitles.ass:fontsdir='{fonts_dir}'",
             "-c:v", "libx264",
-            "-preset", "medium",
-            "-crf", "18",
+            "-preset", "ultrafast",
+            "-crf", "23",
             "-c:a", "copy",
             "output.mp4"
         ]
@@ -387,20 +406,14 @@ async def process_job(bot: Bot, job: Dict[str, Any]) -> None:
 OFERTA_FULL_TEXT = (
     "📜 <b>OMMAVIY OFERTA VA FOYDALANISH SHARTLARI</b>\n\n"
     "<b>1. UMUMIY QOIDALAR</b>\n"
-    "1.1. Ushbu Ommaviy oferta (keyingi o'rinlarda — Oferta) foydalanuvchi va «Captions Pro» sun'iy intellekt botining ma'muriyati o'rtasidagi huquqiy munosabatlarni tartibga soladi.\n"
-    "1.2. Botdan foydalanishni boshlash, shu jumladan /start buyrug'ini bosish va «Roziman» tugmasini bosish orqali foydalanuvchi ushbu shartlarning barchasiga so'zsiz rozilik bildiradi.\n\n"
-    "<b>2. XIZMAT KO'RSATISH TARTIBI VA TEXNIK TALABLAR</b>\n"
-    "2.1. Bot foydalanuvchining yuborgan videolariga sun'iy intellekt yordamida avtomatik ravishda professional dinamik subtitrlar (animatsiyalar) qo'shib beradi.\n"
-    "2.2. Videolar <b>9:16 vertikal (1080x1920)</b> formatda va hajmi <b>50 MB dan oshmagan</b> bo'lishi shart.\n"
-    "2.3. Har bir muvaffaqiyatli ishlov berilgan video uchun foydalanuvchi balansidan 1 ta kredit (urinish) avtomatik ravishda yechiladi.\n\n"
-    "<b>3. TO'LOV, NARXLAR VA QAYTARIB BERMASLIK SHARTI</b>\n"
-    "3.1. Botda taqdim etilgan xizmatlar va kredit paketlari narxlari «To'lov qilish» bo'limida ko'rsatilgan va ma'muriyat tomonidan o'zgartirilishi mumkin.\n"
-    "3.2. Sotib olingan kreditlar va amalga oshirilgan pul o'tkazmalari hech qanday holatda ortga qaytarilmaydi.\n"
-    "3.3. To'lov faqat ko'rsatilgan rasmiy karta raqamiga amalga oshirilishi va chek tasdiqlash uchun adminga yuborilishi kerak.\n\n"
-    "<b>4. MAS'ULIYAT VA CHEGARALAR</b>\n"
-    "4.1. Ma'muriyat internet tarmog'idagi uzilishlar, Telegram serverlarining nosozliklari yoki uchinchi tomon API xizmatlari ishidagi vaqtinchalik xatolar uchun javobgar emas.\n"
-    "4.2. Foydalanuvchi mualliflik huquqini buzuvchi yoki qonunchilikka zid videolarni yuklamasligi shart.\n\n"
-    "<i>Botdan foydalanishni davom ettirish uchun pastdagi tugmani bosing:</i>"
+    "1.1. Ushbu Ommaviy oferta foydalanuvchi va «Captions Pro» sun'iy intellekt botining ma'muriyati o'rtasidagi munosabatlarni tartibga soladi.\n"
+    "1.2. Botdan foydalanishni boshlash orqali foydalanuvchi ushbu shartlarning barchasiga rozilik bildiradi.\n\n"
+    "<b>2. XIZMAT KO'RSATISH TARTIBI</b>\n"
+    "2.1. Bot yuborilgan videolarga sun'iy intellekt yordamida avtomatik ravishda dinamik subtitrlar qo'shib beradi.\n"
+    "2.2. Videolar <b>9:16 vertikal (1080x1920)</b> formatda va hajmi <b>50 MB dan oshmagan</b> bo'lishi shart.\n\n"
+    "<b>3. TO'LOV VA QAYTARIB BERMASLIK SHARTI</b>\n"
+    "3.1. Sotib olingan kreditlar hech qanday holatda ortga qaytarilmaydi.\n"
+    "3.2. To'lov faqat ko'rsatilgan karta raqamiga amalga oshirilishi shart.\n"
 )
 
 
@@ -437,8 +450,7 @@ async def cmd_start(message: Message, bot: Bot):
             [InlineKeyboardButton(text="🔄 Obunani tekshirish", callback_data="check_sub")]
         ])
         await message.answer(
-            "⚠️ <b>Botdan foydalanish uchun avval rasmiy kanalimizga a'zo bo'ling!</b>\n\n"
-            "Kanalga qo'shilgach, <b>'🔄 Obunani tekshirish'</b> tugmasini bosing:",
+            "⚠️ <b>Botdan foydalanish uchun avval rasmiy kanalimizga a'zo bo'ling!</b>",
             reply_markup=kb,
             parse_mode="HTML"
         )
@@ -446,8 +458,7 @@ async def cmd_start(message: Message, bot: Bot):
     
     await message.answer(
         f"✨ Assalomu alaykum, <b>{message.from_user.first_name}</b>!\n\n"
-        f"🚀 Ushbu bot yordamida videolaringizga professional, zamonaviy va dinamik subtitrlarni soniyalar ichida qo'shishingiz mumkin.\n\n"
-        f"🎥 Videongizni yuboring va mukammal natijaga ega bo'ling!",
+        f"🚀 Videongizni yuboring va mukammal subtitrga ega bo'ling!",
         reply_markup=get_main_keyboard(),
         parse_mode="HTML"
     )
@@ -462,29 +473,12 @@ async def on_terms_accept(call: CallbackQuery, bot: Bot):
         conn.commit()
 
     await call.message.delete()
-    
-    if not await check_subscription(bot, user_id):
-        kb = InlineKeyboardMarkup(inline_keyboard=[
-            [InlineKeyboardButton(text="📢 Kanalga a'zo bo'lish", url=f"https://t.me/{REQUIRED_CHANNEL.replace('@', '')}")],
-            [InlineKeyboardButton(text="🔄 Obunani tekshirish", callback_data="check_sub")]
-        ])
-        await call.message.answer(
-            "⚠️ <b>Botdan foydalanish uchun avval rasmiy kanalimizga a'zo bo'ling!</b>",
-            reply_markup=kb,
-            parse_mode="HTML"
-        )
-        return
-
-    await call.message.answer(
-        "✅ Shartlar muvaffaqiyatli qabul qilindi! Xush kelibsiz.",
-        reply_markup=get_main_keyboard(),
-        parse_mode="HTML"
-    )
+    await call.message.answer("✅ Shartlar qabul qilindi. Xush kelibsiz!", reply_markup=get_main_keyboard(), parse_mode="HTML")
 
 
 @router.callback_query(F.data == "terms_decline")
 async def on_terms_decline(call: CallbackQuery):
-    await call.message.edit_text("❌ Siz shartlarni rad etdingiz. Botdan foydalanish uchun /start buyrug'ini bosing va shartlarga rozilik bildiring.")
+    await call.message.edit_text("❌ Shartlar rad etildi. Qaytadan boshlash uchun /start ni bosing.")
 
 
 @router.callback_query(F.data == "check_sub")
@@ -492,12 +486,7 @@ async def on_check_sub(call: CallbackQuery, bot: Bot):
     user_id = call.from_user.id
     if await check_subscription(bot, user_id):
         await call.message.delete()
-        await call.message.answer(
-            f"✅ <b>Tabriklaymiz! Kanalga muvaffaqiyatli a'zo bo'ldingiz.</b>\n\n"
-            f"🚀 Botdan foydalanish uchun endi videongizni yuborishingiz mumkin!",
-            reply_markup=get_main_keyboard(),
-            parse_mode="HTML"
-        )
+        await call.message.answer("✅ Obuna tasdiqlandi! Videongizni yuborishingiz mumkin.", reply_markup=get_main_keyboard(), parse_mode="HTML")
     else:
         await call.answer("❌ Siz hali kanalga a'zo bo'lmadingiz!", show_alert=True)
 
@@ -505,22 +494,14 @@ async def on_check_sub(call: CallbackQuery, bot: Bot):
 @router.message(F.text == "⚡ Auto Subtitr qo'yish")
 async def cmd_auto_subtitr(message: Message, bot: Bot):
     if not await check_subscription(bot, message.from_user.id):
-        await message.answer("⚠️ Avval kanalimizga a'zo bo'ling! /start buyrug'ini bosing.")
+        await message.answer("⚠️ Avval kanalimizga a'zo bo'ling! /start ni bosing.")
         return
     await message.answer("🎬 Menga <b>9:16 vertikal videongizni</b> yuboring:", parse_mode="HTML")
 
 
 @router.message(F.text == "🎨 Subtitr uslublari")
 async def cmd_subtitr_styles(message: Message):
-    await message.answer(
-        "🎨 <b>Pro Animatsiya Uslublari (4 ta):</b>\n\n"
-        "🟢 <b>MrBeast Style</b>\n"
-        "🔥 <b>Active Bold / Regular</b>\n"
-        "⬛ <b>Active Word Highlight (Box Style)</b>\n"
-        "✨ <b>Smooth Fade In & Out</b>\n\n"
-        "<i>Videongizni yuborib ushbu uslublardan birini tanlashingiz mumkin!</i>",
-        parse_mode="HTML"
-    )
+    await message.answer("🎨 <b>Pro Animatsiya Uslublari mavjud.</b> Videongizni yuborib tanlashingiz mumkin!", parse_mode="HTML")
 
 
 @router.message(F.text == "📜 Oferta")
@@ -531,45 +512,29 @@ async def show_oferta(message: Message):
 @router.message(F.text == "💳 Balans")
 async def cmd_balans(message: Message):
     credits = get_user_credits(message.from_user.id)
-    text = (
-        f"📊 <b>Sizning profilingiz va balansingiz:</b>\n\n"
-        f"🆔 ID: <code>{message.from_user.id}</code>\n"
-        f"💎 Qolgan urinishlar (kreditlar): <b>{credits} ta video</b>\n\n"
-        f"📌 <i>Har bir video uchun 1 ta kredit sarflanadi. Kreditlar tugasa, «To'lov qilish» bo'limidan balansingizni to'ldirishingiz mumkin.</i>"
-    )
-    await message.answer(text, parse_mode="HTML")
+    await message.answer(f"📊 Qolgan urinishlar: <b>{credits} ta video</b>", parse_mode="HTML")
 
 
 @router.message(F.text == "💰 To'lov qilish")
 async def cmd_payment(message: Message):
     payment_text = (
-        "💰 <b>Kreditlarni to'ldirish narxlari:</b>\n\n"
-        "💎 <b>10 ta video</b> — 45,000 so'm\n"
-        "💎 <b>25 ta video</b> — 95,000 so'm\n"
-        "💎 <b>50 ta video</b> — 175,000 so'm\n\n"
-        "💳 <b>To'lov uchun karta raqami:</b>\n"
+        f"💰 <b>To'lov uchun karta:</b>\n"
         f"<code>{CARD_NUMBER}</code>\n"
-        f"👤 <b>Karta egasi:</b> {CARD_HOLDER}\n\n"
-        f"📸 Pulni o'tkazgandan so'ng, to'lov chekini quyidagi adminga yuboring:\n"
-        f"👨‍💻 <b>Admin:</b> @{ADMIN_USERNAME}"
+        f"👤 {CARD_HOLDER}\n\n"
+        f"📸 Chekni adminga yuboring: @{ADMIN_USERNAME}"
     )
     await message.answer(payment_text, parse_mode="HTML")
 
 
 @router.message(F.text == "👨‍💻 Admin bilan bog'lanish")
 async def cmd_contact_admin(message: Message):
-    await message.answer(
-        f"👨‍💻 <b>Bog'lanish uchun ma'lumotlar:</b>\n\n"
-        f"• Admin: @{ADMIN_USERNAME}\n"
-        f"• Telefon: {ADMIN_PHONE}",
-        parse_mode="HTML"
-    )
+    await message.answer(f"👨‍💻 Admin: @{ADMIN_USERNAME}\n📞 Tel: {ADMIN_PHONE}", parse_mode="HTML")
 
 
 @router.message(F.video | (F.document & F.document.mime_type.startswith("video/")))
 async def on_video(message: Message, state: FSMContext, bot: Bot) -> None:
     if not await check_subscription(bot, message.from_user.id):
-        await message.reply("⚠️ Avval kanalimizga a'zo bo'ling! /start buyrug'ini bosing.")
+        await message.reply("⚠️ Avval kanalimizga a'zo bo'ling!")
         return
 
     await state.clear()
@@ -577,7 +542,7 @@ async def on_video(message: Message, state: FSMContext, bot: Bot) -> None:
     credits = get_user_credits(user_id, message.from_user.username or "")
     
     if credits <= 0:
-        await message.reply("❌ Balansingiz tugagan! Videolarga subtitr qo'shish uchun balansni to'ldiring.")
+        await message.reply("❌ Balansingiz tugagan!")
         return
 
     media = message.video or message.document
@@ -615,13 +580,11 @@ async def on_lang(call: CallbackQuery) -> None:
         return
 
     job["lang"] = code
-    job["ts"] = time.time()
-
     kb = InlineKeyboardBuilder()
     for skey, sinfo in ANIMATION_STYLES.items():
         kb.button(text=sinfo["title"], callback_data=f"style:{key}:{skey}")
     kb.adjust(1)
-    await call.message.edit_text("2️⃣ Pro animatsiya uslubini tanlang:", reply_markup=kb.as_markup())
+    await call.message.edit_text("2️⃣ Animatsiya uslubini tanlang:", reply_markup=kb.as_markup())
     await call.answer()
 
 
@@ -634,8 +597,6 @@ async def on_style(call: CallbackQuery) -> None:
         return
 
     job["style"] = skey
-    job["ts"] = time.time()
-
     kb = InlineKeyboardBuilder()
     for cname, (title, _) in COLORS.items():
         kb.button(text=title, callback_data=f"col:{key}:{cname}")
@@ -653,8 +614,6 @@ async def on_color(call: CallbackQuery) -> None:
         return
 
     job["color"] = COLORS[cname][1]
-    job["ts"] = time.time()
-
     kb = InlineKeyboardBuilder()
     for fname, fdata in FONTS.items():
         kb.button(text=fdata["title"], callback_data=f"font:{key}:{fname}")
@@ -673,11 +632,10 @@ async def on_font(call: CallbackQuery, bot: Bot) -> None:
 
     job["font"] = fname
     jobs.pop(key, None)
-    await call.message.edit_text("✅ Sozlamalar qabul qilindi. Video tayyorlanmoqda...")
+    await call.message.edit_text("✅ Sozlamalar qabul qilindi. Video tezkor tayyorlanmoqda...")
     asyncio.create_task(process_job(bot, job))
 
 
-# --- RENDER PORT OCHISH UCHUN WEB SERVER ---
 async def handle(request):
     return web.Response(text="Captions Pro Bot is live and running!")
 
@@ -704,7 +662,7 @@ async def start_bot_polling():
             log.info("Captions Pro Bot ishga tushdi!")
             await dp.start_polling(bot, handle_as_tasks=True, drop_pending_updates=True)
         except Exception as e:
-            log.warning(f"Tarmoq xatosi: {e}. 3 soniyadan so'ng qayta ulanadi...")
+            log.warning(f"Tarmoq xatosi: {e}. Qayta ulanmoqda...")
             await asyncio.sleep(3)
         finally:
             if bot and bot.session:
@@ -715,13 +673,9 @@ async def start_bot_polling():
 
 
 async def main() -> None:
-    if BOT_TOKEN.startswith("BU_YERGA") or ELEVENLABS_API_KEY.startswith("BU_YERGA"):
-        print("Iltimos, tokenlarni kiriting.")
-        sys.exit(1)
-
+    install_fonts_to_system()
     init_db()
     WORK_ROOT.mkdir(parents=True, exist_ok=True)
-    
     asyncio.create_task(web_server())
     await start_bot_polling()
 
