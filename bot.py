@@ -61,7 +61,7 @@ COLORS = {
     "green":  ("🟢 Yashil", "&H0000FF00"),
 }
 
-# Shrift nomlari xatolarsiz aniq moslandi
+# Shrift nomlari to'g'ri ichki nomlarga moslandi
 FONTS = {
     "coolvetica": {
         "title": "🖤 Coolvetica (Standart Pro)",
@@ -223,7 +223,6 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
             clean = clean.replace(ch, "")
 
         if clean:
-            # So'zlar juda tez o'tib ketmasligi uchun minimal vaqtni 0.35 sekundga uzaytiramiz (o'qishga ulgurish uchun)
             if (end - start) < 0.35:
                 end = start + 0.35
             cleaned_words.append({"word": clean, "start": start, "end": end})
@@ -398,6 +397,55 @@ OFERTA_FULL_TEXT = (
     "3.1. Sotib olingan kreditlar hech qanday holatda ortga qaytarilmaydi.\n"
     "3.2. To'lov faqat ko'rsatilgan karta raqamiga amalga oshirilishi shart.\n"
 )
+
+
+@router.message(Command("add"))
+async def cmd_add_credits(message: Message, bot: Bot):
+    if message.from_user.id != ADMIN_ID:
+        return
+    
+    parts = message.text.split()
+    if len(parts) < 3:
+        await message.reply("⚠️ Xato format! Ishlatilishi:\n<code>/add [user_id] [kredit_soni]</code>", parse_mode="HTML")
+        return
+    
+    try:
+        target_user_id = int(parts[1])
+        amount = int(parts[2])
+        
+        with sqlite3.connect(DB_FILE) as conn:
+            cursor = conn.cursor()
+            cursor.execute("SELECT credits FROM users WHERE user_id = ?", (target_user_id,))
+            row = cursor.fetchone()
+            
+            if row is None:
+                cursor.execute(
+                    "INSERT INTO users (user_id, username, credits, bot_lang, terms_accepted) VALUES (?, '', ?, 'uz', 1)",
+                    (target_user_id, amount)
+                )
+                new_balance = amount
+            else:
+                cursor.execute("UPDATE users SET credits = credits + ? WHERE user_id = ?", (amount, target_user_id))
+                new_balance = row[0] + amount
+            conn.commit()
+            
+        # Admin uchun javob
+        await message.reply(f"✅ Foydalanuvchi (ID: <code>{target_user_id}</code>) balansiga <b>{amount} ta</b> kredit qo'shildi!\n💎 Yangi balans: <b>{new_balance} ta</b>", parse_mode="HTML")
+        
+        # Foydalanuvchiga chiroyli bildirishnoma yuborish
+        try:
+            user_msg = (
+                "🎉 <b>Tabriklaymiz! Balansingiz to'ldirildi!</b> 🚀\n\n"
+                f"💎 Hisobingizga qo'shildi: <b>+{amount} ta video</b>\n"
+                f"📊 Jami qolgan urinishlar: <b>{new_balance} ta video</b>\n\n"
+                "✨ Endi bemalol videolaringizga professional subtitrlar qo'shishingiz mumkin!"
+            )
+            await bot.send_message(target_user_id, user_msg, parse_mode="HTML", reply_markup=get_main_keyboard())
+        except Exception as e:
+            log.warning(f"Foydalanuvchiga xabar yuborib bo'lmadi: {e}")
+
+    except Exception as e:
+        await message.reply(f"❌ Xatolik yuz berdi: {e}")
 
 
 @router.message(CommandStart())
