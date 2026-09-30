@@ -315,7 +315,7 @@ async def process_job(bot: Bot, job: Dict[str, Any]) -> None:
         await status_msg.edit_text(
             "⚡ <b>Pro AI Subtitr ishga tushdi!</b>\n\n"
             "▓▓▓▓▓▓░░░░ 70%\n\n"
-            "✨ <i>Tanlangan shriftda subtitrlar tayyorlanmoqda...</i>",
+            "✨ <i>ElevenLabs orqali matnga o'girilmoqda (kuting)...</i>",
             parse_mode="HTML"
         )
 
@@ -328,7 +328,15 @@ async def process_job(bot: Bot, job: Dict[str, Any]) -> None:
                     tag_audio_events=False
                 )
 
-        transcription = await asyncio.to_thread(transcribe_audio)
+        # 70% da qotib qolmasligi uchun timeout (120 sekund) qo'shildi
+        try:
+            transcription = await asyncio.wait_for(
+                asyncio.to_thread(transcribe_audio), 
+                timeout=120.0
+            )
+        except asyncio.TimeoutError:
+            raise Exception("ElevenLabs serveridan javob kelishi juda cho'zilib ketdi (Timeout).")
+
         words = getattr(transcription, "words", []) or []
 
         count = generate_word_by_word_ass(words, ass_path, color, font_size, font_key, anim_style)
@@ -644,7 +652,7 @@ async def cmd_payment(message: Message):
 
 @router.message(F.text == "👨‍💻 Admin bilan bog'lanish")
 async def cmd_contact_admin(message: Message):
-    await message.answer(f"👨‍💻 Admin: @{ADMIN_USERNAME}\n📞 Tel: {ADMIN_PHONE}", parse_mode="HTML")
+    await message.answer(f"👨‍‍💻 Admin: @{ADMIN_USERNAME}\n📞 Tel: {ADMIN_PHONE}", parse_mode="HTML")
 
 
 @router.message(F.video | (F.document & F.document.mime_type.startswith("video/")))
@@ -816,12 +824,13 @@ async def start_bot_polling():
             dp = Dispatcher(storage=MemoryStorage())
             dp.include_router(router)
             
+            # Conflict xatoligini oldini olish uchun webhooklarni to'liq tozalaymiz
             await bot.delete_webhook(drop_pending_updates=True)
             log.info("Captions Pro Bot ishga tushdi!")
             await dp.start_polling(bot, handle_as_tasks=True, drop_pending_updates=True)
         except Exception as e:
             log.warning(f"Tarmoq xatosi: {e}. Qayta ulanmoqda...")
-            await asyncio.sleep(3)
+            await asyncio.sleep(5)
         finally:
             if bot and bot.session:
                 try:
