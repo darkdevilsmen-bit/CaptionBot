@@ -5,7 +5,7 @@ from aiogram import Bot, Dispatcher, types
 from aiogram.filters import CommandStart
 
 # Tokeningizni tirnoq ichiga yozing:
-TOKEN = "8933394511:AAF1-V046gT-ohnnh6Z0_weaLItustLEbhs" 
+TOKEN = "8933394511:AAGDbBpKkvc9FWOBLR3ZZb1SMKpBbYeVxfE" 
 
 bot = Bot(token=TOKEN)
 dp = Dispatcher()
