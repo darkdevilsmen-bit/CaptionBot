@@ -61,7 +61,7 @@ COLORS = {
     "green":  ("🟢 Yashil", "&H0000FF00"),
 }
 
-# Shrift nomlari to'g'ri ichki nomlarga moslandi
+# Shrift nomlari xatolarsiz aniq moslandi
 FONTS = {
     "coolvetica": {
         "title": "🖤 Coolvetica (Standart Pro)",
@@ -73,7 +73,7 @@ FONTS = {
     },
     "bangers": {
         "title": "🔥 Bangers",
-        "font_name": "Bangers"  # Bangers faylining ichki rasmiy nomi
+        "font_name": "Bangers"
     }
 }
 
@@ -216,15 +216,16 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
     for w in words:
         raw_text = getattr(w, "text", None) or getattr(w, "word", None) or ""
         start = float(getattr(w, "start", 0.0))
-        end = float(getattr(w, "end", start + 0.20))
+        end = float(getattr(w, "end", start + 0.25))
 
         clean = str(raw_text).strip().upper()
         for ch in [".", ",", "!", "?", ":", ";", '"', "'", "-", "—", "_"]:
             clean = clean.replace(ch, "")
 
         if clean:
-            if end <= start:
-                end = start + 0.18
+            # So'zlar juda tez o'tib ketmasligi uchun minimal vaqtni 0.35 sekundga uzaytiramiz (o'qishga ulgurish uchun)
+            if (end - start) < 0.35:
+                end = start + 0.35
             cleaned_words.append({"word": clean, "start": start, "end": end})
 
     if not cleaned_words:
@@ -241,7 +242,7 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
                 next_start = cleaned_words[i + 1]["start"]
                 end_t = min(w["end"], next_start)
                 if end_t <= w["start"]:
-                    end_t = w["start"] + 0.30
+                    end_t = w["start"] + 0.35
             else:
                 end_t = w["end"]
 
@@ -249,13 +250,13 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
             word_text = w["word"]
 
             if anim_style == "mrbeast_style":
-                pro_anim = r"{\an2\fad(40,100)\fscx140\fscy140\t(0,50,\fscx100\fscy100)\b1}"
+                pro_anim = r"{\an2\fad(60,120)\fscx130\fscy130\t(0,60,\fscx100\fscy100)\b1}"
             elif anim_style == "active_bold_regular":
-                pro_anim = r"{\an2\fad(60,100)\b1}"
+                pro_anim = r"{\an2\fad(80,120)\b1}"
             elif anim_style == "active_word_box":
-                pro_anim = r"{\an2\fad(60,100)\b1}"
+                pro_anim = r"{\an2\fad(80,120)\b1}"
             elif anim_style == "word_fade_in_out":
-                pro_anim = r"{\an2\fad(200,300)\b1}"
+                pro_anim = r"{\an2\fad(250,300)\b1}"
             else:
                 pro_anim = r"{\an2\fad(100,150)\b1}"
 
@@ -304,13 +305,13 @@ async def process_job(bot: Bot, job: Dict[str, Any]) -> None:
         await status_msg.edit_text(
             "⚡ <b>Pro AI ishga tushdi!</b>\n\n"
             "▓▓▓░░░░░░░ 40%\n\n"
-            "🎙 <i>Audio tahlil qilinmoqda...</i>",
+            "🎙 <i>Audio yuqori aniqlikda tahlil qilinmoqda...</i>",
             parse_mode="HTML"
         )
 
         cmd_extract = [
             "ffmpeg", "-y", "-i", "input.mp4",
-            "-vn", "-acodec", "libmp3lame", "-ar", "16000", "-ac", "1", "-b:a", "96k",
+            "-vn", "-acodec", "libmp3lame", "-ar", "16000", "-ac", "1", "-b:a", "128k",
             "audio.mp3"
         ]
         await asyncio.to_thread(subprocess.run, cmd_extract, cwd=str(work_dir), capture_output=True, text=True)
@@ -318,7 +319,7 @@ async def process_job(bot: Bot, job: Dict[str, Any]) -> None:
         await status_msg.edit_text(
             "⚡ <b>Pro AI ishga tushdi!</b>\n\n"
             "▓▓▓▓▓▓░░░░ 70%\n\n"
-            "✨ <i>Animatsiya va shriftlar ulanmoqda...</i>",
+            "✨ <i>Maromdagi animatsiya va shriftlar ulanmoqda...</i>",
             parse_mode="HTML"
         )
 
