@@ -31,6 +31,7 @@ from elevenlabs.client import ElevenLabs
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
 log = logging.getLogger(__name__)
 
+# --- SOZLAMALAR ---
 BOT_TOKEN = "8933394511:AAGS2vZzoGop39HMYQTzn5HppFLeqvs-LEg"
 ELEVENLABS_API_KEY = "sk_2645eb8c6ab7457d5661f30bc9935e8107560bec586b14c8"
 ADMIN_ID = 7662888182
@@ -179,9 +180,7 @@ def rgb_to_ass(rgb: tuple) -> str:
 
 def generate_word_by_word_ass(words: List[Any], ass_path: Path, text_color: tuple, font_size: int, anim_style: str) -> int:
     color_hex = rgb_to_ass(text_color)
-    font_file = (FONTS_DIR / "KomikaAxis.ttf").resolve()
-    font_path_str = str(font_file).replace("\\", "/")
-    font_tag = f"\\fn{font_path_str}"
+    font_tag = f"\\fnKomika Axis"
 
     header = f"""[Script Info]
 ScriptType: v4.00+
@@ -297,7 +296,7 @@ async def process_job(bot: Bot, job: Dict[str, Any]) -> None:
         await status_msg.edit_text(
             "⚡ <b>Komika Axis Pro AI ishga tushdi!</b>\n\n"
             "▓▓▓▓▓▓░░░░ 70%\n\n"
-            "✨ <i>Subtitrlar tezkor va kichik hajmda render qilinmoqda...</i>",
+            "✨ <i>Komika Axis shriftida subtitrlar tayyorlanmoqda...</i>",
             parse_mode="HTML"
         )
 
@@ -319,7 +318,6 @@ async def process_job(bot: Bot, job: Dict[str, Any]) -> None:
             return
 
         abs_fonts_dir = str(FONTS_DIR.resolve())
-        # Hajm 50 MB dan oshmasligi uchun CRF 23 va ultrafast rejimiga o'tkazildi
         cmd_render = [
             "ffmpeg", "-y", "-i", "input.mp4",
             "-vf", f"ass=subtitles.ass:fontsdir='{abs_fonts_dir}'",
@@ -335,7 +333,6 @@ async def process_job(bot: Bot, job: Dict[str, Any]) -> None:
         if res.returncode != 0:
             raise Exception(f"FFmpeg xatosi: {res.stderr[:200]}")
 
-        # Fayl hajmini tekshirish
         if output_video.exists() and output_video.stat().st_size > MAX_VIDEO_BYTES:
             raise Exception("Tayyorlangan video hajmi 50 MB dan oshib ketdi.")
 
@@ -365,7 +362,7 @@ OFERTA_FULL_TEXT = (
     "<b>1. UMUMIY QOIDALAR</b>\n"
     "1.1. Ushbu Ommaviy oferta foydalanuvchi va «Captions Pro» sun'iy intellekt botining ma'muriyati o'rtasidagi munosabatlarni tartibga soladi.\n"
     "1.2. Botdan foydalanishni boshlash orqali foydalanuvchi ushbu shartlarning barchasiga rozilik bildiradi.\n\n"
-    "<b>2. XIZMAT KO'RSATish TARTIBI</b>\n"
+    "<b>2. XIZMAT KO'RSATISH TARTIBI</b>\n"
     "2.1. Bot yuborilgan videolarga sun'iy intellekt yordamida avtomatik ravishda dinamik subtitrlar qo'shib beradi.\n"
     "2.2. Videolar <b>9:16 vertikal (1080x1920)</b> formatda va hajmi <b>50 MB dan oshmagan</b> bo'lishi shart.\n\n"
     "<b>3. TO'LOV VA QAYTARIB BERMASLIK SHARTI</b>\n"
@@ -573,7 +570,7 @@ async def cmd_balans(message: Message):
             f"📊 <b>Sizning profilingiz va balansingiz:</b>\n\n"
             f"🆔 ID: <code>{message.from_user.id}</code>\n"
             f"💎 Qolgan urinishlar: <b>0 ta video</b>\n\n"
-            f"⚠️ <i>Sizda bepul foydalanish limiti tugadi!</i>\n"
+            f"⚠️️ <i>Sizda bepul foydalanish limiti tugadi!</i>\n"
             f"🚀 Videolarga professional subtitr qo'shishni davom ettirish uchun quyidagi tariflardan birini tanlang va balansingizni to'ldiring:"
         )
     else:
@@ -700,7 +697,7 @@ async def on_size(call: CallbackQuery) -> None:
     _, key, skey = parts
     job = jobs.get(key)
     if not job:
-        await call.answer("Eskirgan so'rov.", show_alert=True)
+        await call.answer("Eskirgan so'rov yoki vaqt o'tdi.", show_alert=True)
         return
 
     job["size"] = SIZES[skey][1]
@@ -721,7 +718,7 @@ async def on_color(call: CallbackQuery) -> None:
     _, key, cname = parts
     job = jobs.get(key)
     if not job:
-        await call.answer("Eskirgan so'rov.", show_alert=True)
+        await call.answer("Eskirgan so'rov yoki vaqt o'tdi.", show_alert=True)
         return
 
     job["color"] = COLORS[cname][1]
