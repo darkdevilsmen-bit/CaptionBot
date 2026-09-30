@@ -381,18 +381,24 @@ async def process_job(bot: Bot, job: Dict[str, Any]) -> None:
         shutil.rmtree(work_dir, ignore_errors=True)
 
 
-# --- OFERTA MATNI ---
+# --- TO'LIQ OFERTA MATNI ---
 OFERTA_FULL_TEXT = (
-    "📜 <b>OMMAVIY OFERTA VA FOYDALANISH SHARTLari</b>\n\n"
-    "1. <b>Umumiy qoidalar:</b>\n"
-    "Ushbu shartnoma botimizdan foydalanish qoidalarini belgilaydi. Botdan foydalanish orqali siz quyidagi shartlarga rozilik bildirasiz.\n\n"
-    "2. <b>Xizmat ko'rsatish tartibi:</b>\n"
-    "• Videolar 9:16 vertikal (1080x1920) formatda bo'lishi kerak.\n"
-    "• Video hajmi 50 MB dan oshmasligi lozim.\n"
-    "• Har bir muvaffaqiyatli ishlov berilgan video uchun balansingizdan 1 ta kredit yechiladi.\n\n"
-    "3. <b>To'lov va qaytarish:</b>\n"
-    "Sotib olingan kreditlar ortga qaytarilmaydi. To'lovlar faqat ko'rsatilgan karta raqamiga amalga oshiriladi va chek adminga yuboriladi.\n\n"
-    "<b>Botdan foydalanishni davom ettirish uchun pastdagi '✅ Roziman' tugmasini bosing.</b>"
+    "📜 <b>OMMAVIY OFERTA VA FOYDALANISH SHARTLARI</b>\n\n"
+    "<b>1. UMUMIY QOIDALAR</b>\n"
+    "1.1. Ushbu Ommaviy oferta (keyingi o'rinlarda — Oferta) foydalanuvchi va «Captions Pro» sun'iy intellekt botining ma'muriyati o'rtasidagi huquqiy munosabatlarni tartibga soladi.\n"
+    "1.2. Botdan foydalanishni boshlash, shu jumladan /start buyrug'ini bosish va «Roziman» tugmasini bosish orqali foydalanuvchi ushbu shartlarning barchasiga so'zsiz rozilik bildiradi.\n\n"
+    "<b>2. XIZMAT KO'RSATISH TARTIBI VA TEXNIK TALABLAR</b>\n"
+    "2.1. Bot foydalanuvchining yuborgan videolariga sun'iy intellekt yordamida avtomatik ravishda professional dinamik subtitrlar (animatsiyalar) qo'shib beradi.\n"
+    "2.2. Videolar <b>9:16 vertikal (1080x1920)</b> formatda va hajmi <b>50 MB dan oshmagan</b> bo'lishi shart.\n"
+    "2.3. Har bir muvaffaqiyatli ishlov berilgan video uchun foydalanuvchi balansidan 1 ta kredit (urinish) avtomatik ravishda yechiladi.\n\n"
+    "<b>3. TO'LOV, NARXLAR VA QAYTARIB BERMASLIK SHARTI</b>\n"
+    "3.1. Botda taqdim etilgan xizmatlar va kredit paketlari narxlari «To'lov qilish» bo'limida ko'rsatilgan va ma'muriyat tomonidan o'zgartirilishi mumkin.\n"
+    "3.2. Sotib olingan kreditlar va amalga oshirilgan pul o'tkazmalari hech qanday holatda ortga qaytarilmaydi (возврат не предусмотрен).\n"
+    "3.3. To'lov faqat ko'rsatilgan rasmiy karta raqamiga amalga oshirilishi va chek tasdiqlash uchun adminga yuborilishi kerak.\n\n"
+    "<b>4. MAS'ULIYAT VA CHEGARALAR</b>\n"
+    "4.1. Ma'muriyat internet tarmog'idagi uzilishlar, Telegram serverlarining nosozliklari yoki uchinchi tomon API xizmatlari (ElevenLabs, FFmpeg) ishidagi vaqtinchalik xatolar uchun javobgar emas.\n"
+    "4.2. Foydalanuvchi mualliflik huquqini buzuvchi yoki qonunchilikka zid videolarni yuklamasligi shart.\n\n"
+    "<i>Botdan foydalanishni davom ettirish uchun pastdagi tugmani bosing:</i>"
 )
 
 
@@ -413,7 +419,6 @@ async def cmd_start(message: Message, bot: Bot):
 
     credits, bot_lang, terms_accepted = row
 
-    # Shartlar qabul qilinmagan bo'lsa oferta chiqadi
     if terms_accepted == 0:
         kb = InlineKeyboardMarkup(inline_keyboard=[
             [
@@ -424,7 +429,6 @@ async def cmd_start(message: Message, bot: Bot):
         await message.answer(OFERTA_FULL_TEXT, reply_markup=kb, parse_mode="HTML")
         return
 
-    # Majburiy obunani tekshirish
     if not await check_subscription(bot, user_id):
         kb = InlineKeyboardMarkup(inline_keyboard=[
             [InlineKeyboardButton(text="📢 Kanalga a'zo bo'lish", url=f"https://t.me/{REQUIRED_CHANNEL.replace('@', '')}")],
@@ -470,7 +474,7 @@ async def on_terms_accept(call: CallbackQuery, bot: Bot):
         return
 
     await call.message.answer(
-        "✅ Shartlar qabul qilindi! Xush kelibsiz.",
+        "✅ Shartlar muvaffaqiyatli qabul qilindi! Xush kelibsiz.",
         reply_markup=get_main_keyboard(),
         parse_mode="HTML"
     )
@@ -529,7 +533,7 @@ async def cmd_balans(message: Message):
         f"📊 <b>Sizning profilingiz va balansingiz:</b>\n\n"
         f"🆔 ID: <code>{message.from_user.id}</code>\n"
         f"💎 Qolgan urinishlar (kreditlar): <b>{credits} ta video</b>\n\n"
-        f"📌 <i>Har bir video uchun 1 ta kredit sarflanadi. Kreditlar tugasa, to'lov bo'limidan to'ldirishingiz mumkin.</i>"
+        f"📌 <i>Har bir video uchun 1 ta kredit sarflanadi. Kreditlar tugasa, «To'lov qilish» bo'limidan balansingizni to'ldirishingiz mumkin.</i>"
     )
     await message.answer(text, parse_mode="HTML")
 
@@ -537,20 +541,20 @@ async def cmd_balans(message: Message):
 @router.message(F.text == "💰 To'lov qilish")
 async def cmd_payment(message: Message):
     payment_text = (
-        "💰 <b>Kreditlarni to'ldirish va narxlar:</b>\n\n"
-        "💎 <b>10 ta video</b> — 15,000 so'm\n"
-        "💎 <b>25 ta video</b> — 30,000 so'm\n"
-        "💎 <b>50 ta video</b> — 50,000 so'm\n\n"
-        "💳 <b>To'lov uchun karta:</b>\n"
+        "💰 <b>Kreditlarni to'ldirish narxlari:</b>\n\n"
+        "💎 <b>10 ta video</b> — 45,000 so'm\n"
+        "💎 <b>25 ta video</b> — 95,000 so'm\n"
+        "💎 <b>50 ta video</b> — 175,000 so'm\n\n"
+        "💳 <b>To'lov uchun karta raqami:</b>\n"
         f"<code>{CARD_NUMBER}</code>\n"
         f"👤 <b>Karta egasi:</b> {CARD_HOLDER}\n\n"
-        f"📸 Pulni o'tkazgandan so'ng, chekni quyidagi adminga yuboring:\n"
+        f"📸 Pulni o'tkazgandan so'ng, to'lov chekini quyidagi adminga yuboring:\n"
         f"👨‍💻 <b>Admin:</b> @{ADMIN_USERNAME}"
     )
     await message.answer(payment_text, parse_mode="HTML")
 
 
-@router.message(F.text == "👨‍💻 Admin bilan bog'lanish")
+@router.message(F.text == "👨‍‍💻 Admin bilan bog'lanish")
 async def cmd_contact_admin(message: Message):
     await message.answer(
         f"👨‍💻 <b>Bog'lanish uchun ma'lumotlar:</b>\n\n"
