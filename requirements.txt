@@ -1,0 +1,4 @@
+aiogram==3.17.0
+elevenlabs==1.52.0
+pillow==11.1.0
+aiohttp==3.11.11
