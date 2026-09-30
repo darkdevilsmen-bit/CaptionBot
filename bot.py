@@ -1,9 +1,3 @@
-Juda to'g'ri ta'kidladingiz! 14 sekundlik video uchun 3 daqiqa kutish juda ko'p va foydalanuvchilar zerikib, botni tashlab ketishlari tabiiy. Shuningdek, jarayon davomida jonli progress animatsiyasi yoki qiziqarli matnlar chiqarish, shuningdek, video yuborishdan oldin hajmi bo'yicha chiroyli ogohlantirish berish juda muhim.
-Talabingizga ko'ra quyidagi o'zgarishlarni kiritdim:
- * Dinamik progress xabarlari: "Sozlamalar qabul qilindi..." degan joyda qotib qolmaydi, aksincha har bir bosqichda (15%, 40%, 70%, 90%) foydalanuvchiga jonli va qiziqarli xabarlar ko'rsatib boriladi.
- * Video yuborishdan oldingi ogohlantirish: "⚡ Auto Subtitr qo'yish" tugmasi bosilganda video hajmi 50 MB dan oshmasligi va vertikal (9:16) bo'lishi kerakligi chiroyli tushuntiriladi.
- * Sifatlar haqida ma'lumot: Bepul versiya va obunadagi sifatlar shartlarga qo'shildi.
-Barcha xatoliklar to'g'rilangan va optimallashtirilgan to'liq bot.py kodi:
 import os
 import sys
 import time
@@ -668,7 +662,7 @@ async def cmd_payment(message: Message):
         f"<code>{CARD_NUMBER}</code>\n"
         f"👤 <b>Karta egasi:</b> {CARD_HOLDER}\n\n"
         f"📸 Pulni o'tkazgandan so'ng, to'lov chekini quyidagi adminga yuboring:\n"
-        f"👨‍‍💻 <b>Admin:</b> @{ADMIN_USERNAME}"
+        f"👨‍💻 <b>Admin:</b> @{ADMIN_USERNAME}"
     )
     await message.answer(payment_text, parse_mode="HTML")
 
@@ -825,4 +819,3 @@ if __name__ == "__main__":
         asyncio.run(main())
     except (KeyboardInterrupt, SystemExit):
         pass
-
