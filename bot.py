@@ -55,7 +55,6 @@ VIDEO_LANGS = {
     "en": ("🇬🇧 Inglizcha", "en"),
 }
 
-# Faqat Komika Axis shrifti qoldirildi
 FONTS_LIST = {
     "komika": ("Komika Axis (MrBeast Style)", "KomikaAxis.ttf"),
 }
@@ -652,7 +651,7 @@ async def cmd_payment(message: Message):
         f"<code>{CARD_NUMBER}</code>\n"
         f"👤 <b>Karta egasi:</b> {CARD_HOLDER}\n\n"
         f"📸 Pulni o'tkazgandan so'ng, to'lov chekini quyidagi adminga yuboring:\n"
-        f"👨‍‍💻 <b>Admin:</b> @{ADMIN_USERNAME}"
+        f"👨‍💻 <b>Admin:</b> @{ADMIN_USERNAME}"
     )
     await message.answer(payment_text, parse_mode="HTML")
 
