@@ -55,10 +55,6 @@ VIDEO_LANGS = {
     "en": ("🇬🇧 Inglizcha", "en"),
 }
 
-FONTS_LIST = {
-    "komika": ("Komika Axis (MrBeast Style)", "KomikaAxis.ttf"),
-}
-
 COLORS = {
     "white":  ("⚪ 100% Oppoq (Pro)", (255, 255, 255)),
     "yellow": ("🟡 Sariq (MrBeast Style)", (255, 255, 0)),
@@ -187,17 +183,10 @@ def rgb_to_ass(rgb: tuple) -> str:
     return f"&H00{b:02X}{g:02X}{r:02X}"
 
 
-def generate_word_by_word_ass(words: List[Any], ass_path: Path, text_color: tuple, font_size: int, font_key: str, anim_style: str) -> int:
+def generate_word_by_word_ass(words: List[Any], ass_path: Path, text_color: tuple, font_size: int, anim_style: str) -> int:
     color_hex = rgb_to_ass(text_color)
-    font_filename = FONTS_LIST.get(font_key, ("Komika Axis", "KomikaAxis.ttf"))[1]
-    font_file = (FONTS_DIR / font_filename).resolve()
     
-    if not font_file.exists():
-        font_file = (FONTS_DIR / "KomikaAxis.ttf").resolve()
-
-    font_path_str = str(font_file).replace("\\", "/")
-    font_tag = f"\\fn{font_path_str}"
-
+    # Komika Axis shriftini to'g'ridan-to'g'ri majburiy qo'shamiz
     header = f"""[Script Info]
 ScriptType: v4.00+
 PlayResX: 1080
@@ -206,7 +195,7 @@ ScaledBorderAndShadow: yes
 
 [V4+ Styles]
 Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding
-Style: WordStyle,Arial,{font_size},{color_hex},&H000000FF,&HFF000000,&H80000000,0,0,0,0,100,100,2,0,1,5.0,2.0,2,40,40,450,1
+Style: WordStyle,Komika Axis,{font_size},{color_hex},&H000000FF,&HFF000000,&H80000000,0,0,0,0,100,100,2,0,1,6.0,2.0,2,40,40,450,1
 
 [Events]
 Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
@@ -246,15 +235,15 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
             duration_ms = int((end_sec - start_sec) * 1000)
 
             if anim_style == "mrbeast_style":
-                pro_anim = f"{{\\an2{font_tag}\\fad(40,80)\\fscx120\\fscy120\\t(0,60,\\fscx100\\fscy100)\\b0}}"
+                pro_anim = f"{{\\an2\\fad(40,80)\\fscx120\\fscy120\\t(0,60,\\fscx100\\fscy100)\\b0}}"
             elif anim_style == "smooth_tracking":
-                pro_anim = f"{{\\an2{font_tag}\\fad(40,80)\\fsp2\\t(0,{duration_ms},\\fsp12)\\b0}}"
+                pro_anim = f"{{\\an2\\fad(40,80)\\fsp2\\t(0,{duration_ms},\\fsp12)\\b0}}"
             elif anim_style == "active_bold_regular":
-                pro_anim = f"{{\\an2{font_tag}\\fad(40,80)\\b0}}"
+                pro_anim = f"{{\\an2\\fad(40,80)\\b0}}"
             elif anim_style == "active_word_box":
-                pro_anim = f"{{\\an2{font_tag}\\fad(40,80)\\b0}}"
+                pro_anim = f"{{\\an2\\fad(40,80)\\b0}}"
             else:
-                pro_anim = f"{{\\an2{font_tag}\\fad(40,80)\\b0}}"
+                pro_anim = f"{{\\an2\\fad(40,80)\\b0}}"
 
             f.write(f"Dialogue: 0,{start_fmt},{end_fmt},WordStyle,,0,0,0,,{pro_anim}{word_text}\n")
             count += 1
@@ -265,7 +254,6 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
 async def process_job(bot: Bot, data: Dict[str, Any], chat_id: int, user_id: int) -> None:
     file_id = data.get("file_id")
     lang = data.get("lang", "uz")
-    font_key = data.get("font", "komika")
     color = data.get("color", (255, 255, 0))
     font_size = data.get("size", 85)
     anim_style = data.get("style", "mrbeast_style")
@@ -308,7 +296,6 @@ async def process_job(bot: Bot, data: Dict[str, Any], chat_id: int, user_id: int
             "audio.mp3"
         ]
         
-        log.info(f"[{job_key}] FFmpeg orqali audio ajratilmoqda...")
         proc = await asyncio.create_subprocess_exec(
             *cmd_extract, cwd=str(work_dir),
             stdout=asyncio.subprocess.PIPE,
@@ -332,7 +319,6 @@ async def process_job(bot: Bot, data: Dict[str, Any], chat_id: int, user_id: int
                     tag_audio_events=False
                 )
 
-        log.info(f"[{job_key}] ElevenLabs API ga so'rov yuborildi...")
         try:
             transcription = await asyncio.wait_for(
                 asyncio.to_thread(transcribe_audio), 
@@ -342,17 +328,17 @@ async def process_job(bot: Bot, data: Dict[str, Any], chat_id: int, user_id: int
             raise Exception("ElevenLabs serveridan javob kelishi juda cho'zilib ketdi (Timeout).")
 
         words = getattr(transcription, "words", []) or []
-        log.info(f"[{job_key}] Transkripsiya muvaffaqiyatli yakunlandi. So'zlar soni: {len(words)}")
 
-        count = generate_word_by_word_ass(words, ass_path, color, font_size, font_key, anim_style)
+        count = generate_word_by_word_ass(words, ass_path, color, font_size, anim_style)
         if count == 0:
             await status_msg.edit_text("❌ Videoda nutq aniqlanmadi.")
             return
 
         abs_fonts_dir = str(FONTS_DIR.resolve())
+        # Video o'lchamini buzmaslik uchun scale va pad filterlari qo'shildi
         cmd_render = [
             "ffmpeg", "-y", "-threads", "1", "-i", "input.mp4",
-            "-vf", f"ass=subtitles.ass:fontsdir='{abs_fonts_dir}'",
+            "-vf", f"scale=1080:1920:force_original_aspect_ratio=decrease,pad=1080:1920:(ow-iw)/2:(oh-ih)/2,ass=subtitles.ass:fontsdir='{abs_fonts_dir}'",
             "-c:v", "libx264",
             "-preset", "ultrafast",
             "-crf", "30",
@@ -377,7 +363,6 @@ async def process_job(bot: Bot, data: Dict[str, Any], chat_id: int, user_id: int
         deduct_user_credit(user_id)
         current_bal = get_user_credits(user_id)
 
-        log.info(f"[{job_key}] Video tayyor, foydalanuvchiga yuborilmoqda...")
         await status_msg.edit_text("📤 <b>Tayyor! Video yuborilmoqda...</b>", parse_mode="HTML")
         await bot.send_video(
             chat_id,
@@ -715,7 +700,7 @@ async def on_video(message: Message, state: FSMContext, bot: Bot) -> None:
 async def on_lang(call: CallbackQuery, state: FSMContext) -> None:
     await call.answer()
     code = call.data.split(":")[1]
-    await state.update_data(lang=code, font="komika")
+    await state.update_data(lang=code)
     await state.set_state(VideoProcessState.waiting_for_size)
 
     kb = InlineKeyboardBuilder()
