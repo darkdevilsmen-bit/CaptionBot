@@ -85,7 +85,7 @@ router = Router()
 el_client = ElevenLabs(api_key=ELEVENLABS_API_KEY)
 
 
-def get_main_keyword() -> ReplyKeyboardMarkup:
+def get_main_keyboard() -> ReplyKeyboardMarkup:
     keyboard = [
         [KeyboardButton(text="⚡ Auto Subtitr qo'yish")],
         [KeyboardButton(text="🎨 Subtitr uslublari"), KeyboardButton(text="💳 Balans")],
@@ -226,7 +226,7 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
             end_fmt = format_ass_time(end_t)
             word_text = w["word"]
 
-            # After Effects uslubidagi silliq harf cho'zilishi (\fsp12 dan 2 ga) va silliq pop-up (\t teglari bilan)
+            # After Effects uslubidagi silliq tracking va pop-up
             if anim_style == "mrbeast_style":
                 pro_anim = r"{\an2\fad(80,150)\fsp15\fscx120\fscy120\t(0,120,\fsp2,\fscx100,\fscy100)\b1}"
             elif anim_style == "active_bold_regular":
