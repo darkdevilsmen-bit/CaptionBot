@@ -25,7 +25,6 @@ from aiogram.types import (
 from aiogram.utils.keyboard import InlineKeyboardBuilder
 from aiogram.client.session.aiohttp import AiohttpSession
 from aiogram.fsm.context import FSMContext
-from aiogram.fsm.state import State, StatesGroup
 from aiogram.fsm.storage.memory import MemoryStorage
 from elevenlabs.client import ElevenLabs
 
@@ -179,7 +178,11 @@ def generate_word_by_word_ass(words: List[Any], ass_path: Path, text_color: str,
         border_style = 1
         outline_val = 4.0
     
-    font_path = str((FONTS_DIR / "KomikaAxis.ttf").resolve()).replace("\\", "/")
+    # Shrift fayliga to'g'ridan-to'g'ri mutlaq yo'l ko'rsatamiz
+    font_file = (FONTS_DIR / "KomikaAxis.ttf").resolve()
+    font_path_str = str(font_file).replace("\\", "/")
+    # Windows/Linux da ass 'fontfile' parametrini tushunishi uchun format
+    font_tag = f"\\fn{font_path_str}"
 
     header = f"""[Script Info]
 ScriptType: v4.00+
@@ -189,7 +192,7 @@ ScaledBorderAndShadow: yes
 
 [V4+ Styles]
 Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding
-Style: WordStyle,Komika Axis,{font_size},{text_color},&H000000FF,&HFF000000,&H80000000,0,0,0,0,100,100,2,0,{border_style},{outline_val},2.0,2,40,40,{margin_v},1
+Style: WordStyle,Arial,{font_size},{text_color},&H000000FF,&HFF000000,&H80000000,0,0,0,0,100,100,2,0,{border_style},{outline_val},2.0,2,40,40,{margin_v},1
 
 [Events]
 Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
@@ -234,8 +237,6 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
             duration_ms = int((end_sec - start_sec) * 1000)
             if duration_ms < 200:
                 duration_ms = 200
-
-            font_tag = f"\\fn{font_path}"
 
             if anim_style == "mrbeast_style":
                 pro_anim = f"{{\\an2{font_tag}\\fad(80,150)\\fscx125\\fscy125\\t(0,70,\\fscx100\\fscy100)\\b0}}"
@@ -624,7 +625,7 @@ async def cmd_payment(message: Message):
         f"<code>{CARD_NUMBER}</code>\n"
         f"👤 <b>Karta egasi:</b> {CARD_HOLDER}\n\n"
         f"📸 Pulni o'tkazgandan so'ng, to'lov chekini quyidagi adminga yuboring:\n"
-        f"👨‍‍💻 <b>Admin:</b> @{ADMIN_USERNAME}"
+        f"👨‍💻 <b>Admin:</b> @{ADMIN_USERNAME}"
     )
     await message.answer(payment_text, parse_mode="HTML")
 
@@ -705,7 +706,7 @@ async def on_style(call: CallbackQuery) -> None:
     _, key, skey = parts
     job = jobs.get(key)
     if not job:
-        await call.answer("Eskirgan so'rov.", show_alert=True)
+        await call.answer("Eskirgan so'rov yoki vaqt o'tdi.", show_alert=True)
         return
 
     job["style"] = skey
