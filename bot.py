@@ -28,7 +28,6 @@ from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
 from aiogram.fsm.storage.memory import MemoryStorage
 from elevenlabs.client import ElevenLabs
-from PIL import Image, ImageDraw, ImageFont
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
 log = logging.getLogger(__name__)
@@ -347,9 +346,12 @@ async def process_job(bot: Bot, job: Dict[str, Any]) -> None:
             await status_msg.edit_text("❌ Videoda nutq aniqlanmadi.")
             return
 
+        # Fonts papkasining yo'lini ko'rsatamiz, shunda FFmpeg maxsus shriftlarni topadi
+        fonts_dir = str(Path(__file__).parent / "fonts")
+
         cmd_render = [
             "ffmpeg", "-y", "-i", "input.mp4",
-            "-vf", "ass=subtitles.ass",
+            "-vf", f"ass=subtitles.ass:fontsdir='{fonts_dir}'",
             "-c:v", "libx264",
             "-preset", "medium",
             "-crf", "18",
@@ -387,7 +389,7 @@ OFERTA_FULL_TEXT = (
     "<b>1. UMUMIY QOIDALAR</b>\n"
     "1.1. Ushbu Ommaviy oferta (keyingi o'rinlarda — Oferta) foydalanuvchi va «Captions Pro» sun'iy intellekt botining ma'muriyati o'rtasidagi huquqiy munosabatlarni tartibga soladi.\n"
     "1.2. Botdan foydalanishni boshlash, shu jumladan /start buyrug'ini bosish va «Roziman» tugmasini bosish orqali foydalanuvchi ushbu shartlarning barchasiga so'zsiz rozilik bildiradi.\n\n"
-    "<b>2. XIZmat KO'RSATISH TARTIBI VA TEXNIK TALABLAR</b>\n"
+    "<b>2. XIZMAT KO'RSATISH TARTIBI VA TEXNIK TALABLAR</b>\n"
     "2.1. Bot foydalanuvchining yuborgan videolariga sun'iy intellekt yordamida avtomatik ravishda professional dinamik subtitrlar (animatsiyalar) qo'shib beradi.\n"
     "2.2. Videolar <b>9:16 vertikal (1080x1920)</b> formatda va hajmi <b>50 MB dan oshmagan</b> bo'lishi shart.\n"
     "2.3. Har bir muvaffaqiyatli ishlov berilgan video uchun foydalanuvchi balansidan 1 ta kredit (urinish) avtomatik ravishda yechiladi.\n\n"
