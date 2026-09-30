@@ -57,18 +57,18 @@ VIDEO_LANGS = {
 
 COLORS = {
     "white":  ("⚪ 100% Oppoq (Pro)", "&H00FFFFFF"),
-    "yellow": ("🟡 Sariq (Captions Style)", "&H0000FFFF"),
+    "yellow": ("🟡 Sariq (Tracking Highlight)", "&H0000FFFF"),
     "green":  ("🟢 Yashil", "&H0000FF00"),
 }
 
 ANIMATION_STYLES = {
     "mrbeast_style": {
-        "title": "🟢 MrBeast Style (Tavsiya etiladi ⭐)",
-        "desc": "So'zma-so'z pop-up va qalin qora konturli dinamik uslub"
+        "title": "🟢 Smooth Tracking & Pop-up (⭐ Tavsiya etiladi)",
+        "desc": "After Effects uslubidagi silliq harf cho'zilishi va pop-up"
     },
     "active_bold_regular": {
         "title": "🔥 Active Bold / Regular",
-        "desc": "Gapirilayotgan so'z qalin, qolganlari oddiy ko'rinishda"
+        "desc": "Gapirilayotgan so'z qalin va ajralib turadi"
     },
     "active_word_box": {
         "title": "⬛ Active Word Highlight (Box Style)",
@@ -85,7 +85,7 @@ router = Router()
 el_client = ElevenLabs(api_key=ELEVENLABS_API_KEY)
 
 
-def get_main_keyboard() -> ReplyKeyboardMarkup:
+def get_main_keyword() -> ReplyKeyboardMarkup:
     keyboard = [
         [KeyboardButton(text="⚡ Auto Subtitr qo'yish")],
         [KeyboardButton(text="🎨 Subtitr uslublari"), KeyboardButton(text="💳 Balans")],
@@ -108,12 +108,6 @@ def init_db():
                 joined_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             )
         """)
-        cursor.execute("PRAGMA table_info(users)")
-        columns = [col[1] for col in cursor.fetchall()]
-        if "terms_accepted" not in columns:
-            cursor.execute("ALTER TABLE users ADD COLUMN terms_accepted INTEGER DEFAULT 0")
-        if "bot_lang" not in columns:
-            cursor.execute("ALTER TABLE users ADD COLUMN bot_lang TEXT DEFAULT 'uz'")
         conn.commit()
 
 
@@ -131,7 +125,7 @@ def get_user_credits(user_id: int, username: str = "") -> int:
         row = cursor.fetchone()
         if row is None:
             cursor.execute(
-                "INSERT INTO users (user_id, username, credits, bot_lang, terms_accepted) VALUES (?, ?, ?, 'uz', 0)",
+                "INSERT OR IGNORE INTO users (user_id, username, credits, bot_lang, terms_accepted) VALUES (?, ?, ?, 'uz', 0)",
                 (user_id, username, INITIAL_CREDITS)
             )
             conn.commit()
@@ -232,8 +226,9 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
             end_fmt = format_ass_time(end_t)
             word_text = w["word"]
 
+            # After Effects uslubidagi silliq harf cho'zilishi (\fsp12 dan 2 ga) va silliq pop-up (\t teglari bilan)
             if anim_style == "mrbeast_style":
-                pro_anim = r"{\an2\fad(80,150)\fscx125\fscy125\t(0,70,\fscx100\fscy100)\b1}"
+                pro_anim = r"{\an2\fad(80,150)\fsp15\fscx120\fscy120\t(0,120,\fsp2,\fscx100,\fscy100)\b1}"
             elif anim_style == "active_bold_regular":
                 pro_anim = r"{\an2\fad(100,150)\b1}"
             elif anim_style == "active_word_box":
@@ -269,7 +264,7 @@ async def process_job(bot: Bot, job: Dict[str, Any]) -> None:
 
     status_msg = await bot.send_message(
         chat_id,
-        "⚡ <b>Pro AI ishga tushdi!</b>\n\n"
+        "⚡ <b>Smooth Tracking AI ishga tushdi!</b>\n\n"
         "▓░░░░░░░░░ 15%\n\n"
         "📥 <i>Video yuklanmoqda...</i>\n"
         "⏱ <i>Tez orada tayyor bo'ladi</i>",
@@ -284,7 +279,7 @@ async def process_job(bot: Bot, job: Dict[str, Any]) -> None:
         await bot.download_file(file.file_path, destination=input_video)
 
         await status_msg.edit_text(
-            "⚡ <b>Pro AI ishga tushdi!</b>\n\n"
+            "⚡ <b>Smooth Tracking AI ishga tushdi!</b>\n\n"
             "▓▓▓░░░░░░░ 40%\n\n"
             "🎙 <i>Audio yuqori aniqlikda tahlil qilinmoqda...</i>",
             parse_mode="HTML"
@@ -298,9 +293,9 @@ async def process_job(bot: Bot, job: Dict[str, Any]) -> None:
         await asyncio.to_thread(subprocess.run, cmd_extract, cwd=str(work_dir), capture_output=True, text=True)
 
         await status_msg.edit_text(
-            "⚡ <b>Pro AI ishga tushdi!</b>\n\n"
+            "⚡ <b>Smooth Tracking AI ishga tushdi!</b>\n\n"
             "▓▓▓▓▓▓░░░░ 70%\n\n"
-            "✨ <i>Animatsiya va professional dizayn ulanmoqda...</i>",
+            "✨ <i>After Effects uslubidagi harf cho'zilish effekti qo'shilmoqda...</i>",
             parse_mode="HTML"
         )
 
@@ -349,7 +344,7 @@ async def process_job(bot: Bot, job: Dict[str, Any]) -> None:
         await bot.send_video(
             chat_id,
             video=FSInputFile(str(output_video)),
-            caption=f"🔥 <b>Subtitr Tayyor!</b>\n\n💳 Balans: <b>{current_bal} ta video</b>",
+            caption=f"🔥 <b>Smooth Tracking Subtitr Tayyor!</b>\n\n💳 Balans: <b>{current_bal} ta video</b>",
             reply_markup=get_main_keyboard(),
             parse_mode="HTML"
         )
@@ -485,7 +480,7 @@ async def cmd_start(message: Message, bot: Bot):
         with sqlite3.connect(DB_FILE) as conn:
             cursor = conn.cursor()
             cursor.execute(
-                "INSERT INTO users (user_id, username, credits, bot_lang, terms_accepted) VALUES (?, ?, ?, 'uz', 0)",
+                "INSERT OR IGNORE INTO users (user_id, username, credits, bot_lang, terms_accepted) VALUES (?, ?, ?, 'uz', 0)",
                 (user_id, message.from_user.username or "", INITIAL_CREDITS)
             )
             conn.commit()
@@ -663,6 +658,7 @@ async def on_video(message: Message, state: FSMContext, bot: Bot) -> None:
         "lang": "uz",
         "style": "mrbeast_style",
         "color": None,
+        "font": "coolvetica",
         "size": 100,
         "ts": time.time()
     }
@@ -674,7 +670,7 @@ async def on_video(message: Message, state: FSMContext, bot: Bot) -> None:
     await message.reply("1️⃣ Tilni tanlang:", reply_markup=kb.as_markup())
 
 
-# --- CALLBACK HANDLERS (Qotib qolishni oldini olish uchun to'liq ulandi) ---
+# --- CALLBACK HANDLERS ---
 @router.callback_query(F.data.startswith("lang:"))
 async def on_lang(call: CallbackQuery) -> None:
     parts = call.data.split(":")
