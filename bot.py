@@ -10,6 +10,7 @@ import subprocess
 from pathlib import Path
 from typing import Dict, Any, List
 
+from PIL import Image, ImageDraw, ImageFont
 from aiohttp import web
 from aiogram import Bot, Dispatcher, F, Router
 from aiogram.filters import CommandStart, Command
@@ -57,27 +58,14 @@ VIDEO_LANGS = {
 
 COLORS = {
     "white":  ("⚪ 100% Oppoq (Pro)", (255, 255, 255)),
-    "yellow": ("🟡 Sariq (Tracking Style)", (255, 255, 0)),
+    "yellow": ("🟡 Sariq (MrBeast Style)", (255, 255, 0)),
     "green":  ("🟢 Yashil", (0, 255, 0)),
 }
 
-ANIMATION_STYLES = {
-    "mrbeast_style": {
-        "title": "🟢 Komika Axis Pop-up Style (⭐)",
-        "desc": "Klassik qalin pop-up va sakrab chiqish animatsiyasi"
-    },
-    "smooth_tracking": {
-        "title": "✨ Smooth Text Tracking",
-        "desc": "Harflarning silliq tarqalib va kengayib borish effekti"
-    },
-    "active_bold_regular": {
-        "title": "🔥 Active Bold / Regular",
-        "desc": "Gapirilayotgan so'z qalin va ajralib turadi"
-    },
-    "active_word_box": {
-        "title": "⬛ Active Word Highlight (Box Style)",
-        "desc": "So'z orqasida qora fonli to'rtburchak blok bo'ladi"
-    }
+SIZES = {
+    "small":  ("📉 Kichik", 55),
+    "normal": ("📐 Standart", 75),
+    "large":  ("📈 Katta (MrBeast)", 90),
 }
 
 jobs: Dict[str, Dict[str, Any]] = {}
@@ -157,12 +145,43 @@ async def check_subscription(bot: Bot, user_id: int) -> bool:
     return False
 
 
+def create_word_image(text: str, text_color: tuple, font_size: int, output_path: Path):
+    font_path = FONTS_DIR / "KomikaAxis.ttf"
+    try:
+        font = ImageFont.truetype(str(font_path), font_size)
+    except Exception:
+        font = ImageFont.load_default()
+
+    canvas_width = 1080
+    canvas_height = 300
+    img = Image.new("RGBA", (canvas_width, canvas_height), (0, 0, 0, 0))
+    d = ImageDraw.Draw(img)
+
+    bbox = d.textbbox((0, 0), text, font=font)
+    text_w = bbox[2] - bbox[0]
+    text_h = bbox[3] - bbox[1]
+    
+    x = (canvas_width - text_w) // 2
+    y = (canvas_height - text_h) // 2
+
+    # Qalin qora kontur (MrBeast / TikTok style outline)
+    outline_color = (0, 0, 0, 255)
+    for ox in range(-4, 5):
+        for oy in range(-4, 5):
+            if ox != 0 or oy != 0:
+                d.text((x + ox, y + oy), text, font=font, fill=outline_color)
+
+    d.text((x, y), text, font=font, fill=(*text_color, 255))
+    img.save(output_path, "PNG")
+
+
 async def process_job(bot: Bot, job: Dict[str, Any]) -> None:
     chat_id = job["chat_id"]
     user_id = job["user_id"]
     file_id = job["file_id"]
     lang = job["lang"]
     color = job["color"]
+    font_size = job["size"]
     job_key = job["key"]
 
     work_dir = WORK_ROOT / job_key
@@ -171,10 +190,12 @@ async def process_job(bot: Bot, job: Dict[str, Any]) -> None:
     input_video = work_dir / "input.mp4"
     audio_path = work_dir / "audio.mp3"
     output_video = work_dir / "output.mp4"
+    images_dir = work_dir / "images"
+    images_dir.mkdir(exist_ok=True)
 
     status_msg = await bot.send_message(
         chat_id,
-        "⚡ <b>Komika Axis AI ishga tushdi!</b>\n\n"
+        "⚡ <b>Komika Axis MrBeast AI ishga tushdi!</b>\n\n"
         "▓░░░░░░░░░ 15%\n\n"
         "📥 <i>Video yuklanmoqda...</i>",
         parse_mode="HTML"
@@ -188,7 +209,7 @@ async def process_job(bot: Bot, job: Dict[str, Any]) -> None:
         await bot.download_file(file.file_path, destination=input_video)
 
         await status_msg.edit_text(
-            "⚡ <b>Komika Axis AI ishga tushdi!</b>\n\n"
+            "⚡ <b>Komika Axis MrBeast AI ishga tushdi!</b>\n\n"
             "▓▓▓░░░░░░░ 40%\n\n"
             "🎙 <i>Audio tahlil qilinmoqda...</i>",
             parse_mode="HTML"
@@ -202,7 +223,7 @@ async def process_job(bot: Bot, job: Dict[str, Any]) -> None:
         await asyncio.to_thread(subprocess.run, cmd_extract, cwd=str(work_dir), capture_output=True, text=True)
 
         await status_msg.edit_text(
-            "⚡ <b>Komika Axis AI ishga tushdi!</b>\n\n"
+            "⚡ <b>Komika Axis MrBeast AI ishga tushdi!</b>\n\n"
             "▓▓▓▓▓▓░░░░ 70%\n\n"
             "✨ <i>Subtitrlar tayyorlanmoqda...</i>",
             parse_mode="HTML"
@@ -237,40 +258,48 @@ async def process_job(bot: Bot, job: Dict[str, Any]) -> None:
             await status_msg.edit_text("❌ Videoda nutq aniqlanmadi.")
             return
 
-        font_path = str(Path("KomikaAxis.ttf").resolve()).replace("\\", "/").replace(":", "\\:")
-        
-        drawtext_filters = []
-        for w in cleaned_words:
-            safe_word = w["word"].replace("'", "").replace('"', "")
-            start_t = w["start"]
-            end_t = w["end"]
+        chunks = []
+        chunk_size = 2
+        for i in range(0, len(cleaned_words), chunk_size):
+            chunk = cleaned_words[i:i + chunk_size]
+            start_t = chunk[0]["start"]
+            end_t = chunk[-1]["end"]
+            text = " ".join([c["word"] for c in chunk])
+            chunks.append({"text": text, "start": start_t, "end": end_t})
+
+        filter_parts = ["[0:v]"]
+        last_out = "v0"
+
+        for i, ch in enumerate(chunks):
+            img_path = images_dir / f"chunk_{i}.png"
+            create_word_image(ch["text"], color, font_size, img_path)
+
+            start_t = ch["start"]
+            end_t = ch["end"]
+            next_input = f"v{i+1}"
             
-            if color == (255, 255, 0):
-                box_color = "yellow"
-            elif color == (0, 255, 0):
-                box_color = "green"
-            else:
-                box_color = "white"
-
-            dt = (
-                f"drawtext=fontfile='{font_path}':text='{safe_word}':"
-                f"fontcolor={box_color}:fontsize=70:x=(w-text_w)/2:y=(h-text_h)/2:"
-                f"borderw=4:bordercolor=black:"
-                f"enable='between(t,{start_t},{end_t})'"
+            # Matnni videoning o'rtasidan biroz pastroqqa (bel qismiga, xuddi MrBeast kabi) joylashtiramiz
+            filter_parts.append(
+                f"[{last_out}][{i+1}:v] overlay=(W-w)/2:H-h-550:enable='between(t,{start_t},{end_t})'[{next_input}];"
             )
-            drawtext_filters.append(dt)
+            last_out = next_input
 
-        video_filter = ",".join(drawtext_filters)
+        filter_complex = "".join(filter_parts)[:-1]
 
-        cmd_render = [
-            "ffmpeg", "-y", "-i", "input.mp4",
-            "-vf", video_filter,
+        cmd_render = ["ffmpeg", "-y", "-i", "input.mp4"]
+        for i in range(len(chunks)):
+            cmd_render.extend(["-i", str(images_dir / f"chunk_{i}.png")])
+
+        cmd_render.extend([
+            "-filter_complex", filter_complex,
+            "-map", f"[{last_out}]",
+            "-map", "0:a",
             "-c:v", "libx264",
             "-preset", "ultrafast",
             "-crf", "23",
             "-c:a", "copy",
             "output.mp4"
-        ]
+        ])
 
         res = await asyncio.to_thread(subprocess.run, cmd_render, cwd=str(work_dir), capture_output=True, text=True)
         if res.returncode != 0:
@@ -493,7 +522,7 @@ async def cmd_auto_subtitr(message: Message, bot: Bot):
 
 @router.message(F.text == "🎨 Subtitr uslublari")
 async def cmd_subtitr_styles(message: Message):
-    await message.answer("🎨 <b>Pro Animatsiya Uslublari mavjud.</b> Videongizni yuborib tanlashingiz mumkin!", parse_mode="HTML")
+    await message.answer("🎨 <b>Subtitrlar MrBeast uslubida (Komika Axis)</b> ishlaydi. Videongizni yuborib o'lcham va rangni tanlashingiz mumkin!", parse_mode="HTML")
 
 
 @router.message(F.text == "📜 Oferta")
@@ -594,7 +623,7 @@ async def on_video(message: Message, state: FSMContext, bot: Bot) -> None:
         "chat_id": message.chat.id,
         "file_id": media.file_id,
         "lang": "uz",
-        "style": "mrbeast_style",
+        "size": 75,
         "color": (255, 255, 0),
         "ts": time.time()
     }
@@ -620,15 +649,15 @@ async def on_lang(call: CallbackQuery) -> None:
 
     job["lang"] = code
     kb = InlineKeyboardBuilder()
-    for skey, sinfo in ANIMATION_STYLES.items():
-        kb.button(text=sinfo["title"], callback_data=f"style:{key}:{skey}")
+    for skey, (title, _) in SIZES.items():
+        kb.button(text=title, callback_data=f"size:{key}:{skey}")
     kb.adjust(1)
-    await call.message.edit_text("2️⃣ Animatsiya uslubini tanlang:", reply_markup=kb.as_markup())
+    await call.message.edit_text("2️⃣ Subtitr o'lchamini tanlang:", reply_markup=kb.as_markup())
     await call.answer()
 
 
-@router.callback_query(F.data.startswith("style:"))
-async def on_style(call: CallbackQuery) -> None:
+@router.callback_query(F.data.startswith("size:"))
+async def on_size(call: CallbackQuery) -> None:
     parts = call.data.split(":")
     if len(parts) < 3:
         await call.answer("Eskirgan so'rov.", show_alert=True)
@@ -639,7 +668,7 @@ async def on_style(call: CallbackQuery) -> None:
         await call.answer("Eskirgan so'rov.", show_alert=True)
         return
 
-    job["style"] = skey
+    job["size"] = SIZES[skey][1]
     kb = InlineKeyboardBuilder()
     for cname, (title, _) in COLORS.items():
         kb.button(text=title, callback_data=f"col:{key}:{cname}")
