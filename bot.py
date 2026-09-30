@@ -57,14 +57,14 @@ VIDEO_LANGS = {
 
 COLORS = {
     "white":  ("⚪ 100% Oppoq (Pro)", "&H00FFFFFF"),
-    "yellow": ("🟡 Sariq (Tracking Highlight)", "&H0000FFFF"),
+    "yellow": ("🟡 Sariq (Smooth Tracking)", "&H0000FFFF"),
     "green":  ("🟢 Yashil", "&H0000FF00"),
 }
 
 ANIMATION_STYLES = {
     "mrbeast_style": {
-        "title": "🟢 Smooth Tracking & Expand (⭐ Tavsiya etiladi)",
-        "desc": "Harflar kengayib cho'zilgan holatda silliq chiqadi"
+        "title": "🟢 Smooth Text Tracking (⭐ Tavsiya etiladi)",
+        "desc": "Standard matnning silliq tarqalib kengayish effekti"
     },
     "active_bold_regular": {
         "title": "🔥 Active Bold / Regular",
@@ -185,7 +185,7 @@ ScaledBorderAndShadow: yes
 
 [V4+ Styles]
 Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding
-Style: WordStyle,Arial,{font_size},{text_color},&H000000FF,&HFF000000,&H80000000,1,0,0,0,100,100,10,0,{border_style},{outline_val},2.0,2,40,40,{margin_v},1
+Style: WordStyle,Arial,{font_size},{text_color},&H000000FF,&HFF000000,&H80000000,1,0,0,0,100,100,2,0,{border_style},{outline_val},2.0,2,40,40,{margin_v},1
 
 [Events]
 Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
@@ -226,9 +226,9 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
             end_fmt = format_ass_time(end_t)
             word_text = w["word"]
 
-            # Matn torayib ketmaydi: boshida kengayib (\fsp18) kelib, o'sha cho'zilgan holatda (\fsp10) qoladi
+            # STANDART TEXTNI SILIQ TARQATISH: boshida normal (\fsp2), chiqish davomida silliq kengayib boradi (\fsp16)
             if anim_style == "mrbeast_style":
-                pro_anim = r"{\an2\fad(80,150)\fsp22\t(0,140,\fsp10)\b1}"
+                pro_anim = r"{\an2\fad(80,150)\fsp2\t(0,180,\fsp16)\b1}"
             elif anim_style == "active_bold_regular":
                 pro_anim = r"{\an2\fad(100,150)\b1}"
             elif anim_style == "active_word_box":
@@ -264,7 +264,7 @@ async def process_job(bot: Bot, job: Dict[str, Any]) -> None:
 
     status_msg = await bot.send_message(
         chat_id,
-        "⚡ <b>Smooth Expand AI ishga tushdi!</b>\n\n"
+        "⚡ <b>Smooth Text Tracking AI ishga tushdi!</b>\n\n"
         "▓░░░░░░░░░ 15%\n\n"
         "📥 <i>Video yuklanmoqda...</i>\n"
         "⏱ <i>Tez orada tayyor bo'ladi</i>",
@@ -279,7 +279,7 @@ async def process_job(bot: Bot, job: Dict[str, Any]) -> None:
         await bot.download_file(file.file_path, destination=input_video)
 
         await status_msg.edit_text(
-            "⚡ <b>Smooth Expand AI ishga tushdi!</b>\n\n"
+            "⚡ <b>Smooth Text Tracking AI ishga tushdi!</b>\n\n"
             "▓▓▓░░░░░░░ 40%\n\n"
             "🎙 <i>Audio yuqori aniqlikda tahlil qilinmoqda...</i>",
             parse_mode="HTML"
@@ -293,9 +293,9 @@ async def process_job(bot: Bot, job: Dict[str, Any]) -> None:
         await asyncio.to_thread(subprocess.run, cmd_extract, cwd=str(work_dir), capture_output=True, text=True)
 
         await status_msg.edit_text(
-            "⚡ <b>Smooth Expand AI ishga tushdi!</b>\n\n"
+            "⚡ <b>Smooth Text Tracking AI ishga tushdi!</b>\n\n"
             "▓▓▓▓▓▓░░░░ 70%\n\n"
-            "✨ <i>Harflarning cho'zilish effekti qo'shilmoqda...</i>",
+            "✨ <i>Matnni silliq tarqatish effekti qo'shilmoqda...</i>",
             parse_mode="HTML"
         )
 
@@ -344,7 +344,7 @@ async def process_job(bot: Bot, job: Dict[str, Any]) -> None:
         await bot.send_video(
             chat_id,
             video=FSInputFile(str(output_video)),
-            caption=f"🔥 <b>Smooth Expand Subtitr Tayyor!</b>\n\n💳 Balans: <b>{current_bal} ta video</b>",
+            caption=f"🔥 <b>Smooth Tracking Subtitr Tayyor!</b>\n\n💳 Balans: <b>{current_bal} ta video</b>",
             reply_markup=get_main_keyboard(),
             parse_mode="HTML"
         )
