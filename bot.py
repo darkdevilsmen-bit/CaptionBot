@@ -286,6 +286,7 @@ async def process_job(bot: Bot, job: Dict[str, Any]) -> None:
     )
 
     try:
+        log.info(f"[{job_key}] Telegramdan video yuklab olinmoqda...")
         file = await bot.get_file(file_id)
         if not file.file_path:
             raise Exception("Telegram video yo'lini bermadi.")
@@ -295,7 +296,7 @@ async def process_job(bot: Bot, job: Dict[str, Any]) -> None:
         await status_msg.edit_text(
             "⚡ <b>Pro AI Subtitr ishga tushdi!</b>\n\n"
             "▓▓▓░░░░░░░ 40%\n\n"
-            "🎙 <i>Audio tahlil qilinmoqda...</i>",
+            "🎙 <i>Audio ajratib olinmoqda...</i>",
             parse_mode="HTML"
         )
 
@@ -305,6 +306,7 @@ async def process_job(bot: Bot, job: Dict[str, Any]) -> None:
             "audio.mp3"
         ]
         
+        log.info(f"[{job_key}] FFmpeg orqali audio ajratilmoqda...")
         proc = await asyncio.create_subprocess_exec(
             *cmd_extract, cwd=str(work_dir),
             stdout=asyncio.subprocess.PIPE,
@@ -315,7 +317,7 @@ async def process_job(bot: Bot, job: Dict[str, Any]) -> None:
         await status_msg.edit_text(
             "⚡ <b>Pro AI Subtitr ishga tushdi!</b>\n\n"
             "▓▓▓▓▓▓░░░░ 70%\n\n"
-            "✨ <i>ElevenLabs orqali matnga o'girilmoqda (kuting)...</i>",
+            "✨ <i>ElevenLabs orqali matnga o'girilmoqda...</i>",
             parse_mode="HTML"
         )
 
@@ -328,7 +330,7 @@ async def process_job(bot: Bot, job: Dict[str, Any]) -> None:
                     tag_audio_events=False
                 )
 
-        # 70% da qotib qolmasligi uchun timeout (120 sekund) qo'shildi
+        log.info(f"[{job_key}] ElevenLabs API ga so'rov yuborildi...")
         try:
             transcription = await asyncio.wait_for(
                 asyncio.to_thread(transcribe_audio), 
@@ -338,6 +340,7 @@ async def process_job(bot: Bot, job: Dict[str, Any]) -> None:
             raise Exception("ElevenLabs serveridan javob kelishi juda cho'zilib ketdi (Timeout).")
 
         words = getattr(transcription, "words", []) or []
+        log.info(f"[{job_key}] Transkripsiya muvaffaqiyatli yakunlandi. So'zlar soni: {len(words)}")
 
         count = generate_word_by_word_ass(words, ass_path, color, font_size, font_key, anim_style)
         if count == 0:
@@ -356,6 +359,7 @@ async def process_job(bot: Bot, job: Dict[str, Any]) -> None:
             "output.mp4"
         ]
 
+        log.info(f"[{job_key}] FFmpeg video render qilishni boshladi...")
         proc_render = await asyncio.create_subprocess_exec(
             *cmd_render, cwd=str(work_dir),
             stdout=asyncio.subprocess.PIPE,
@@ -364,11 +368,14 @@ async def process_job(bot: Bot, job: Dict[str, Any]) -> None:
         stdout, stderr = await proc_render.communicate()
 
         if proc_render.returncode != 0:
-            raise Exception(f"FFmpeg xatosi: {stderr.decode()[:200]}")
+            err_msg = stderr.decode(errors="ignore")[:300]
+            log.error(f"[{job_key}] FFmpeg xatosi: {err_msg}")
+            raise Exception(f"FFmpeg xatosi: {err_msg}")
 
         deduct_user_credit(user_id)
         current_bal = get_user_credits(user_id)
 
+        log.info(f"[{job_key}] Video tayyor, foydalanuvchiga yuborilmoqda...")
         await status_msg.edit_text("📤 <b>Tayyor! Video yuborilmoqda...</b>", parse_mode="HTML")
         await bot.send_video(
             chat_id,
@@ -381,7 +388,7 @@ async def process_job(bot: Bot, job: Dict[str, Any]) -> None:
 
     except Exception as e:
         error_detail = f"{type(e).__name__}: {str(e)}"
-        log.error("Xatolik: %s", error_detail, exc_info=True)
+        log.error("Xatolik chiqdi: %s", error_detail, exc_info=True)
         await status_msg.edit_text(f"❌ Xatolik yuz berdi:\n<code>{error_detail[:350]}</code>", parse_mode="HTML")
     finally:
         shutil.rmtree(work_dir, ignore_errors=True)
@@ -652,7 +659,7 @@ async def cmd_payment(message: Message):
 
 @router.message(F.text == "👨‍💻 Admin bilan bog'lanish")
 async def cmd_contact_admin(message: Message):
-    await message.answer(f"👨‍‍💻 Admin: @{ADMIN_USERNAME}\n📞 Tel: {ADMIN_PHONE}", parse_mode="HTML")
+    await message.answer(f"👨‍💻 Admin: @{ADMIN_USERNAME}\n📞 Tel: {ADMIN_PHONE}", parse_mode="HTML")
 
 
 @router.message(F.video | (F.document & F.document.mime_type.startswith("video/")))
@@ -824,7 +831,6 @@ async def start_bot_polling():
             dp = Dispatcher(storage=MemoryStorage())
             dp.include_router(router)
             
-            # Conflict xatoligini oldini olish uchun webhooklarni to'liq tozalaymiz
             await bot.delete_webhook(drop_pending_updates=True)
             log.info("Captions Pro Bot ishga tushdi!")
             await dp.start_polling(bot, handle_as_tasks=True, drop_pending_updates=True)
