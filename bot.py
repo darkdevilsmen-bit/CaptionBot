@@ -46,6 +46,7 @@ CARD_HOLDER = "Toshpulatov Shoxrux"
 
 MAX_VIDEO_BYTES = 50 * 1024 * 1024
 WORK_ROOT = Path("temp_processing")
+FONTS_DIR = Path("fonts")
 DB_FILE = Path("database.db")
 INITIAL_CREDITS = 3
 
@@ -57,14 +58,18 @@ VIDEO_LANGS = {
 
 COLORS = {
     "white":  ("⚪ 100% Oppoq (Pro)", "&H00FFFFFF"),
-    "yellow": ("🟡 Sariq (Smooth Tracking)", "&H0000FFFF"),
+    "yellow": ("🟡 Sariq (Tracking Style)", "&H0000FFFF"),
     "green":  ("🟢 Yashil", "&H0000FF00"),
 }
 
 ANIMATION_STYLES = {
     "mrbeast_style": {
-        "title": "🟢 Continuous Smooth Tracking (⭐ Tavsiya etiladi)",
-        "desc": "So'z davomida oxirigacha sekin va silliq kengayib boruvchi uslub"
+        "title": "🟢 MrBeast Style (Pop-up ⭐)",
+        "desc": "Klassik qalin pop-up va sakrab chiqish animatsiyasi"
+    },
+    "smooth_tracking": {
+        "title": "✨ Smooth Text Tracking",
+        "desc": "Harflarning silliq tarqalib va kengayib borish effekti"
     },
     "active_bold_regular": {
         "title": "🔥 Active Bold / Regular",
@@ -175,7 +180,7 @@ def generate_word_by_word_ass(words: List[Any], ass_path: Path, text_color: str,
         outline_val = 2.0
     else:
         border_style = 1
-        outline_val = 4.0 if anim_style == "mrbeast_style" else 2.0
+        outline_val = 4.0 if (anim_style == "mrbeast_style" or anim_style == "smooth_tracking") else 2.0
     
     header = f"""[Script Info]
 ScriptType: v4.00+
@@ -185,7 +190,7 @@ ScaledBorderAndShadow: yes
 
 [V4+ Styles]
 Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding
-Style: WordStyle,Arial,{font_size},{text_color},&H000000FF,&HFF000000,&H80000000,1,0,0,0,100,100,2,0,{border_style},{outline_val},2.0,2,40,40,{margin_v},1
+Style: WordStyle,Bangers,{font_size},{text_color},&H000000FF,&HFF000000,&H80000000,0,0,0,0,100,100,2,0,{border_style},{outline_val},2.0,2,40,40,{margin_v},1
 
 [Events]
 Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
@@ -227,22 +232,23 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
             end_fmt = format_ass_time(end_sec)
             word_text = w["word"]
 
-            # So'z davomiyligini millisekundga o'tkizamiz (animatsiya oxirigacha silliq davom etishi uchun)
             duration_ms = int((end_sec - start_sec) * 1000)
             if duration_ms < 200:
                 duration_ms = 200
 
-            # ANIMATSIYA SO'Z OXIRIGACHA CHO'ZILADI: boshidan oxirigacha sekin kengayib boradi
+            # Tanlangan animatsiya uslubiga ko'ra teglarni tanlaymiz
             if anim_style == "mrbeast_style":
-                pro_anim = f"{{\\an2\\fad(60,100)\\fsp2\\t(0,{duration_ms},\\fsp18)\\b1}}"
+                pro_anim = r"{\an2\fad(80,150)\fscx125\fscy125\t(0,70,\fscx100\fscy100)\b0}"
+            elif anim_style == "smooth_tracking":
+                pro_anim = f"{{\\an2\\fad(60,100)\\fsp2\\t(0,{duration_ms},\\fsp16)\\b0}}"
             elif anim_style == "active_bold_regular":
-                pro_anim = r"{\an2\fad(80,120)\b1}"
+                pro_anim = r"{\an2\fad(80,120)\b0}"
             elif anim_style == "active_word_box":
-                pro_anim = r"{\an2\fad(80,120)\b1}"
+                pro_anim = r"{\an2\fad(80,120)\b0}"
             elif anim_style == "word_fade_in_out":
-                pro_anim = r"{\an2\fad(250,300)\b1}"
+                pro_anim = r"{\an2\fad(250,300)\b0}"
             else:
-                pro_anim = r"{\an2\fad(100,150)\b1}"
+                pro_anim = r"{\an2\fad(100,150)\b0}"
 
             f.write(f"Dialogue: 0,{start_fmt},{end_fmt},WordStyle,,0,0,0,,{pro_anim}{word_text}\n")
             count += 1
@@ -270,7 +276,7 @@ async def process_job(bot: Bot, job: Dict[str, Any]) -> None:
 
     status_msg = await bot.send_message(
         chat_id,
-        "⚡ <b>Continuous Tracking AI ishga tushdi!</b>\n\n"
+        "⚡ <b>Pro Subtitle AI ishga tushdi!</b>\n\n"
         "▓░░░░░░░░░ 15%\n\n"
         "📥 <i>Video yuklanmoqda...</i>\n"
         "⏱ <i>Tez orada tayyor bo'ladi</i>",
@@ -285,7 +291,7 @@ async def process_job(bot: Bot, job: Dict[str, Any]) -> None:
         await bot.download_file(file.file_path, destination=input_video)
 
         await status_msg.edit_text(
-            "⚡ <b>Continuous Tracking AI ishga tushdi!</b>\n\n"
+            "⚡ <b>Pro Subtitle AI ishga tushdi!</b>\n\n"
             "▓▓▓░░░░░░░ 40%\n\n"
             "🎙 <i>Audio yuqori aniqlikda tahlil qilinmoqda...</i>",
             parse_mode="HTML"
@@ -299,9 +305,9 @@ async def process_job(bot: Bot, job: Dict[str, Any]) -> None:
         await asyncio.to_thread(subprocess.run, cmd_extract, cwd=str(work_dir), capture_output=True, text=True)
 
         await status_msg.edit_text(
-            "⚡ <b>Continuous Tracking AI ishga tushdi!</b>\n\n"
+            "⚡ <b>Pro Subtitle AI ishga tushdi!</b>\n\n"
             "▓▓▓▓▓▓░░░░ 70%\n\n"
-            "✨ <i>Matn davomida cho'ziluvchi silliq animatsiya qo'shilmoqda...</i>",
+            "✨ <i>Tanlangan uslub va Bangers shrifti ulanmoqda...</i>",
             parse_mode="HTML"
         )
 
@@ -329,9 +335,10 @@ async def process_job(bot: Bot, job: Dict[str, Any]) -> None:
             await status_msg.edit_text("❌ Videoda nutq aniqlanmadi.")
             return
 
+        abs_fonts_dir = str(FONTS_DIR.resolve())
         cmd_render = [
             "ffmpeg", "-y", "-i", "input.mp4",
-            "-vf", "ass=subtitles.ass",
+            "-vf", f"ass=subtitles.ass:fontsdir='{abs_fonts_dir}'",
             "-c:v", "libx264",
             "-preset", "ultrafast",
             "-crf", "23",
@@ -350,7 +357,7 @@ async def process_job(bot: Bot, job: Dict[str, Any]) -> None:
         await bot.send_video(
             chat_id,
             video=FSInputFile(str(output_video)),
-            caption=f"🔥 <b>Continuous Tracking Subtitr Tayyor!</b>\n\n💳 Balans: <b>{current_bal} ta video</b>",
+            caption=f"🔥 <b>Subtitr Tayyor!</b>\n\n💳 Balans: <b>{current_bal} ta video</b>",
             reply_markup=get_main_keyboard(),
             parse_mode="HTML"
         )
@@ -378,7 +385,6 @@ OFERTA_FULL_TEXT = (
 )
 
 
-# --- ADMIN PANEL & ADD ---
 @router.message(Command("panel"))
 async def cmd_admin_panel(message: Message):
     if message.from_user.id != ADMIN_ID:
@@ -664,7 +670,7 @@ async def on_video(message: Message, state: FSMContext, bot: Bot) -> None:
         "lang": "uz",
         "style": "mrbeast_style",
         "color": None,
-        "font": "coolvetica",
+        "font": "bangers",
         "size": 100,
         "ts": time.time()
     }
@@ -676,7 +682,6 @@ async def on_video(message: Message, state: FSMContext, bot: Bot) -> None:
     await message.reply("1️⃣ Tilni tanlang:", reply_markup=kb.as_markup())
 
 
-# --- CALLBACK HANDLERS ---
 @router.callback_query(F.data.startswith("lang:"))
 async def on_lang(call: CallbackQuery) -> None:
     parts = call.data.split(":")
@@ -777,6 +782,7 @@ async def start_bot_polling():
 
 async def main() -> None:
     init_db()
+    FONTS_DIR.mkdir(parents=True, exist_ok=True)
     WORK_ROOT.mkdir(parents=True, exist_ok=True)
     asyncio.create_task(web_server())
     await start_bot_polling()
