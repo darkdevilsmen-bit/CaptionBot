@@ -61,7 +61,7 @@ COLORS = {
     "green":  ("🟢 Yashil", "&H0000FF00"),
 }
 
-# Shrift nomlari to'g'ri ichki nomlarga moslandi
+# Shrift nomlari sizdagi fayllarning aniq turlariga moslashtirildi
 FONTS = {
     "coolvetica": {
         "title": "🖤 Coolvetica (Standart Pro)",
@@ -216,15 +216,16 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
     for w in words:
         raw_text = getattr(w, "text", None) or getattr(w, "word", None) or ""
         start = float(getattr(w, "start", 0.0))
-        end = float(getattr(w, "end", start + 0.25))
+        end = float(getattr(w, "end", start + 0.30))
 
         clean = str(raw_text).strip().upper()
         for ch in [".", ",", "!", "?", ":", ";", '"', "'", "-", "—", "_"]:
             clean = clean.replace(ch, "")
 
         if clean:
-            if (end - start) < 0.35:
-                end = start + 0.35
+            # So'zlar o'qishga qulay bo'lishi va juda tez o'tib ketmasligi uchun vaqt maromi uzaytirildi
+            if (end - start) < 0.40:
+                end = start + 0.40
             cleaned_words.append({"word": clean, "start": start, "end": end})
 
     if not cleaned_words:
@@ -241,23 +242,24 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
                 next_start = cleaned_words[i + 1]["start"]
                 end_t = min(w["end"], next_start)
                 if end_t <= w["start"]:
-                    end_t = w["start"] + 0.35
+                    end_t = w["start"] + 0.40
             else:
                 end_t = w["end"]
 
             end_fmt = format_ass_time(end_t)
             word_text = w["word"]
 
+            # Animatsiya maromi silliq va o'qishga qulay qilindi
             if anim_style == "mrbeast_style":
-                pro_anim = r"{\an2\fad(60,120)\fscx130\fscy130\t(0,60,\fscx100\fscy100)\b1}"
+                pro_anim = r"{\an2\fad(80,150)\fscx125\fscy125\t(0,70,\fscx100\fscy100)\b1}"
             elif anim_style == "active_bold_regular":
-                pro_anim = r"{\an2\fad(80,120)\b1}"
-            elif anim_style == "active_word_box":
-                pro_anim = r"{\an2\fad(80,120)\b1}"
-            elif anim_style == "word_fade_in_out":
-                pro_anim = r"{\an2\fad(250,300)\b1}"
-            else:
                 pro_anim = r"{\an2\fad(100,150)\b1}"
+            elif anim_style == "active_word_box":
+                pro_anim = r"{\an2\fad(100,150)\b1}"
+            elif anim_style == "word_fade_in_out":
+                pro_anim = r"{\an2\fad(300,350)\b1}"
+            else:
+                pro_anim = r"{\an2\fad(120,180)\b1}"
 
             f.write(f"Dialogue: 0,{start_fmt},{end_fmt},WordStyle,,0,0,0,,{pro_anim}{word_text}\n")
             count += 1
@@ -308,9 +310,10 @@ async def process_job(bot: Bot, job: Dict[str, Any]) -> None:
             parse_mode="HTML"
         )
 
+        # Audio aniqligini oshirish uchun bitreytni ko'taramiz
         cmd_extract = [
             "ffmpeg", "-y", "-i", "input.mp4",
-            "-vn", "-acodec", "libmp3lame", "-ar", "16000", "-ac", "1", "-b:a", "128k",
+            "-vn", "-acodec", "libmp3lame", "-ar", "24000", "-ac", "1", "-b:a", "192k",
             "audio.mp3"
         ]
         await asyncio.to_thread(subprocess.run, cmd_extract, cwd=str(work_dir), capture_output=True, text=True)
@@ -318,7 +321,7 @@ async def process_job(bot: Bot, job: Dict[str, Any]) -> None:
         await status_msg.edit_text(
             "⚡ <b>Pro AI ishga tushdi!</b>\n\n"
             "▓▓▓▓▓▓░░░░ 70%\n\n"
-            "✨ <i>Maromdagi animatsiya va shriftlar ulanmoqda...</i>",
+            "✨ <i>Animatsiya va shriftlar ulanmoqda...</i>",
             parse_mode="HTML"
         )
 
@@ -350,6 +353,7 @@ async def process_job(bot: Bot, job: Dict[str, Any]) -> None:
         fonts_dir = Path(__file__).parent / "fonts"
         fonts_dir_str = str(fonts_dir.resolve())
 
+        # Shriftlar papkasini FFmpeg'ga majburiy ko'rsatib render qilamiz
         cmd_render = [
             "ffmpeg", "-y", "-i", "input.mp4",
             "-vf", f"ass=subtitles.ass:fontsdir='{fonts_dir_str}'",
@@ -429,10 +433,8 @@ async def cmd_add_credits(message: Message, bot: Bot):
                 new_balance = row[0] + amount
             conn.commit()
             
-        # Admin uchun javob
         await message.reply(f"✅ Foydalanuvchi (ID: <code>{target_user_id}</code>) balansiga <b>{amount} ta</b> kredit qo'shildi!\n💎 Yangi balans: <b>{new_balance} ta</b>", parse_mode="HTML")
         
-        # Foydalanuvchiga chiroyli bildirishnoma yuborish
         try:
             user_msg = (
                 "🎉 <b>Tabriklaymiz! Balansingiz to'ldirildi!</b> 🚀\n\n"
