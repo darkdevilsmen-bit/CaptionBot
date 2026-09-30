@@ -28,6 +28,7 @@ from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
 from aiogram.fsm.storage.memory import MemoryStorage
 from elevenlabs.client import ElevenLabs
+from PIL import Image, ImageDraw, ImageFont
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
 log = logging.getLogger(__name__)
@@ -75,142 +76,7 @@ FONTS = {
         "font_name": "Bangers"
     }
 }
-import os
-import logging
-from telegram import Update
-from telegram.ext import ApplicationBuilder, ContextTypes, MessageHandler, filters
-from PIL import Image, ImageDraw, ImageFont
 
-# Bot tokeningizni shu yerga yozing
-TOKEN = "8933394511:AAGS2vZzoGop39HMYQTzn5HppFLeqvs-LEg"
-
-logging.basicConfig(format='%(asctime)s - %(name)s - %(levelname)s - %(message)s', level=logging.INFO)
-
-def create_rounded_text_badge(text_content, box_color="green", font_size=70):
-    # Ranglar palitrasi
-    colors = {
-        "green": (46, 204, 113),  # Yashil rang
-        "red": (231, 76, 60),     # Qizil rang
-    }
-    bg_color = colors.get(box_color, box_color)
-
-    # Shrift faylining aniq yo'li (bot.py turgan papkadan qidiradi)
-    current_dir = os.path.dirname(os.path.abspath(__file__))
-    
-    # Qaysi shrift ishlatilishini shu yerda tanlaysiz:
-    # "Bangers-Regular.ttf" yoki "Coolvetica.ttf"
-    font_filename = "Bangers-Regular.ttf" 
-    font_path = os.path.join(current_dir, font_filename)
-
-    # Shrift topilganini tekshiramiz, topilmasa ogohlantirib default shriftga o'tamiz
-    if os.path.exists(font_path):
-        try:
-            font = ImageFont.truetype(font_path, font_size)
-            print(f"Shrift muvaffaqiyatli yuklandi: {font_filename}")
-        except Exception as e:
-            print(f"Shriftni o'qishda xatolik: {e}")
-            font = ImageFont.load_default()
-    else:
-        print(f"DIQQAT: {font_filename} topilmadi! Papkani tekshiring.")
-        font = ImageFont.load_default()
-
-    # Matn o'lchamlarini hisoblash
-    dummy_draw = ImageDraw.Draw(Image.new("RGBA", (1, 1)))
-    bbox = dummy_draw.textbbox((0, 0), text_content, font=font)
-    text_width = bbox[2] - bbox[0]
-    text_height = bbox[3] - bbox[1]
-
-    # Plashka atrofi uchun bo'sh joy (padding)
-    padding_x = 45
-    padding_y = 25
-    img_width = text_width + (padding_x * 2)
-    img_height = text_height + (padding_y * 2)
-
-    # Plashka rasmini yaratish (Shaffof fon bilan)
-    badge_img = Image.new("RGBA", (img_width, img_height), (0, 0, 0, 0))
-    draw = ImageDraw.Draw(badge_img)
-
-    # Burchaklarni yumshatish radiusi (Corner box)
-    corner_radius = 30
-    draw.rounded_rectangle(
-        [(0, 0), (img_width, img_height)], 
-        radius=corner_radius, 
-        fill=bg_color
-    )
-
-    # Matnni plashka o'rtasiga yozish (Oq rangda)
-    text_x = (img_width - text_width) // 2 - bbox[0]
-    text_y = (img_height - text_height) // 2 - bbox[1]
-    draw.text((text_x, text_y), text_content, font=font, fill=(255, 255, 255, 255))
-
-    # Vaqtinchalik faylga saqlash
-    temp_filename = f"temp_badge_{os.getpid()}.png"
-    badge_img.save(temp_filename)
-
-    return temp_filename
-
-async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    text = update.message.text
-    
-    # Matn ichidagi so'zga qarab rang tanlash
-    color = "green" if "qosh" in text.lower() else "red"
-    
-    # Plashka rasmini hosil qilish
-    badge_path = create_rounded_text_badge(text.upper(), box_color=color)
-    
-    # Foydalanuvchiga yuborish
-    await update.message.reply_photo(photo=open(badge_path, 'rb'))
-    
-    # Vaqtinchalik faylni o'chirish
-    if os.path.exists(badge_path):
-        os.remove(badge_path)
-
-def main():
-    app = ApplicationBuilder().token(TOKEN).build()
-    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
-    
-    print("Bot ishga tushdi va shriftlar sozlandi...")
-    app.run_polling()
-
-if __name__ == '__main__':
-    main()
-
-    # Matnni plashka o'rtasiga yozish (Oq rangda)
-    text_x = (img_width - text_width) // 2 - bbox[0]
-    text_y = (img_height - text_height) // 2 - bbox[1]
-    draw.text((text_x, text_y), text_content, font=font, fill=(255, 255, 255, 255))
-
-    # Vaqtinchalik faylga saqlash
-    temp_filename = f"temp_badge_{os.getpid()}.png"
-    badge_img.save(temp_filename)
-
-    return temp_filename
-
-async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    text = update.message.text
-    
-    # Matn ichida shartga qarab rang tanlash (masalan: "qosh" bo'lsa yashil, boshqa so'zda qizil)
-    color = "green" if "qosh" in text.lower() else "red"
-    
-    # Plashka rasmini hosil qilish
-    badge_path = create_rounded_text_badge(text.upper(), box_color=color)
-    
-    # Foydalanuvchiga tayyor rasm/plashkani yuborish
-    await update.message.reply_photo(photo=open(badge_path, 'rb'))
-    
-    # Vaqtinchalik faylni o'chirib tashlash
-    if os.path.exists(badge_path):
-        os.remove(badge_path)
-
-def main():
-    app = ApplicationBuilder().token(TOKEN).build()
-    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
-    
-    print("Bot ishga tushdi...")
-    app.run_polling()
-
-if __name__ == '__main__':
-    main()
 ANIMATION_STYLES = {
     "mrbeast_style": {
         "title": "🟢 MrBeast Style (Tavsiya etiladi ⭐)",
@@ -516,22 +382,21 @@ async def process_job(bot: Bot, job: Dict[str, Any]) -> None:
         shutil.rmtree(work_dir, ignore_errors=True)
 
 
-# --- TO'LIQ OFERTA MATNI ---
 OFERTA_FULL_TEXT = (
     "📜 <b>OMMAVIY OFERTA VA FOYDALANISH SHARTLARI</b>\n\n"
     "<b>1. UMUMIY QOIDALAR</b>\n"
     "1.1. Ushbu Ommaviy oferta (keyingi o'rinlarda — Oferta) foydalanuvchi va «Captions Pro» sun'iy intellekt botining ma'muriyati o'rtasidagi huquqiy munosabatlarni tartibga soladi.\n"
     "1.2. Botdan foydalanishni boshlash, shu jumladan /start buyrug'ini bosish va «Roziman» tugmasini bosish orqali foydalanuvchi ushbu shartlarning barchasiga so'zsiz rozilik bildiradi.\n\n"
-    "<b>2. XIZMAT KO'RSATISH TARTIBI VA TEXNIK TALABLAR</b>\n"
+    "<b>2. XIZmat KO'RSATISH TARTIBI VA TEXNIK TALABLAR</b>\n"
     "2.1. Bot foydalanuvchining yuborgan videolariga sun'iy intellekt yordamida avtomatik ravishda professional dinamik subtitrlar (animatsiyalar) qo'shib beradi.\n"
     "2.2. Videolar <b>9:16 vertikal (1080x1920)</b> formatda va hajmi <b>50 MB dan oshmagan</b> bo'lishi shart.\n"
     "2.3. Har bir muvaffaqiyatli ishlov berilgan video uchun foydalanuvchi balansidan 1 ta kredit (urinish) avtomatik ravishda yechiladi.\n\n"
     "<b>3. TO'LOV, NARXLAR VA QAYTARIB BERMASLIK SHARTI</b>\n"
     "3.1. Botda taqdim etilgan xizmatlar va kredit paketlari narxlari «To'lov qilish» bo'limida ko'rsatilgan va ma'muriyat tomonidan o'zgartirilishi mumkin.\n"
-    "3.2. Sotib olingan kreditlar va amalga oshirilgan pul o'tkazmalari hech qanday holatda ortga qaytarilmaydi (возврат не предусмотрен).\n"
+    "3.2. Sotib olingan kreditlar va amalga oshirilgan pul o'tkazmalari hech qanday holatda ortga qaytarilmaydi.\n"
     "3.3. To'lov faqat ko'rsatilgan rasmiy karta raqamiga amalga oshirilishi va chek tasdiqlash uchun adminga yuborilishi kerak.\n\n"
     "<b>4. MAS'ULIYAT VA CHEGARALAR</b>\n"
-    "4.1. Ma'muriyat internet tarmog'idagi uzilishlar, Telegram serverlarining nosozliklari yoki uchinchi tomon API xizmatlari (ElevenLabs, FFmpeg) ishidagi vaqtinchalik xatolar uchun javobgar emas.\n"
+    "4.1. Ma'muriyat internet tarmog'idagi uzilishlar, Telegram serverlarining nosozliklari yoki uchinchi tomon API xizmatlari ishidagi vaqtinchalik xatolar uchun javobgar emas.\n"
     "4.2. Foydalanuvchi mualliflik huquqini buzuvchi yoki qonunchilikka zid videolarni yuklamasligi shart.\n\n"
     "<i>Botdan foydalanishni davom ettirish uchun pastdagi tugmani bosing:</i>"
 )
@@ -689,7 +554,7 @@ async def cmd_payment(message: Message):
     await message.answer(payment_text, parse_mode="HTML")
 
 
-@router.message(F.text == "👨‍‍💻 Admin bilan bog'lanish")
+@router.message(F.text == "👨‍💻 Admin bilan bog'lanish")
 async def cmd_contact_admin(message: Message):
     await message.answer(
         f"👨‍💻 <b>Bog'lanish uchun ma'lumotlar:</b>\n\n"
@@ -855,9 +720,7 @@ async def main() -> None:
     init_db()
     WORK_ROOT.mkdir(parents=True, exist_ok=True)
     
-    # Render port talabini qondirish uchun web-serverni fonda ishga tushiramiz
     asyncio.create_task(web_server())
-    
     await start_bot_polling()
 
 
