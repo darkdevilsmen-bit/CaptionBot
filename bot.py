@@ -10,7 +10,6 @@ import subprocess
 from pathlib import Path
 from typing import Dict, Any, List
 
-from PIL import Image, ImageDraw, ImageFont
 from aiohttp import web
 from aiogram import Bot, Dispatcher, F, Router
 from aiogram.filters import CommandStart, Command
@@ -57,9 +56,9 @@ VIDEO_LANGS = {
 }
 
 COLORS = {
-    "white":  ("⚪ 100% Oppoq (Pro)", (255, 255, 255)),
-    "yellow": ("🟡 Sariq (Tracking Style)", (255, 255, 0)),
-    "green":  ("🟢 Yashil", (0, 255, 0)),
+    "white":  ("⚪ 100% Oppoq (Pro)", "&H00FFFFFF"),
+    "yellow": ("🟡 Sariq (Tracking Style)", "&H0000FFFF"),
+    "green":  ("🟢 Yashil", "&H0000FF00"),
 }
 
 jobs: Dict[str, Dict[str, Any]] = {}
@@ -139,37 +138,64 @@ async def check_subscription(bot: Bot, user_id: int) -> bool:
     return False
 
 
-def create_word_image(text: str, text_color: tuple, font_size: int, output_path: Path):
-    font_path = FONTS_DIR / "KomikaAxis.ttf"
-    try:
-        font = ImageFont.truetype(str(font_path), font_size)
-    except Exception:
-        font = ImageFont.load_default()
+def format_ass_time(seconds: float) -> str:
+    hours = int(seconds // 3600)
+    mins = int((seconds % 3600) // 60)
+    secs = int(seconds % 60)
+    centis = int(round((seconds - int(seconds)) * 100))
+    if centis >= 100:
+        centis = 99
+    return f"{hours}:{mins:02d}:{secs:02d}.{centis:02d}"
 
-    # Tasvir o'lchamini aniqlash (Vertikal 1080x1920 video uchun standart canvas)
-    canvas_width = 1080
-    canvas_height = 300
-    img = Image.new("RGBA", (canvas_width, canvas_height), (0, 0, 0, 0))
-    d = ImageDraw.Draw(img)
 
-    # Matn koordinatalarini markazga to'g'rilash
-    bbox = d.textbbox((0, 0), text, font=font)
-    text_w = bbox[2] - bbox[0]
-    text_h = bbox[3] - bbox[1]
-    
-    x = (canvas_width - text_w) // 2
-    y = (canvas_height - text_h) // 2
+def generate_ass_subtitles(words: List[Any], ass_path: Path, text_color: str) -> int:
+    header = f"""[Script Info]
+ScriptType: v4.00+
+PlayResX: 1080
+PlayResY: 1920
+ScaledBorderAndShadow: yes
 
-    # Qalin qora kontur (outline)
-    outline_color = (0, 0, 0, 255)
-    for ox in range(-4, 5):
-        for oy in range(-4, 5):
-            if ox != 0 or oy != 0:
-                d.text((x + ox, y + oy), text, font=font, fill=outline_color)
+[V4+ Styles]
+Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding
+Style: WordStyle,Komika Axis,75,{text_color},&H000000FF,&HFF000000,&H80000000,1,0,0,0,100,100,2,0,1,4.0,2,2,40,40,400,1
 
-    # Asosiy rangdagi matn
-    d.text((x, y), text, font=font, fill=(*text_color, 255))
-    img.save(output_path, "PNG")
+[Events]
+Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
+"""
+    cleaned_words = []
+    for w in words:
+        raw_text = getattr(w, "text", None) or getattr(w, "word", None) or ""
+        start = float(getattr(w, "start", 0.0))
+        end = float(getattr(w, "end", start + 0.4))
+        clean = str(raw_text).strip().upper()
+        for ch in [".", ",", "!", "?", ":", ";", '"', "'", "-", "—", "_"]:
+            clean = clean.replace(ch, "")
+        if clean:
+            if (end - start) < 0.35:
+                end = start + 0.35
+            cleaned_words.append({"word": clean, "start": start, "end": end})
+
+    if not cleaned_words:
+        return 0
+
+    # So'zlarni 2 tadan guruhlab chiqaramiz (chiroyli va o'qishga qulay bo'lishi uchun)
+    chunks = []
+    chunk_size = 2
+    for i in range(0, len(cleaned_words), chunk_size):
+        chunk = cleaned_words[i:i + chunk_size]
+        start_t = chunk[0]["start"]
+        end_t = chunk[-1]["end"]
+        text = " ".join([c["word"] for c in chunk])
+        chunks.append({"text": text, "start": start_t, "end": end_t})
+
+    with open(ass_path, "w", encoding="utf-8") as f:
+        f.write(header)
+        for ch in chunks:
+            start_fmt = format_ass_time(ch["start"])
+            end_fmt = format_ass_time(ch["end"])
+            f.write(f"Dialogue: 0,{start_fmt},{end_fmt},WordStyle,,0,0,0,,{ch['text']}\n")
+
+    return len(chunks)
 
 
 async def process_job(bot: Bot, job: Dict[str, Any]) -> None:
@@ -178,7 +204,6 @@ async def process_job(bot: Bot, job: Dict[str, Any]) -> None:
     file_id = job["file_id"]
     lang = job["lang"]
     color = job["color"]
-    font_size = 75
     job_key = job["key"]
 
     work_dir = WORK_ROOT / job_key
@@ -186,9 +211,8 @@ async def process_job(bot: Bot, job: Dict[str, Any]) -> None:
 
     input_video = work_dir / "input.mp4"
     audio_path = work_dir / "audio.mp3"
+    ass_path = work_dir / "subtitles.ass"
     output_video = work_dir / "output.mp4"
-    images_dir = work_dir / "images"
-    images_dir.mkdir(exist_ok=True)
 
     status_msg = await bot.send_message(
         chat_id,
@@ -222,7 +246,7 @@ async def process_job(bot: Bot, job: Dict[str, Any]) -> None:
         await status_msg.edit_text(
             "⚡ <b>Komika Axis Subtitle AI ishga tushdi!</b>\n\n"
             "▓▓▓▓▓▓░░░░ 70%\n\n"
-            "✨ <i>Komika Axis shriftida so'zlar markazlashtirilmoqda...</i>",
+            "✨ <i>Subtitrlar generatsiya qilinmoqda...</i>",
             parse_mode="HTML"
         )
 
@@ -238,67 +262,21 @@ async def process_job(bot: Bot, job: Dict[str, Any]) -> None:
         transcription = await asyncio.to_thread(transcribe_audio)
         words = getattr(transcription, "words", []) or []
 
-        cleaned_words = []
-        for w in words:
-            raw_text = getattr(w, "text", None) or getattr(w, "word", None) or ""
-            start = float(getattr(w, "start", 0.0))
-            end = float(getattr(w, "end", start + 0.4))
-            clean = str(raw_text).strip().upper()
-            for ch in [".", ",", "!", "?", ":", ";", '"', "'", "-", "—", "_"]:
-                clean = clean.replace(ch, "")
-            if clean:
-                if (end - start) < 0.35:
-                    end = start + 0.35
-                cleaned_words.append({"word": clean, "start": start, "end": end})
-
-        if not cleaned_words:
+        count = generate_ass_subtitles(words, ass_path, color)
+        if count == 0:
             await status_msg.edit_text("❌ Videoda nutq aniqlanmadi.")
             return
 
-        # So'zlarni 2-3 tadan guruhlab, har bir guruhni bitta markaziy rasmga aylantiramiz
-        chunks = []
-        chunk_size = 2
-        for i in range(0, len(cleaned_words), chunk_size):
-            chunk = cleaned_words[i:i + chunk_size]
-            start_t = chunk[0]["start"]
-            end_t = chunk[-1]["end"]
-            text = " ".join([c["word"] for c in chunk])
-            chunks.append({"text": text, "start": start_t, "end": end_t})
-
-        # FFmpeg filter_complex yaratish (har bir guruh ekranning bir xil markaziy pastki qismida chiqadi)
-        filter_parts = ["[0:v]"]
-        last_out = "v0"
-
-        for i, ch in enumerate(chunks):
-            img_path = images_dir / f"chunk_{i}.png"
-            create_word_image(ch["text"], color, font_size, img_path)
-
-            start_t = ch["start"]
-            end_t = ch["end"]
-            next_input = f"v{i+1}"
-            
-            # overlay=(W-w)/2:H-h-300 — bu yerda matn har doim qat'iy markazda joylashadi
-            filter_parts.append(
-                f"[{last_out}][{i+1}:v] overlay=(W-w)/2:H-h-350:enable='between(t,{start_t},{end_t})'[{next_input}];"
-            )
-            last_out = next_input
-
-        filter_complex = "".join(filter_parts)[:-1]
-
-        cmd_render = ["ffmpeg", "-y", "-i", "input.mp4"]
-        for i in range(len(chunks)):
-            cmd_render.extend(["-i", str(images_dir / f"chunk_{i}.png")])
-
-        cmd_render.extend([
-            "-filter_complex", filter_complex,
-            "-map", f"[{last_out}]",
-            "-map", "0:a",
+        abs_fonts_dir = str(FONTS_DIR.resolve())
+        cmd_render = [
+            "ffmpeg", "-y", "-i", "input.mp4",
+            "-vf", f"ass=subtitles.ass:fontsdir='{abs_fonts_dir}'",
             "-c:v", "libx264",
             "-preset", "ultrafast",
             "-crf", "23",
             "-c:a", "copy",
             "output.mp4"
-        ])
+        ]
 
         res = await asyncio.to_thread(subprocess.run, cmd_render, cwd=str(work_dir), capture_output=True, text=True)
         if res.returncode != 0:
@@ -538,7 +516,7 @@ async def cmd_balans(message: Message):
             f"📊 <b>Sizning profilingiz va balansingiz:</b>\n\n"
             f"🆔 ID: <code>{message.from_user.id}</code>\n"
             f"💎 Qolgan urinishlar: <b>0 ta video</b>\n\n"
-            f"⚠️️ <i>Sizda bepul foydalanish limiti tugadi!</i>\n"
+            f"⚠️ <i>Sizda bepul foydalanish limiti tugadi!</i>\n"
             f"🚀 Videolarga professional subtitr qo'shishni davom ettirish uchun quyidagi tariflardan birini tanlang va balansingizni to'ldiring:"
         )
     else:
@@ -583,7 +561,7 @@ async def cmd_payment(message: Message):
         f"<code>{CARD_NUMBER}</code>\n"
         f"👤 <b>Karta egasi:</b> {CARD_HOLDER}\n\n"
         f"📸 Pulni o'tkazgandan so'ng, to'lov chekini quyidagi adminga yuboring:\n"
-        f"👨‍‍💻 <b>Admin:</b> @{ADMIN_USERNAME}"
+        f"👨‍💻 <b>Admin:</b> @{ADMIN_USERNAME}"
     )
     await message.answer(payment_text, parse_mode="HTML")
 
@@ -622,7 +600,7 @@ async def on_video(message: Message, state: FSMContext, bot: Bot) -> None:
         "chat_id": message.chat.id,
         "file_id": media.file_id,
         "lang": "uz",
-        "color": (255, 255, 0),
+        "color": "&H0000FFFF",  # Sariq rang standart
         "ts": time.time()
     }
 
