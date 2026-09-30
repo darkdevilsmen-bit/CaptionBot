@@ -55,6 +55,12 @@ VIDEO_LANGS = {
     "en": ("🇬🇧 Inglizcha", "en"),
 }
 
+FONTS = {
+    "komika": ("🔥 Komika Axis", "KomikaAxis.ttf"),
+    "coolvetica": ("✨ Coolvetica", "Coolvetica.ttf"),
+    "arial": ("📌 Arial Bold", "ArialBold.ttf"),
+}
+
 COLORS = {
     "white":  ("⚪ 100% Oppoq (Pro)", (255, 255, 255)),
     "yellow": ("🟡 Sariq (MrBeast Style)", (255, 255, 0)),
@@ -69,7 +75,7 @@ SIZES = {
 
 ANIMATION_STYLES = {
     "mrbeast_style": {
-        "title": "🟢 Komika Axis Pop-up Style (⭐)",
+        "title": "🟢 Pop-up Style (⭐)",
         "desc": "Klassik qalin pop-up va sakrab chiqish animatsiyasi"
     },
     "smooth_tracking": {
@@ -178,13 +184,11 @@ def rgb_to_ass(rgb: tuple) -> str:
     return f"&H00{b:02X}{g:02X}{r:02X}"
 
 
-def generate_word_by_word_ass(words: List[Any], ass_path: Path, text_color: tuple, font_size: int, anim_style: str) -> int:
+def generate_word_by_word_ass(words: List[Any], ass_path: Path, text_color: tuple, font_size: int, font_filename: str, anim_style: str) -> int:
     color_hex = rgb_to_ass(text_color)
-    font_file = (FONTS_DIR / "KomikaAxis.ttf").resolve()
+    font_file = (FONTS_DIR / font_filename).resolve()
     font_path_str = str(font_file).replace("\\", "/")
-    
-    # Принудительное связывание шрифта Komika Axis через тег разметки ASS
-    font_tag = f"\\fnKomika Axis"
+    font_tag = f"\\fn{font_path_str}"
 
     header = f"""[Script Info]
 ScriptType: v4.00+
@@ -194,7 +198,7 @@ ScaledBorderAndShadow: yes
 
 [V4+ Styles]
 Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding
-Style: WordStyle,Komika Axis,{font_size},{color_hex},&H000000FF,&HFF000000,&H80000000,0,0,0,0,100,100,2,0,1,5.0,2.0,2,40,40,450,1
+Style: WordStyle,CustomFont,{font_size},{color_hex},&H000000FF,&HFF000000,&H80000000,0,0,0,0,100,100,2,0,1,5.0,2.0,2,40,40,450,1
 
 [Events]
 Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
@@ -234,15 +238,15 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
             duration_ms = int((end_sec - start_sec) * 1000)
 
             if anim_style == "mrbeast_style":
-                pro_anim = f"{{\\an2{font_tag}\\fad(40,80)\\fscx120\\fscy120\\t(0,60,\\fscx100\\fscy100)\\b0}}"
+                pro_anim = f"{{\\an2{font_tag}\\fad(30,50)\\fscx120\\fscy120\\t(0,50,\\fscx100\\fscy100)\\b0}}"
             elif anim_style == "smooth_tracking":
-                pro_anim = f"{{\\an2{font_tag}\\fad(40,80)\\fsp2\\t(0,{duration_ms},\\fsp12)\\b0}}"
+                pro_anim = f"{{\\an2{font_tag}\\fad(30,50)\\fsp2\\t(0,{duration_ms},\\fsp10)\\b0}}"
             elif anim_style == "active_bold_regular":
-                pro_anim = f"{{\\an2{font_tag}\\fad(40,80)\\b0}}"
+                pro_anim = f"{{\\an2{font_tag}\\fad(30,50)\\b0}}"
             elif anim_style == "active_word_box":
-                pro_anim = f"{{\\an2{font_tag}\\fad(40,80)\\b0}}"
+                pro_anim = f"{{\\an2{font_tag}\\fad(30,50)\\b0}}"
             else:
-                pro_anim = f"{{\\an2{font_tag}\\fad(40,80)\\b0}}"
+                pro_anim = f"{{\\an2{font_tag}\\fad(30,50)\\b0}}"
 
             f.write(f"Dialogue: 0,{start_fmt},{end_fmt},WordStyle,,0,0,0,,{pro_anim}{word_text}\n")
             count += 1
@@ -255,6 +259,7 @@ async def process_job(bot: Bot, job: Dict[str, Any]) -> None:
     user_id = job["user_id"]
     file_id = job["file_id"]
     lang = job["lang"]
+    font_file = job["font_file"]
     color = job["color"]
     font_size = job["size"]
     anim_style = job["style"]
@@ -270,7 +275,7 @@ async def process_job(bot: Bot, job: Dict[str, Any]) -> None:
 
     status_msg = await bot.send_message(
         chat_id,
-        "⚡ <b>Komika Axis Pro AI ishga tushdi!</b>\n\n"
+        "⚡ <b>Pro Subtitr AI ishga tushdi!</b>\n\n"
         "▓░░░░░░░░░ 15%\n\n"
         "📥 <i>Video yuklanmoqda...</i>",
         parse_mode="HTML"
@@ -284,7 +289,7 @@ async def process_job(bot: Bot, job: Dict[str, Any]) -> None:
         await bot.download_file(file.file_path, destination=input_video)
 
         await status_msg.edit_text(
-            "⚡ <b>Komika Axis Pro AI ishga tushdi!</b>\n\n"
+            "⚡ <b>Pro Subtitr AI ishga tushdi!</b>\n\n"
             "▓▓▓░░░░░░░ 40%\n\n"
             "🎙 <i>Audio tahlil qilinmoqda...</i>",
             parse_mode="HTML"
@@ -298,9 +303,9 @@ async def process_job(bot: Bot, job: Dict[str, Any]) -> None:
         await asyncio.to_thread(subprocess.run, cmd_extract, cwd=str(work_dir), capture_output=True, text=True)
 
         await status_msg.edit_text(
-            "⚡ <b>Komika Axis Pro AI ishga tushdi!</b>\n\n"
+            "⚡ <b>Pro Subtitr AI ishga tushdi!</b>\n\n"
             "▓▓▓▓▓▓░░░░ 70%\n\n"
-            "✨ <i>Subtitrlar tayyorlanmoqda...</i>",
+            "✨ <i>Tanlangan shrift va animatsiyada video tayyorlanmoqda...</i>",
             parse_mode="HTML"
         )
 
@@ -316,7 +321,7 @@ async def process_job(bot: Bot, job: Dict[str, Any]) -> None:
         transcription = await asyncio.to_thread(transcribe_audio)
         words = getattr(transcription, "words", []) or []
 
-        count = generate_word_by_word_ass(words, ass_path, color, font_size, anim_style)
+        count = generate_word_by_word_ass(words, ass_path, color, font_size, font_file, anim_style)
         if count == 0:
             await status_msg.edit_text("❌ Videoda nutq aniqlanmadi.")
             return
@@ -326,8 +331,8 @@ async def process_job(bot: Bot, job: Dict[str, Any]) -> None:
             "ffmpeg", "-y", "-i", "input.mp4",
             "-vf", f"ass=subtitles.ass:fontsdir='{abs_fonts_dir}'",
             "-c:v", "libx264",
-            "-preset", "medium",
-            "-crf", "18",
+            "-preset", "ultrafast",
+            "-crf", "20",
             "-pix_fmt", "yuv420p",
             "-c:a", "copy",
             "output.mp4"
@@ -344,7 +349,7 @@ async def process_job(bot: Bot, job: Dict[str, Any]) -> None:
         await bot.send_video(
             chat_id,
             video=FSInputFile(str(output_video)),
-            caption=f"🔥 <b>Komika Axis Subtitr Tayyor!</b>\n\n💳 Balans: <b>{current_bal} ta video</b>",
+            caption=f"🔥 <b>Pro Subtitr Tayyor!</b>\n\n💳 Balans: <b>{current_bal} ta video</b>",
             reply_markup=get_main_keyboard(),
             parse_mode="HTML"
         )
@@ -554,7 +559,7 @@ async def cmd_auto_subtitr(message: Message, bot: Bot):
 
 @router.message(F.text == "🎨 Subtitr uslublari")
 async def cmd_subtitr_styles(message: Message):
-    await message.answer("🎨 <b>Subtitrlar Komika Axis shriftida va 4 xil animatsiya uslubida</b> ishlaydi. Videongizni yuborib tanlashingiz mumkin!", parse_mode="HTML")
+    await message.answer("🎨 <b>Subtitrlar tanlanadigan shriftlar (Komika, Coolvetica, Arial) va 4 xil animatsiya uslubida</b> ishlaydi!", parse_mode="HTML")
 
 
 @router.message(F.text == "📜 Oferta")
@@ -655,6 +660,7 @@ async def on_video(message: Message, state: FSMContext, bot: Bot) -> None:
         "chat_id": message.chat.id,
         "file_id": media.file_id,
         "lang": "uz",
+        "font_file": "KomikaAxis.ttf",
         "size": 85,
         "color": (255, 255, 0),
         "style": "mrbeast_style",
@@ -682,10 +688,31 @@ async def on_lang(call: CallbackQuery) -> None:
 
     job["lang"] = code
     kb = InlineKeyboardBuilder()
+    for fcode, (ftitle, _) in FONTS.items():
+        kb.button(text=ftitle, callback_data=f"font:{key}:{fcode}")
+    kb.adjust(1)
+    await call.message.edit_text("2️⃣ Shrift turini tanlang:", reply_markup=kb.as_markup())
+    await call.answer()
+
+
+@router.callback_query(F.data.startswith("font:"))
+async def on_font(call: CallbackQuery) -> None:
+    parts = call.data.split(":")
+    if len(parts) < 3:
+        await call.answer("Eskirgan so'rov.", show_alert=True)
+        return
+    _, key, fcode = parts
+    job = jobs.get(key)
+    if not job:
+        await call.answer("Eskirgan so'rov yoki vaqt o'tdi.", show_alert=True)
+        return
+
+    job["font_file"] = FONTS[fcode][1]
+    kb = InlineKeyboardBuilder()
     for skey, (title, _) in SIZES.items():
         kb.button(text=title, callback_data=f"size:{key}:{skey}")
     kb.adjust(1)
-    await call.message.edit_text("2️⃣ Subtitr o'lchamini tanlang:", reply_markup=kb.as_markup())
+    await call.message.edit_text("3️⃣ Subtitr o'lchamini tanlang:", reply_markup=kb.as_markup())
     await call.answer()
 
 
@@ -706,7 +733,7 @@ async def on_size(call: CallbackQuery) -> None:
     for cname, (title, _) in COLORS.items():
         kb.button(text=title, callback_data=f"col:{key}:{cname}")
     kb.adjust(2)
-    await call.message.edit_text("3️⃣ Subtitr rangini tanlang:", reply_markup=kb.as_markup())
+    await call.message.edit_text("4️⃣ Subtitr rangini tanlang:", reply_markup=kb.as_markup())
     await call.answer()
 
 
@@ -727,7 +754,7 @@ async def on_color(call: CallbackQuery) -> None:
     for skey, sinfo in ANIMATION_STYLES.items():
         kb.button(text=sinfo["title"], callback_data=f"anim:{key}:{skey}")
     kb.adjust(1)
-    await call.message.edit_text("4️⃣ Animatsiya uslubini tanlang:", reply_markup=kb.as_markup())
+    await call.message.edit_text("5️⃣ Animatsiya uslubini tanlang:", reply_markup=kb.as_markup())
     await call.answer()
 
 
@@ -747,12 +774,12 @@ async def on_animation(call: CallbackQuery, bot: Bot) -> None:
 
     job["style"] = skey
     jobs.pop(key, None)
-    await call.message.edit_text("✅ Sozlamalar qabul qilindi. Komika Axis shriftida video tayyorlanmoqda...")
+    await call.message.edit_text("✅ Sozlamalar qabul qilindi. Tanlangan shrift va animatsiyada video tezkor tayyorlanmoqda...")
     asyncio.create_task(process_job(bot, job))
 
 
 async def handle(request):
-    return web.Response(text="Captions Pro Bot is live and running!")
+    return web.Response(text="Pro Subtitr Bot is live and running!")
 
 async def web_server():
     app = web.Application()
@@ -774,7 +801,7 @@ async def start_bot_polling():
             dp.include_router(router)
             
             await bot.delete_webhook(drop_pending_updates=True)
-            log.info("Captions Pro Bot ishga tushdi!")
+            log.info("Pro Subtitr Bot ishga tushdi!")
             await dp.start_polling(bot, handle_as_tasks=True, drop_pending_updates=True)
         except Exception as e:
             log.warning(f"Tarmoq xatosi: {e}. Qayta ulanmoqda...")
