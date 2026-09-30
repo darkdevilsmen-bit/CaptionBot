@@ -31,7 +31,6 @@ from elevenlabs.client import ElevenLabs
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
 log = logging.getLogger(__name__)
 
-# --- SOZLAMALAR ---
 BOT_TOKEN = "8933394511:AAGS2vZzoGop39HMYQTzn5HppFLeqvs-LEg"
 ELEVENLABS_API_KEY = "sk_2645eb8c6ab7457d5661f30bc9935e8107560bec586b14c8"
 ADMIN_ID = 7662888182
@@ -182,8 +181,7 @@ def generate_word_by_word_ass(words: List[Any], ass_path: Path, text_color: tupl
     color_hex = rgb_to_ass(text_color)
     font_file = (FONTS_DIR / "KomikaAxis.ttf").resolve()
     font_path_str = str(font_file).replace("\\", "/")
-    
-    font_tag = f"\\fnKomika Axis"
+    font_tag = f"\\fn{font_path_str}"
 
     header = f"""[Script Info]
 ScriptType: v4.00+
@@ -233,15 +231,15 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
             duration_ms = int((end_sec - start_sec) * 1000)
 
             if anim_style == "mrbeast_style":
-                pro_anim = f"{{\\an2{font_tag}\\fad(40,80)\\fscx120\\fscy120\\t(0,60,\\fscx100\\fscy100)\\b0}}"
+                pro_anim = f"{{\\an2{font_tag}\\fad(30,50)\\fscx120\\fscy120\\t(0,50,\\fscx100\\fscy100)\\b0}}"
             elif anim_style == "smooth_tracking":
-                pro_anim = f"{{\\an2{font_tag}\\fad(40,80)\\fsp2\\t(0,{duration_ms},\\fsp12)\\b0}}"
+                pro_anim = f"{{\\an2{font_tag}\\fad(30,50)\\fsp2\\t(0,{duration_ms},\\fsp10)\\b0}}"
             elif anim_style == "active_bold_regular":
-                pro_anim = f"{{\\an2{font_tag}\\fad(40,80)\\b0}}"
+                pro_anim = f"{{\\an2{font_tag}\\fad(30,50)\\b0}}"
             elif anim_style == "active_word_box":
-                pro_anim = f"{{\\an2{font_tag}\\fad(40,80)\\b0}}"
+                pro_anim = f"{{\\an2{font_tag}\\fad(30,50)\\b0}}"
             else:
-                pro_anim = f"{{\\an2{font_tag}\\fad(40,80)\\b0}}"
+                pro_anim = f"{{\\an2{font_tag}\\fad(30,50)\\b0}}"
 
             f.write(f"Dialogue: 0,{start_fmt},{end_fmt},WordStyle,,0,0,0,,{pro_anim}{word_text}\n")
             count += 1
@@ -299,7 +297,7 @@ async def process_job(bot: Bot, job: Dict[str, Any]) -> None:
         await status_msg.edit_text(
             "⚡ <b>Komika Axis Pro AI ishga tushdi!</b>\n\n"
             "▓▓▓▓▓▓░░░░ 70%\n\n"
-            "✨ <i>Subtitrlar tayyorlanmoqda...</i>",
+            "✨ <i>Subtitrlar tezkor va kichik hajmda render qilinmoqda...</i>",
             parse_mode="HTML"
         )
 
@@ -321,20 +319,25 @@ async def process_job(bot: Bot, job: Dict[str, Any]) -> None:
             return
 
         abs_fonts_dir = str(FONTS_DIR.resolve())
+        # Hajm 50 MB dan oshmasligi uchun CRF 23 va ultrafast rejimiga o'tkazildi
         cmd_render = [
             "ffmpeg", "-y", "-i", "input.mp4",
             "-vf", f"ass=subtitles.ass:fontsdir='{abs_fonts_dir}'",
             "-c:v", "libx264",
-            "-preset", "medium",
-            "-crf", "18",
+            "-preset", "ultrafast",
+            "-crf", "23",
             "-pix_fmt", "yuv420p",
-            "-c:a", "copy",
+            "-c:a", "aac", "-b:a", "128k",
             "output.mp4"
         ]
 
         res = await asyncio.to_thread(subprocess.run, cmd_render, cwd=str(work_dir), capture_output=True, text=True)
         if res.returncode != 0:
             raise Exception(f"FFmpeg xatosi: {res.stderr[:200]}")
+
+        # Fayl hajmini tekshirish
+        if output_video.exists() and output_video.stat().st_size > MAX_VIDEO_BYTES:
+            raise Exception("Tayyorlangan video hajmi 50 MB dan oshib ketdi.")
 
         deduct_user_credit(user_id)
         current_bal = get_user_credits(user_id)
@@ -362,7 +365,7 @@ OFERTA_FULL_TEXT = (
     "<b>1. UMUMIY QOIDALAR</b>\n"
     "1.1. Ushbu Ommaviy oferta foydalanuvchi va «Captions Pro» sun'iy intellekt botining ma'muriyati o'rtasidagi munosabatlarni tartibga soladi.\n"
     "1.2. Botdan foydalanishni boshlash orqali foydalanuvchi ushbu shartlarning barchasiga rozilik bildiradi.\n\n"
-    "<b>2. XIZMAT KO'RSATISH TARTIBI</b>\n"
+    "<b>2. XIZMAT KO'RSATish TARTIBI</b>\n"
     "2.1. Bot yuborilgan videolarga sun'iy intellekt yordamida avtomatik ravishda dinamik subtitrlar qo'shib beradi.\n"
     "2.2. Videolar <b>9:16 vertikal (1080x1920)</b> formatda va hajmi <b>50 MB dan oshmagan</b> bo'lishi shart.\n\n"
     "<b>3. TO'LOV VA QAYTARIB BERMASLIK SHARTI</b>\n"
@@ -697,7 +700,7 @@ async def on_size(call: CallbackQuery) -> None:
     _, key, skey = parts
     job = jobs.get(key)
     if not job:
-        await call.answer("Eskirgan so'rov yoki vaqt o'tdi.", show_alert=True)
+        await call.answer("Eskirgan so'rov.", show_alert=True)
         return
 
     job["size"] = SIZES[skey][1]
@@ -751,7 +754,7 @@ async def on_animation(call: CallbackQuery, bot: Bot) -> None:
 
 
 async def handle(request):
-    return web.Response(text="Captions Pro Bot is live and running!")
+    return web.Response(text="Pro Subtitr Bot is live and running!")
 
 async def web_server():
     app = web.Application()
@@ -773,7 +776,7 @@ async def start_bot_polling():
             dp.include_router(router)
             
             await bot.delete_webhook(drop_pending_updates=True)
-            log.info("Captions Pro Bot ishga tushdi!")
+            log.info("Pro Subtitr Bot ishga tushdi!")
             await dp.start_polling(bot, handle_as_tasks=True, drop_pending_updates=True)
         except Exception as e:
             log.warning(f"Tarmoq xatosi: {e}. Qayta ulanmoqda...")
