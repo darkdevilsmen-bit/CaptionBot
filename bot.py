@@ -26,7 +26,6 @@ from aiogram.types import (
 from aiogram.utils.keyboard import InlineKeyboardBuilder
 from aiogram.client.session.aiohttp import AiohttpSession
 from aiogram.fsm.context import FSMContext
-from aiogram.fsm.state import State, StatesGroup
 from aiogram.fsm.storage.memory import MemoryStorage
 from elevenlabs.client import ElevenLabs
 
@@ -61,13 +60,6 @@ COLORS = {
     "white":  ("⚪ 100% Oppoq (Pro)", (255, 255, 255)),
     "yellow": ("🟡 Sariq (Tracking Style)", (255, 255, 0)),
     "green":  ("🟢 Yashil", (0, 255, 0)),
-}
-
-ANIMATION_STYLES = {
-    "mrbeast_style": {
-        "title": "🟢 Komika Axis Pop-up Style (⭐)",
-        "desc": "Klassik qalin pop-up va sakrab chiqish animatsiyasi"
-    }
 }
 
 jobs: Dict[str, Dict[str, Any]] = {}
@@ -147,35 +139,12 @@ async def check_subscription(bot: Bot, user_id: int) -> bool:
     return False
 
 
-def create_word_image(word: str, text_color: tuple, font_size: int, output_path: Path):
-    font_path = FONTS_DIR / "KomikaAxis.ttf"
-    try:
-        font = ImageFont.truetype(str(font_path), font_size)
-    except Exception:
-        # Agar fayldan topolmasa, Windows tizimidagi standart shriftdan foydalanadi
-        font = ImageFont.load_default()
-
-    # Matn o'lchamini aniqlash (Pillow zamonaviy versiyalari uchun getbbox)
-    dummy_img = Image.new("RGBA", (1, 1))
-    draw = ImageDraw.Draw(dummy_img)
-    bbox = draw.textbbox((0, 0), word, font=font)
-    text_width = bbox[2] - bbox[0] + 40
-    text_height = bbox[3] - bbox[1] + 40
-
-    img = Image.new("RGBA", (text_width, text_height), (0, 0, 0, 0))
-    d = ImageDraw.Draw(img)
-
-    # Qalin qora kontur (outline) berish uchun matnni 4 tomonga surib chizamiz
-    x, y = 20, 20
-    outline_color = (0, 0, 0, 255)
-    for ox in range(-3, 4):
-        for oy in range(-3, 4):
-            if ox != 0 or oy != 0:
-                d.text((x + ox, y + oy), word, font=font, fill=outline_color)
-
-    # Asosiy rangdagi matn
-    d.text((x, y), word, font=font, fill=(*text_color, 255))
-    img.save(output_path, "PNG")
+def format_srt_time(seconds: float) -> str:
+    hours = int(seconds // 3600)
+    mins = int((seconds % 3600) // 60)
+    secs = int(seconds % 60)
+    millis = int(round((seconds - int(seconds)) * 1000))
+    return f"{hours:02d}:{mins:02d}:{secs:02d},{millis:03d}"
 
 
 async def process_job(bot: Bot, job: Dict[str, Any]) -> None:
@@ -184,7 +153,6 @@ async def process_job(bot: Bot, job: Dict[str, Any]) -> None:
     file_id = job["file_id"]
     lang = job["lang"]
     color = job["color"]
-    font_size = job.get("size", 75)
     job_key = job["key"]
 
     work_dir = WORK_ROOT / job_key
@@ -192,9 +160,8 @@ async def process_job(bot: Bot, job: Dict[str, Any]) -> None:
 
     input_video = work_dir / "input.mp4"
     audio_path = work_dir / "audio.mp3"
+    srt_path = work_dir / "subtitles.srt"
     output_video = work_dir / "output.mp4"
-    images_dir = work_dir / "images"
-    images_dir.mkdir(exist_ok=True)
 
     status_msg = await bot.send_message(
         chat_id,
@@ -228,7 +195,7 @@ async def process_job(bot: Bot, job: Dict[str, Any]) -> None:
         await status_msg.edit_text(
             "⚡ <b>Komika Axis Pro AI ishga tushdi!</b>\n\n"
             "▓▓▓▓▓▓░░░░ 70%\n\n"
-            "✨ <i>Komika Axis shriftida so'zlar tayyorlanmoqda...</i>",
+            "✨ <i>Subtitrlar tayyorlanmoqda...</i>",
             parse_mode="HTML"
         )
 
@@ -248,7 +215,7 @@ async def process_job(bot: Bot, job: Dict[str, Any]) -> None:
         for w in words:
             raw_text = getattr(w, "text", None) or getattr(w, "word", None) or ""
             start = float(getattr(w, "start", 0.0))
-            end = float(getattr(w, "end", start + 0.35))
+            end = float(getattr(w, "end", start + 0.4))
             clean = str(raw_text).strip().upper()
             for ch in [".", ",", "!", "?", ":", ";", '"', "'", "-", "—", "_"]:
                 clean = clean.replace(ch, "")
@@ -261,42 +228,43 @@ async def process_job(bot: Bot, job: Dict[str, Any]) -> None:
             await status_msg.edit_text("❌ Videoda nutq aniqlanmadi.")
             return
 
-        # FFmpeg filter_complex yaratish
-        filter_parts = ["[0:v]"]
-        last_out = "v0"
+        # SRT faylini hosil qilamiz (har 2-3 tadan so'zni bitta qatorga yig'ib chiqamiz)
+        srt_lines = []
+        chunk_size = 3
+        for i in range(0, len(cleaned_words), chunk_size):
+            chunk = cleaned_words[i:i + chunk_size]
+            start_t = chunk[0]["start"]
+            end_t = chunk[-1]["end"]
+            text = " ".join([c["word"] for c in chunk])
 
-        for i, w in enumerate(cleaned_words):
-            img_path = images_dir / f"word_{i}.png"
-            create_word_image(w["word"], color, font_size, img_path)
+            srt_lines.append({
+                "index": len(srt_lines) + 1,
+                "start": format_srt_time(start_t),
+                "end": format_srt_time(end_t),
+                "text": text
+            })
 
-            start_t = w["start"]
-            end_t = w["end"]
-            
-            next_input = f"v{i+1}"
-            # Ekranning pastki qismiga markazga joylashtiramiz
-            filter_parts.append(
-                f"[{last_out}][{i+1}:v] overlay=(W-w)/2:H-h-250:enable='between(t,{start_t},{end_t})'[{next_input}];"
-            )
-            last_out = next_input
+        with open(srt_path, "w", encoding="utf-8") as f:
+            for item in srt_lines:
+                f.write(f"{item['index']}\n{item['start']} --> {item['end']}\n{item['text']}\n\n")
 
-        # Oxirgi qismdagi ortiqcha nuqta-vergulni olib tashlaymiz
-        filter_complex = "".join(filter_parts)[:-1]
+        # Shrift fayli yo'li
+        font_path = FONTS_DIR / "KomikaAxis.ttf"
+        font_arg = str(font_path.resolve()).replace("\\", "/").replace(":", "\\:")
 
-        # FFmpeg buyrug'iga rasm INPUT larni qo'shamiz
-        cmd_render = ["ffmpeg", "-y", "-i", "input.mp4"]
-        for i in range(len(cleaned_words)):
-            cmd_render.extend(["-i", str(images_dir / f"word_{i}.png")])
+        # FFmpeg orqali SRT subtitrini videoga yopishamiz (drawtext / subtitles filtri orqali)
+        # Windows va Linux da bir xil ishlaydigan xavfsiz subtitles filtri
+        subtitles_filter = f"subtitles=subtitles.srt:force_style='FontName=Arial,FontSize=22,PrimaryColour=&H00FFFF&,Outline=3,Shadow=1,Alignment=2,MarginV=100'"
 
-        cmd_render.extend([
-            "-filter_complex", filter_complex,
-            "-map", f"[{last_out}]",
-            "-map", "0:a",
+        cmd_render = [
+            "ffmpeg", "-y", "-i", "input.mp4",
+            "-vf", subtitles_filter,
             "-c:v", "libx264",
             "-preset", "ultrafast",
             "-crf", "23",
             "-c:a", "copy",
             "output.mp4"
-        ])
+        ]
 
         res = await asyncio.to_thread(subprocess.run, cmd_render, cwd=str(work_dir), capture_output=True, text=True)
         if res.returncode != 0:
@@ -309,7 +277,7 @@ async def process_job(bot: Bot, job: Dict[str, Any]) -> None:
         await bot.send_video(
             chat_id,
             video=FSInputFile(str(output_video)),
-            caption=f"🔥 <b>Komika Axis Subtitr Tayyor!</b>\n\n💳 Balans: <b>{current_bal} ta video</b>",
+            caption=f"🔥 <b>Subtitr Tayyor!</b>\n\n💳 Balans: <b>{current_bal} ta video</b>",
             reply_markup=get_main_keyboard(),
             parse_mode="HTML"
         )
@@ -328,7 +296,7 @@ OFERTA_FULL_TEXT = (
     "<b>1. UMUMIY QOIDALAR</b>\n"
     "1.1. Ushbu Ommaviy oferta foydalanuvchi va «Captions Pro» sun'iy intellekt botining ma'muriyati o'rtasidagi munosabatlarni tartibga soladi.\n"
     "1.2. Botdan foydalanishni boshlash orqali foydalanuvchi ushbu shartlarning barchasiga rozilik bildiradi.\n\n"
-    "<b>2. XIZMAT KO'RSATish TARTIBI</b>\n"
+    "<b>2. XIZMAT KO'RSATISH TARTIBI</b>\n"
     "2.1. Bot yuborilgan videolarga sun'iy intellekt yordamida avtomatik ravishda dinamik subtitrlar qo'shib beradi.\n"
     "2.2. Videolar <b>9:16 vertikal (1080x1920)</b> formatda va hajmi <b>50 MB dan oshmagan</b> bo'lishi shart.\n\n"
     "<b>3. TO'LOV VA QAYTARIB BERMASLIK SHARTI</b>\n"
@@ -519,7 +487,7 @@ async def cmd_auto_subtitr(message: Message, bot: Bot):
 
 @router.message(F.text == "🎨 Subtitr uslublari")
 async def cmd_subtitr_styles(message: Message):
-    await message.answer("🎨 <b>Komika Axis shrifti muvaffaqiyatli ulangan.</b> Videongizni yuborib sinab ko'rishingiz mumkin!", parse_mode="HTML")
+    await message.answer("🎨 <b>Subtitrlar avtomatik SRT formatida ishlaydi.</b> Videongizni yuborib sinab ko'rishingiz mumkin!", parse_mode="HTML")
 
 
 @router.message(F.text == "📜 Oferta")
@@ -536,7 +504,7 @@ async def cmd_balans(message: Message):
             f"📊 <b>Sizning profilingiz va balansingiz:</b>\n\n"
             f"🆔 ID: <code>{message.from_user.id}</code>\n"
             f"💎 Qolgan urinishlar: <b>0 ta video</b>\n\n"
-            f"⚠️️ <i>Sizda bepul foydalanish limiti tugadi!</i>\n"
+            f"⚠️ <i>Sizda bepul foydalanish limiti tugadi!</i>\n"
             f"🚀 Videolarga professional subtitr qo'shishni davom ettirish uchun quyidagi tariflardan birini tanlang va balansingizni to'ldiring:"
         )
     else:
@@ -620,7 +588,7 @@ async def on_video(message: Message, state: FSMContext, bot: Bot) -> None:
         "chat_id": message.chat.id,
         "file_id": media.file_id,
         "lang": "uz",
-        "color": None,
+        "color": (255, 255, 0),
         "ts": time.time()
     }
 
@@ -668,7 +636,7 @@ async def on_color(call: CallbackQuery, bot: Bot) -> None:
 
     job["color"] = COLORS[cname][1]
     jobs.pop(key, None)
-    await call.message.edit_text("✅ Sozlamalar qabul qilindi. Komika Axis shrifti bilan video tayyorlanmoqda...")
+    await call.message.edit_text("✅ Sozlamalar qabul qilindi. Video tayyorlanmoqda...")
     asyncio.create_task(process_job(bot, job))
 
 
