@@ -174,7 +174,7 @@ ScaledBorderAndShadow: yes
 
 [V4+ Styles]
 Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding
-Style: WordStyle,Arial,{font_size},{color_hex},&H000000FF,&HFF000000,&H80000000,0,0,0,0,100,100,2,0,1,4.0,2.0,2,40,40,450,1
+Style: WordStyle,Komika Axis,{font_size},{color_hex},&H000000FF,&HFF000000,&H80000000,0,0,0,0,100,100,2,0,1,4.0,2.0,2,40,40,450,1
 
 [Events]
 Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
@@ -212,7 +212,6 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
             end_fmt = format_ass_time(end_sec)
             word_text = w["word"]
 
-            # MrBeast pop-up animatsiya teglari
             pro_anim = f"{{\\an2{font_tag}\\fad(50,100)\\fscx120\\fscy120\\t(0,60,\\fscx100\\fscy100)\\b0}}"
             f.write(f"Dialogue: 0,{start_fmt},{end_fmt},WordStyle,,0,0,0,,{pro_anim}{word_text}\n")
             count += 1
@@ -269,7 +268,7 @@ async def process_job(bot: Bot, job: Dict[str, Any]) -> None:
         await status_msg.edit_text(
             "⚡ <b>Komika Axis AI ishga tushdi!</b>\n\n"
             "▓▓▓▓▓▓░░░░ 70%\n\n"
-            "✨ <i>Subtitrlar tayyorlanmoqda...</i>",
+            "✨ <i>Subtitrlar yuqori sifatda tayyorlanmoqda...</i>",
             parse_mode="HTML"
         )
 
@@ -295,8 +294,9 @@ async def process_job(bot: Bot, job: Dict[str, Any]) -> None:
             "ffmpeg", "-y", "-i", "input.mp4",
             "-vf", f"ass=subtitles.ass:fontsdir='{abs_fonts_dir}'",
             "-c:v", "libx264",
-            "-preset", "ultrafast",
-            "-crf", "23",
+            "-preset", "medium",
+            "-crf", "18",
+            "-pix_fmt", "yuv420p",
             "-c:a", "copy",
             "output.mp4"
         ]
@@ -589,7 +589,7 @@ async def cmd_payment(message: Message):
     await message.answer(payment_text, parse_mode="HTML")
 
 
-@router.message(F.text == "👨‍💻 Admin bilan bog'lanish")
+@router.message(F.text == "👨‍‍💻 Admin bilan bog'lanish")
 async def cmd_contact_admin(message: Message):
     await message.answer(f"👨‍💻 Admin: @{ADMIN_USERNAME}\n📞 Tel: {ADMIN_PHONE}", parse_mode="HTML")
 
