@@ -25,6 +25,7 @@ from aiogram.types import (
 from aiogram.utils.keyboard import InlineKeyboardBuilder
 from aiogram.client.session.aiohttp import AiohttpSession
 from aiogram.fsm.context import FSMContext
+from aiogram.fsm.state import State, StatesGroup
 from aiogram.fsm.storage.memory import MemoryStorage
 from elevenlabs.client import ElevenLabs
 
@@ -63,7 +64,7 @@ COLORS = {
 
 ANIMATION_STYLES = {
     "mrbeast_style": {
-        "title": "🟢 MrBeast Style (Pop-up ⭐)",
+        "title": "🟢 Komika Pop-up Style (⭐)",
         "desc": "Klassik qalin pop-up va sakrab chiqish animatsiyasi"
     },
     "smooth_tracking": {
@@ -181,7 +182,9 @@ def generate_word_by_word_ass(words: List[Any], ass_path: Path, text_color: str,
         border_style = 1
         outline_val = 4.0 if (anim_style == "mrbeast_style" or anim_style == "smooth_tracking") else 2.0
     
-    # Shrift nomi aniq "Bangers" qilib belgilanadi
+    # Komika Axis shrift faylining to'g'ri yo'li
+    font_path = str((FONTS_DIR / "KomikaAxis.ttf").resolve()).replace("\\", "/")
+
     header = f"""[Script Info]
 ScriptType: v4.00+
 PlayResX: 1080
@@ -190,7 +193,7 @@ ScaledBorderAndShadow: yes
 
 [V4+ Styles]
 Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding
-Style: WordStyle,Bangers,{font_size},{text_color},&H000000FF,&HFF000000,&H80000000,0,0,0,0,100,100,2,0,{border_style},{outline_val},2.0,2,40,40,{margin_v},1
+Style: WordStyle,Komika Axis,{font_size},{text_color},&H000000FF,&HFF000000,&H80000000,0,0,0,0,100,100,2,0,{border_style},{outline_val},2.0,2,40,40,{margin_v},1
 
 [Events]
 Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
@@ -236,18 +239,20 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
             if duration_ms < 200:
                 duration_ms = 200
 
+            font_tag = f"\\fn{font_path}"
+
             if anim_style == "mrbeast_style":
-                pro_anim = r"{\an2\fad(80,150)\fscx125\fscy125\t(0,70,\fscx100\fscy100)\b0}"
+                pro_anim = f"{{\\an2{font_tag}\\fad(80,150)\\fscx125\\fscy125\\t(0,70,\\fscx100\\fscy100)\\b0}}"
             elif anim_style == "smooth_tracking":
-                pro_anim = f"{{\\an2\\fad(60,100)\\fsp2\\t(0,{duration_ms},\\fsp16)\\b0}}"
+                pro_anim = f"{{\\an2{font_tag}\\fad(60,100)\\fsp2\\t(0,{duration_ms},\\fsp16)\\b0}}"
             elif anim_style == "active_bold_regular":
-                pro_anim = r"{\an2\fad(80,120)\b0}"
+                pro_anim = f"{{\\an2{font_tag}\\fad(80,120)\\b0}}"
             elif anim_style == "active_word_box":
-                pro_anim = r"{\an2\fad(80,120)\b0}"
+                pro_anim = f"{{\\an2{font_tag}\\fad(80,120)\\b0}}"
             elif anim_style == "word_fade_in_out":
-                pro_anim = r"{\an2\fad(250,300)\b0}"
+                pro_anim = f"{{\\an2{font_tag}\\fad(250,300)\\b0}}"
             else:
-                pro_anim = r"{\an2\fad(100,150)\b0}"
+                pro_anim = f"{{\\an2{font_tag}\\fad(100,150)\\b0}}"
 
             f.write(f"Dialogue: 0,{start_fmt},{end_fmt},WordStyle,,0,0,0,,{pro_anim}{word_text}\n")
             count += 1
@@ -275,7 +280,7 @@ async def process_job(bot: Bot, job: Dict[str, Any]) -> None:
 
     status_msg = await bot.send_message(
         chat_id,
-        "⚡ <b>Pro Subtitle AI ishga tushdi!</b>\n\n"
+        "⚡ <b>Komika Axis Subtitle AI ishga tushdi!</b>\n\n"
         "▓░░░░░░░░░ 15%\n\n"
         "📥 <i>Video yuklanmoqda...</i>\n"
         "⏱ <i>Tez orada tayyor bo'ladi</i>",
@@ -290,7 +295,7 @@ async def process_job(bot: Bot, job: Dict[str, Any]) -> None:
         await bot.download_file(file.file_path, destination=input_video)
 
         await status_msg.edit_text(
-            "⚡ <b>Pro Subtitle AI ishga tushdi!</b>\n\n"
+            "⚡ <b>Komika Axis Subtitle AI ishga tushdi!</b>\n\n"
             "▓▓▓░░░░░░░ 40%\n\n"
             "🎙 <i>Audio yuqori aniqlikda tahlil qilinmoqda...</i>",
             parse_mode="HTML"
@@ -304,9 +309,9 @@ async def process_job(bot: Bot, job: Dict[str, Any]) -> None:
         await asyncio.to_thread(subprocess.run, cmd_extract, cwd=str(work_dir), capture_output=True, text=True)
 
         await status_msg.edit_text(
-            "⚡ <b>Pro Subtitle AI ishga tushdi!</b>\n\n"
+            "⚡ <b>Komika Axis Subtitle AI ishga tushdi!</b>\n\n"
             "▓▓▓▓▓▓░░░░ 70%\n\n"
-            "✨ <i>Bangers shrifti va animatsiya ulanmoqda...</i>",
+            "✨ <i>Komika Axis shrifti va animatsiya ulanmoqda...</i>",
             parse_mode="HTML"
         )
 
@@ -334,7 +339,6 @@ async def process_job(bot: Bot, job: Dict[str, Any]) -> None:
             await status_msg.edit_text("❌ Videoda nutq aniqlanmadi.")
             return
 
-        # FFmpeg shrifitni to'g'ri o'qishi uchun fontsdir ko'rsatiladi
         abs_fonts_dir = str(FONTS_DIR.resolve())
         cmd_render = [
             "ffmpeg", "-y", "-i", "input.mp4",
@@ -357,7 +361,7 @@ async def process_job(bot: Bot, job: Dict[str, Any]) -> None:
         await bot.send_video(
             chat_id,
             video=FSInputFile(str(output_video)),
-            caption=f"🔥 <b>Subtitr Tayyor!</b>\n\n💳 Balans: <b>{current_bal} ta video</b>",
+            caption=f"🔥 <b>Komika Axis Subtitr Tayyor!</b>\n\n💳 Balans: <b>{current_bal} ta video</b>",
             reply_markup=get_main_keyboard(),
             parse_mode="HTML"
         )
@@ -670,7 +674,7 @@ async def on_video(message: Message, state: FSMContext, bot: Bot) -> None:
         "lang": "uz",
         "style": "mrbeast_style",
         "color": None,
-        "font": "bangers",
+        "font": "komika_axis",
         "size": 100,
         "ts": time.time()
     }
@@ -712,7 +716,7 @@ async def on_style(call: CallbackQuery) -> None:
     _, key, skey = parts
     job = jobs.get(key)
     if not job:
-        await call.answer("Eskirgan so'rov yoki vaqt o'tdi.", show_alert=True)
+        await call.answer("Eskirgan so'rov.", show_alert=True)
         return
 
     job["style"] = skey
@@ -740,7 +744,7 @@ async def on_color(call: CallbackQuery, bot: Bot) -> None:
 
     job["color"] = COLORS[cname][1]
     jobs.pop(key, None)
-    await call.message.edit_text("✅ Sozlamalar qabul qilindi. Video tezkor tayyorlanmoqda...")
+    await call.message.edit_text("✅ Sozlamalar qabul qilindi. Komika Axis shrifti bilan video tayyorlanmoqda...")
     asyncio.create_task(process_job(bot, job))
 
 
