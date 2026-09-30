@@ -61,7 +61,7 @@ COLORS = {
     "green":  ("🟢 Yashil", "&H0000FF00"),
 }
 
-# Shrift nomlari sizdagi fayllarga to'liq moslandi
+# Shrift nomlari va ularning fayl nomlari to'liq moslandi
 FONTS = {
     "coolvetica": {
         "title": "🖤 Coolvetica (Standart Pro)",
@@ -99,25 +99,6 @@ ANIMATION_STYLES = {
 jobs: Dict[str, Dict[str, Any]] = {}
 router = Router()
 el_client = ElevenLabs(api_key=ELEVENLABS_API_KEY)
-
-
-def install_fonts_to_system():
-    """Loyiha ichidagi fonts papkasidagi shriftlarni Render tizimiga o'rnatadi"""
-    try:
-        fonts_src = Path(__file__).parent / "fonts"
-        if fonts_src.exists():
-            system_fonts_dir = Path("/root/.local/share/fonts")
-            system_fonts_dir.mkdir(parents=True, exist_ok=True)
-            
-            for font_file in fonts_src.glob("*.*"):
-                if font_file.suffix.lower() in [".ttf", ".otf"]:
-                    dest = system_fonts_dir / font_file.name
-                    shutil.copy(font_file, dest)
-                    log.info(f"Shrift tizimga o'rnatildi: {font_file.name}")
-            
-            subprocess.run(["fc-cache", "-f", "-v"], capture_output=True)
-    except Exception as e:
-        log.warning(f"Shriftlarni o'rnatishda xatolik: {e}")
 
 
 def get_main_keyboard() -> ReplyKeyboardMarkup:
@@ -366,11 +347,14 @@ async def process_job(bot: Bot, job: Dict[str, Any]) -> None:
             await status_msg.edit_text("❌ Videoda nutq aniqlanmadi.")
             return
 
-        fonts_dir = str(Path(__file__).parent / "fonts")
+        # Absolyut yo'lni ko'rsatamiz
+        fonts_dir = Path(__file__).parent / "fonts"
+        fonts_dir_str = str(fonts_dir.resolve())
 
+        # FFmpeg render buyrug'i (fontsdir orqali aniq ko'rsatiladi)
         cmd_render = [
             "ffmpeg", "-y", "-i", "input.mp4",
-            "-vf", f"ass=subtitles.ass:fontsdir='{fonts_dir}'",
+            "-vf", f"ass=subtitles.ass:fontsdir='{fonts_dir_str}'",
             "-c:v", "libx264",
             "-preset", "ultrafast",
             "-crf", "23",
@@ -626,6 +610,8 @@ async def on_color(call: CallbackQuery) -> None:
 async def on_font(call: CallbackQuery, bot: Bot) -> None:
     _, key, fname = call.data.split(":")
     job = jobs.get(key)
+    if not call.message:
+        return
     if not job:
         await call.answer("Eskirgan so'rov.", show_alert=True)
         return
@@ -673,7 +659,6 @@ async def start_bot_polling():
 
 
 async def main() -> None:
-    install_fonts_to_system()
     init_db()
     WORK_ROOT.mkdir(parents=True, exist_ok=True)
     asyncio.create_task(web_server())
