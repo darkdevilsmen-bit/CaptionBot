@@ -155,7 +155,7 @@ def is_user_pro(user_id: int) -> bool:
 
 def deduct_user_credit(user_id: int) -> bool:
     if is_user_pro(user_id):
-        return True  # PRO foydalanuvchilardan kredit ayrilmaydi
+        return True
     with sqlite3.connect(DB_FILE) as conn:
         cursor = conn.cursor()
         cursor.execute("SELECT credits FROM users WHERE user_id = ?", (user_id,))
@@ -373,11 +373,10 @@ async def process_job(bot: Bot, data: Dict[str, Any], chat_id: int, user_id: int
         current_bal = get_user_credits(user_id)
         pro_status = is_user_pro(user_id)
 
-        # Sifat va tarif haqida eslatma
         if pro_status:
-            quality_note = "🎬 Sifat: <b>2K HD (PRO Tarifi)</b>"
+            quality_note = "🎬 Sifat: <b>2K HD (PRO Tarif - Cheksiz & Prioritet)</b>"
         else:
-            quality_note = "🎬 Sifat: <b>720p (Bepul versiya)</b>\n💎 2K HD sifatda yuklab olish uchun <b>PRO Tarif</b> oling!"
+            quality_note = "🎬 Sifat: <b>720p (Bepul versiya)</b>\n💎 2K HD sifat va prioritet navbat olish uchun <b>PRO Tarif</b> oling!"
 
         await status_msg.edit_text("📤 <b>Tayyor! Video yuborilmoqda...</b>", parse_mode="HTML")
         await bot.send_video(
@@ -402,10 +401,10 @@ OFERTA_FULL_TEXT = (
     "<b>1. UMUMIY QOIDALAR</b>\n"
     "1.1. Ushbu Ommaviy oferta foydalanuvchi va «Captions Pro» sun'iy intellekt botining ma'muriyati o'rtasidagi munosabatlarni tartibga soladi.\n"
     "1.2. Botdan foydalanishni boshlash orqali foydalanuvchi ushbu shartlarning barchasiga rozilik bildiradi.\n\n"
-    "<b>2. XIZMAT KO'RSATISH TARTIBI</b>\n"
+    "<b>2. XIZMAT KO'RSATish TARTIBI</b>\n"
     "2.1. Bot yuborilgan videolarga sun'iy intellekt yordamida avtomatik ravishda dinamik subtitrlar qo'shib beradi.\n"
     "2.2. Videolar <b>9:16 vertikal (1080x1920)</b> formatda va hajmi <b>50 MB dan oshmagan</b> bo'lishi shart.\n"
-    "2.3. Bepul versiyadagi videolar <b>720p</b> sifatda ishlov beriladi. **PRO Tarif (1 oylik)** egalariga esa yuqori aniqlikdagi **2K HD** formatda taqdim etiladi.\n\n"
+    "2.3. Bepul versiyadagi videolar <b>720p</b> sifatda ishlov beriladi. **PRO Tarif (1 oylik)** egalariga esa yuqori aniqlikdagi **2K HD sifat, cheksiz videolar, prioritet navbat va eksklyuziv animatsiyalar** taqdim etiladi.\n\n"
     "<b>3. TO'LOV VA QAYTARIB BERMASLIK SHARTI</b>\n"
     "3.1. Sotib olingan kreditlar va tariflar hech qanday holatda ortga qaytarilmaydi.\n"
     "3.2. To'lov faqat ko'rsatilgan karta raqamiga amalga oshirilishi shart.\n"
@@ -465,18 +464,21 @@ async def refresh_stats(call: CallbackQuery):
 async def cmd_make_pro(message: Message, bot: Bot):
     if message.from_user.id != ADMIN_ID:
         return
-    parts = message.text.split()
+    parts = message.text.strip().split()
     if len(parts) < 2:
         await message.reply("⚠️ Ishlatilishi: <code>/pro [user_id]</code>", parse_mode="HTML")
         return
     try:
-        target_id = int(parts[1])
+        clean_id_str = "".join(filter(str.isdigit, parts[1]))
+        target_id = int(clean_id_str)
+        
         with sqlite3.connect(DB_FILE) as conn:
             cursor = conn.cursor()
             cursor.execute("UPDATE users SET is_pro = 1 WHERE user_id = ?", (target_id,))
             conn.commit()
-        await message.reply(f"✅ Foydalanuvchi (ID: <code>{target_id}</code>) ga **1 oylik PRO tarif** berildi!")
-        await bot.send_message(target_id, "🎉 <b>Tabriklaymiz! Sizga 1 oylik PRO tarif berildi!</b>\n\n✨ Endi barcha videolaringiz <b>2K HD sifatda</b> tayyorlanadi!", parse_mode="HTML", reply_markup=get_main_keyboard())
+            
+        await message.reply(f"✅ Foydalanuvchi (ID: <code>{target_id}</code>) ga <b>1 oylik PRO tarif</b> berildi!", parse_mode="HTML")
+        await bot.send_message(target_id, "🎉 <b>Tabriklaymiz! Sizga 1 oylik PRO tarif berildi!</b>\n\n✨ Endi barcha videolaringiz <b>2K HD sifatda va prioritet rejimda</b> tayyorlanadi!", parse_mode="HTML", reply_markup=get_main_keyboard())
     except Exception as e:
         await message.reply(f"❌ Xatolik: {e}")
 
@@ -485,13 +487,15 @@ async def cmd_make_pro(message: Message, bot: Bot):
 async def cmd_add_credits(message: Message, bot: Bot):
     if message.from_user.id != ADMIN_ID:
         return
-    parts = message.text.split()
+    parts = message.text.strip().split()
     if len(parts) < 3:
         await message.reply("⚠️ Xato format! Ishlatilishi:\n<code>/add [user_id] [kredit]</code>", parse_mode="HTML")
         return
     try:
-        target_user_id = int(parts[1])
+        clean_id_str = "".join(filter(str.isdigit, parts[1]))
+        target_user_id = int(clean_id_str)
         amount = int(parts[2])
+        
         with sqlite3.connect(DB_FILE) as conn:
             cursor = conn.cursor()
             cursor.execute("SELECT credits FROM users WHERE user_id = ?", (target_user_id,))
@@ -506,7 +510,8 @@ async def cmd_add_credits(message: Message, bot: Bot):
                 cursor.execute("UPDATE users SET credits = credits + ? WHERE user_id = ?", (amount, target_user_id))
                 new_balance = row[0] + amount
             conn.commit()
-        await message.reply(f"✅ Foydalanuvchi (ID: <code>{target_user_id}</code>) balansiga <b>{amount} ta</b> kredit qo'shildi!")
+            
+        await message.reply(f"✅ Foydalanuvchi (ID: <code>{target_user_id}</code>) balansiga <b>{amount} ta</b> kredit qo'shildi!", parse_mode="HTML")
     except Exception as e:
         await message.reply(f"❌ Xatolik: {e}")
 
@@ -608,7 +613,7 @@ async def cmd_auto_subtitr(message: Message, state: FSMContext, bot: Bot):
         "🎬 <b>Auto Subtitr tayyorlash uchun ko'rsatma:</b>\n\n"
         "1️⃣ Video formati: <b>9:16 (vertikal)</b>\n"
         "2️⃣ Maksimal hajmi: <b>50 MB gacha</b>\n"
-        "3️⃣ Sifat: Bepul versiya uchun <b>720p</b>, <b>1 oylik PRO tarif</b> egalari uchun esa yuqori aniqlikdagi <b>2K HD</b> formatda tayyorlanadi!\n\n"
+        "3️⃣ Sifat: Bepul versiya uchun <b>720p</b>, <b>1 oylik PRO tarif</b> egalari uchun esa <b>2K HD sifat, cheksiz videolar va prioritet (tezkor) navbat</b> taqdim etiladi!\n\n"
         "👇 <i>Hozir menga mos keladigan videongizni yuboring:</i>"
     )
     await message.answer(warning_text, parse_mode="HTML")
@@ -622,12 +627,14 @@ async def cmd_subtitr_styles(message: Message):
 @router.message(F.text == "💎 PRO Tarif")
 async def cmd_pro_tariff(message: Message):
     pro_text = (
-        "💎 <b>1 Oylik PRO Tarif (Cheksiz 2K Sifat)</b>\n\n"
+        "💎 <b>1 Oylik PRO Tarif (Cheksiz & 2K Sifat)</b>\n\n"
         "PRO tarif imkoniyatlari:\n"
         "✅ Barcha videolarni <b>2K HD</b> sifatda yuklab olish\n"
-        "✅ Ustuvor (navbatsiz) tezkor ishlov berish\n"
-        "✅ Komika Axis va barcha professional uslublar\n\n"
-        "💰 <b>Narxi:</b> 50,000 so'm / 1 oy\n\n"
+        "✅ Ustuvor va o'ta tezkor (prioritet) ishlov berish\n"
+        "✅ Komika Axis va barcha professional uslublar\n"
+        "✅ Cheksiz miqdordagi videolar\n"
+        "✅ Suv belgilarisiz toza eksport\n\n"
+        "💰 <b>Narxi:</b> 75,000 so'm / 1 oy\n\n"
         "💳 <b>To'lov uchun karta raqami:</b>\n"
         f"<code>{CARD_NUMBER}</code>\n"
         f"👤 <b>Karta egasi:</b> {CARD_HOLDER}\n\n"
@@ -648,13 +655,13 @@ async def cmd_balans(message: Message):
     credits = get_user_credits(user_id)
     pro_active = is_user_pro(user_id)
     
-    status_str = "💎 <b>PRO Tarif faol (2K Sifat)</b>" if pro_active else f"📊 Qolgan bepul urinishlar: <b>{credits} ta video (720p)</b>"
+    status_str = "💎 <b>PRO Tarif faol (2K Sifat & Cheksiz)</b>" if pro_active else f"📊 Qolgan bepul urinishlar: <b>{credits} ta video (720p)</b>"
     
     text = (
         f"📊 <b>Sizning profilingiz:</b>\n\n"
         f"🆔 ID: <code>{user_id}</code>\n"
         f"{status_str}\n\n"
-        f"🚀 1 oylik PRO tarif sotib olish yoki balansni to'ldirish uchun quyidagi tugmani bosing:"
+        f"🚀 1 oylik PRO tarif sotib olish uchun quyidagi tugmani bosing:"
     )
     
     kb = InlineKeyboardMarkup(inline_keyboard=[
@@ -667,12 +674,14 @@ async def cmd_balans(message: Message):
 async def on_show_pro_info(call: CallbackQuery):
     await call.answer()
     pro_text = (
-        "💎 <b>1 Oylik PRO Tarif (Cheksiz 2K Sifat)</b>\n\n"
+        "💎 <b>1 Oylik PRO Tarif (Cheksiz & 2K Sifat)</b>\n\n"
         "PRO tarif imkoniyatlari:\n"
         "✅ Barcha videolarni <b>2K HD</b> sifatda yuklab olish\n"
-        "✅ Ustuvor (navbatsiz) tezkor ishlov berish\n"
-        "✅ Komika Axis va barcha professional uslublar\n\n"
-        "💰 <b>Narxi:</b> 50,000 so'm / 1 oy\n\n"
+        "✅ Ustuvor va o'ta tezkor (prioritet) ishlov berish\n"
+        "✅ Komika Axis va barcha professional uslublar\n"
+        "✅ Cheksiz miqdordagi videolar\n"
+        "✅ Suv belgilarisiz toza eksport\n\n"
+        "💰 <b>Narxi:</b> 75,000 so'm / 1 oy\n\n"
         "💳 <b>To'lov uchun karta raqami:</b>\n"
         f"<code>{CARD_NUMBER}</code>\n"
         f"👤 <b>Karta egasi:</b> {CARD_HOLDER}\n\n"
