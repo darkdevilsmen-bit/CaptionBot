@@ -39,7 +39,8 @@ ADMIN_ID = 7662888182
 ADMIN_USERNAME = "Captions_Admin"
 ADMIN_PHONE = "+998 (93) 495-10-89"
 
-REQUIRED_CHANNEL = "@sizning_kanal" 
+# MAJBURIY KANAL (O'z kanalingiz username'ini yozing)
+REQUIRED_CHANNEL = "@Auto_captions"  
 
 CARD_NUMBER = "5614 6865 0542 8600"
 CARD_HOLDER = "Toshpulatov Shoxrux"
@@ -95,9 +96,6 @@ ANIMATION_STYLES = {
     }
 }
 
-class SubtitleState(StatesGroup):
-    waiting_for_custom_size = State()
-
 jobs: Dict[str, Dict[str, Any]] = {}
 router = Router()
 el_client = ElevenLabs(api_key=ELEVENLABS_API_KEY)
@@ -108,7 +106,7 @@ def get_main_keyboard() -> ReplyKeyboardMarkup:
         [KeyboardButton(text="⚡ Auto Subtitr qo'yish")],
         [KeyboardButton(text="🎨 Subtitr uslublari"), KeyboardButton(text="💳 Balans")],
         [KeyboardButton(text="💰 To'lov qilish"), KeyboardButton(text="📜 Oferta")],
-        [KeyboardButton(text="👨‍‍💻 Admin bilan bog'lanish")]
+        [KeyboardButton(text="👨‍💻 Admin bilan bog'lanish")]
     ]
     return ReplyKeyboardMarkup(keyboard=keyboard, resize_keyboard=True)
 
@@ -162,6 +160,7 @@ def deduct_user_credit(user_id: int) -> bool:
         return False
 
 
+# --- MAJBURIY OBUNANI TEKSHIRISH ---
 async def check_subscription(bot: Bot, user_id: int) -> bool:
     if not REQUIRED_CHANNEL or REQUIRED_CHANNEL == "@sizning_kanal":
         return True
@@ -387,6 +386,8 @@ OFERTA_TEXT = (
 @router.message(CommandStart())
 async def cmd_start(message: Message, bot: Bot):
     user_id = message.from_user.id
+    
+    # Majburiy obunani tekshirish
     if not await check_subscription(bot, user_id):
         kb = InlineKeyboardMarkup(inline_keyboard=[
             [InlineKeyboardButton(text="📢 Kanalga a'zo bo'lish", url=f"https://t.me/{REQUIRED_CHANNEL.replace('@', '')}")],
@@ -600,7 +601,6 @@ async def start_bot_polling():
             dp = Dispatcher(storage=MemoryStorage())
             dp.include_router(router)
             
-            # Eski seanslarni tozalash va konfliktni oldini olish
             await bot.delete_webhook(drop_pending_updates=True)
             log.info("Captions Pro Bot ishga tushdi!")
             await dp.start_polling(bot, handle_as_tasks=True, drop_pending_updates=True)
