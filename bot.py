@@ -61,6 +61,25 @@ COLORS = {
     "green":  ("🟢 Yashil", "&H0000FF00"),
 }
 
+ANIMATION_STYLES = {
+    "mrbeast_style": {
+        "title": "🟢 MrBeast Style (Tavsiya etiladi ⭐)",
+        "desc": "So'zma-so'z pop-up va qalin qora konturli dinamik uslub"
+    },
+    "active_bold_regular": {
+        "title": "🔥 Active Bold / Regular",
+        "desc": "Gapirilayotgan so'z qalin, qolganlari oddiy ko'rinishda"
+    },
+    "active_word_box": {
+        "title": "⬛ Active Word Highlight (Box Style)",
+        "desc": "So'z orqasida qora fonli to'rtburchak blok bo'ladi"
+    },
+    "word_fade_in_out": {
+        "title": "✨ Smooth Fade In & Out",
+        "desc": "Mayin paydo bo'lib, sekin so'nib yo'qoluvchi klassik uslub"
+    }
+}
+
 jobs: Dict[str, Dict[str, Any]] = {}
 router = Router()
 el_client = ElevenLabs(api_key=ELEVENLABS_API_KEY)
@@ -358,14 +377,13 @@ OFERTA_FULL_TEXT = (
 )
 
 
-# --- ADMIN PANEL BUYRUĞI ---
+# --- ADMIN PANEL & ADD ---
 @router.message(Command("panel"))
 async def cmd_admin_panel(message: Message):
     if message.from_user.id != ADMIN_ID:
         await message.answer("❌ Sizda bu buyruqdan foydalanish huquqi yo'q!")
         return
 
-    # Bazadan jami foydalanuvchilar sonini hisoblash
     with sqlite3.connect(DB_FILE) as conn:
         cursor = conn.cursor()
         cursor.execute("SELECT COUNT(*) FROM users")
@@ -374,16 +392,13 @@ async def cmd_admin_panel(message: Message):
     panel_text = (
         "🛠 <b>ADMIN PANEL</b>\n\n"
         f"👥 Jami foydalanuvchilar: <b>{total_users} ta</b>\n\n"
-        "<b>Qo'mitalar va buyruqlar:</b>\n"
-        "💎 Foydalanuvchiga kredit qo'shish:\n"
-        "<code>/add [user_id] [kredit_soni]</code>\n\n"
-        "<i>Misol: /add 7662888182 10</i>"
+        "<b>Buyruq:</b>\n"
+        "<code>/add [user_id] [kredit_soni]</code>"
     )
 
     kb = InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="🔄 Statistikani yangilash", callback_data="refresh_stats")]
+        [InlineKeyboardButton(text="🔄 Yangilash", callback_data="refresh_stats")]
     ])
-
     await message.answer(panel_text, reply_markup=kb, parse_mode="HTML")
 
 
@@ -401,20 +416,17 @@ async def refresh_stats(call: CallbackQuery):
     panel_text = (
         "🛠 <b>ADMIN PANEL</b>\n\n"
         f"👥 Jami foydalanuvchilar: <b>{total_users} ta</b>\n\n"
-        "<b>Qo'mitalar va buyruqlar:</b>\n"
-        "💎 Foydalanuvchiga kredit qo'shish:\n"
+        "<b>Buyruq:</b>\n"
         "<code>/add [user_id] [kredit_soni]</code>"
     )
-    
     kb = InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="🔄 Statistikani yangilash", callback_data="refresh_stats")]
+        [InlineKeyboardButton(text="🔄 Yangilash", callback_data="refresh_stats")]
     ])
-
     try:
         await call.message.edit_text(panel_text, reply_markup=kb, parse_mode="HTML")
     except Exception:
         pass
-    await call.answer("Statistika yangilandi!")
+    await call.answer("Yangilandi!")
 
 
 @router.message(Command("add"))
@@ -651,7 +663,6 @@ async def on_video(message: Message, state: FSMContext, bot: Bot) -> None:
         "lang": "uz",
         "style": "mrbeast_style",
         "color": None,
-        "font": "coolvetica",
         "size": 100,
         "ts": time.time()
     }
@@ -663,12 +674,17 @@ async def on_video(message: Message, state: FSMContext, bot: Bot) -> None:
     await message.reply("1️⃣ Tilni tanlang:", reply_markup=kb.as_markup())
 
 
+# --- CALLBACK HANDLERS (Qotib qolishni oldini olish uchun to'liq ulandi) ---
 @router.callback_query(F.data.startswith("lang:"))
 async def on_lang(call: CallbackQuery) -> None:
-    _, key, code = call.data.split(":")
+    parts = call.data.split(":")
+    if len(parts) < 3:
+        await call.answer("Eskirgan so'rov.", show_alert=True)
+        return
+    _, key, code = parts
     job = jobs.get(key)
     if not job:
-        await call.answer("Eskirgan so'rov.", show_alert=True)
+        await call.answer("Eskirgan so'rov yoki vaqt o'tdi.", show_alert=True)
         return
 
     job["lang"] = code
@@ -682,7 +698,11 @@ async def on_lang(call: CallbackQuery) -> None:
 
 @router.callback_query(F.data.startswith("style:"))
 async def on_style(call: CallbackQuery) -> None:
-    _, key, skey = call.data.split(":")
+    parts = call.data.split(":")
+    if len(parts) < 3:
+        await call.answer("Eskirgan so'rov.", show_alert=True)
+        return
+    _, key, skey = parts
     job = jobs.get(key)
     if not job:
         await call.answer("Eskirgan so'rov.", show_alert=True)
@@ -698,25 +718,12 @@ async def on_style(call: CallbackQuery) -> None:
 
 
 @router.callback_query(F.data.startswith("col:"))
-async def on_color(call: CallbackQuery) -> None:
-    _, key, cname = call.data.split(":")
-    job = jobs.get(key)
-    if not job:
+async def on_color(call: CallbackQuery, bot: Bot) -> None:
+    parts = call.data.split(":")
+    if len(parts) < 3:
         await call.answer("Eskirgan so'rov.", show_alert=True)
         return
-
-    job["color"] = COLORS[cname][1]
-    kb = InlineKeyboardBuilder()
-    for fname, fdata in FONTS.items():
-        kb.button(text=fdata["title"], callback_data=f"font:{key}:{fname}")
-    kb.adjust(2)
-    await call.message.edit_text("4️⃣ Shrift turini tanlang:", reply_markup=kb.as_markup())
-    await call.answer()
-
-
-@router.callback_query(F.data.startswith("font:"))
-async def on_font(call: CallbackQuery, bot: Bot) -> None:
-    _, key, fname = call.data.split(":")
+    _, key, cname = parts
     job = jobs.get(key)
     if not call.message:
         return
@@ -724,7 +731,7 @@ async def on_font(call: CallbackQuery, bot: Bot) -> None:
         await call.answer("Eskirgan so'rov.", show_alert=True)
         return
 
-    job["font"] = fname
+    job["color"] = COLORS[cname][1]
     jobs.pop(key, None)
     await call.message.edit_text("✅ Sozlamalar qabul qilindi. Video tezkor tayyorlanmoqda...")
     asyncio.create_task(process_job(bot, job))
