@@ -1,4 +1,4 @@
-import os
+ import os
 import sys
 import time
 import uuid
@@ -652,7 +652,7 @@ async def cmd_payment(message: Message):
         f"<code>{CARD_NUMBER}</code>\n"
         f"👤 <b>Karta egasi:</b> {CARD_HOLDER}\n\n"
         f"📸 Pulni o'tkazgandan so'ng, to'lov chekini quyidagi adminga yuboring:\n"
-        f"👨‍💻 <b>Admin:</b> @{ADMIN_USERNAME}"
+        f"👨‍‍💻 <b>Admin:</b> @{ADMIN_USERNAME}"
     )
     await message.answer(payment_text, parse_mode="HTML")
 
@@ -718,9 +718,7 @@ async def on_lang(call: CallbackQuery) -> None:
         return
 
     job["lang"] = code
-    
-    # Shriftni o'tkazib yuborib, to'g'ridan-to'g'ri o'lchamga o'tamiz (chunki faqat Komika Axis qoldi)
-    job["font"] = "komika"
+    job["font"] = "komika"  # Har doim Komika Axis ishlatiladi
     
     kb = InlineKeyboardBuilder()
     for skey, (title, _) in SIZES.items():
