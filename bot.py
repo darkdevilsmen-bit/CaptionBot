@@ -1,7 +1,6 @@
 import os
 import sys
 import time
-import uuid
 import shutil
 import sqlite3
 import asyncio
@@ -25,6 +24,7 @@ from aiogram.types import (
 from aiogram.utils.keyboard import InlineKeyboardBuilder
 from aiogram.client.session.aiohttp import AiohttpSession
 from aiogram.fsm.context import FSMContext
+from aiogram.fsm.state import State, StatesGroup
 from aiogram.fsm.storage.memory import MemoryStorage
 from elevenlabs.client import ElevenLabs
 
@@ -90,7 +90,12 @@ ANIMATION_STYLES = {
     }
 }
 
-jobs: Dict[str, Dict[str, Any]] = {}
+class VideoProcessState(StatesGroup):
+    waiting_for_lang = State()
+    waiting_for_size = State()
+    waiting_for_color = State()
+    waiting_for_animation = State()
+
 router = Router()
 el_client = ElevenLabs(api_key=ELEVENLABS_API_KEY)
 
@@ -257,16 +262,14 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
     return count
 
 
-async def process_job(bot: Bot, job: Dict[str, Any]) -> None:
-    chat_id = job["chat_id"]
-    user_id = job["user_id"]
-    file_id = job["file_id"]
-    lang = job["lang"]
-    font_key = job["font"]
-    color = job["color"]
-    font_size = job["size"]
-    anim_style = job["style"]
-    job_key = job["key"]
+async def process_job(bot: Bot, data: Dict[str, Any], chat_id: int, user_id: int) -> None:
+    file_id = data.get("file_id")
+    lang = data.get("lang", "uz")
+    font_key = data.get("font", "komika")
+    color = data.get("color", (255, 255, 0))
+    font_size = data.get("size", 85)
+    anim_style = data.get("style", "mrbeast_style")
+    job_key = uuid.uuid4().hex[:8]
 
     work_dir = WORK_ROOT / job_key
     work_dir.mkdir(parents=True, exist_ok=True)
@@ -299,7 +302,6 @@ async def process_job(bot: Bot, job: Dict[str, Any]) -> None:
             parse_mode="HTML"
         )
 
-        # Xotirani tejash uchun audio sifatini pasaytirib, stream qilamiz
         cmd_extract = [
             "ffmpeg", "-y", "-i", "input.mp4",
             "-vn", "-acodec", "libmp3lame", "-ar", "16000", "-ac", "1", "-b:a", "48k",
@@ -348,7 +350,6 @@ async def process_job(bot: Bot, job: Dict[str, Any]) -> None:
             return
 
         abs_fonts_dir = str(FONTS_DIR.resolve())
-        # RAM limit oshib ketmasligi uchun thread limitini cheklaymiz va ultrafast ishlatamiz
         cmd_render = [
             "ffmpeg", "-y", "-threads", "1", "-i", "input.mp4",
             "-vf", f"ass=subtitles.ass:fontsdir='{abs_fonts_dir}'",
@@ -507,7 +508,8 @@ async def cmd_add_credits(message: Message, bot: Bot):
 
 
 @router.message(CommandStart())
-async def cmd_start(message: Message, bot: Bot):
+async def cmd_start(message: Message, state: FSMContext, bot: Bot):
+    await state.clear()
     user_id = message.from_user.id
     row = get_user_data(user_id)
     
@@ -593,7 +595,8 @@ async def on_check_sub(call: CallbackQuery, bot: Bot):
 
 
 @router.message(F.text == "⚡ Auto Subtitr qo'yish")
-async def cmd_auto_subtitr(message: Message, bot: Bot):
+async def cmd_auto_subtitr(message: Message, state: FSMContext, bot: Bot):
+    await state.clear()
     if not await check_subscription(bot, message.from_user.id):
         await message.answer("⚠️ Avval kanalimizga a'zo bo'ling! /start ni bosing.")
         return
@@ -683,7 +686,6 @@ async def on_video(message: Message, state: FSMContext, bot: Bot) -> None:
         await message.reply("⚠️ Avval kanalimizga a'zo bo'ling!")
         return
 
-    await state.clear()
     user_id = message.from_user.id
     credits = get_user_credits(user_id, message.from_user.username or "")
     
@@ -699,45 +701,26 @@ async def on_video(message: Message, state: FSMContext, bot: Bot) -> None:
         await message.answer("❌ Video hajmi 50 MB dan oshmasligi kerak.")
         return
 
-    key = uuid.uuid4().hex[:8]
-    jobs[key] = {
-        "key": key,
-        "user_id": user_id,
-        "chat_id": message.chat.id,
-        "file_id": media.file_id,
-        "lang": "uz",
-        "font": "komika",
-        "size": 85,
-        "color": (255, 255, 0),
-        "style": "mrbeast_style",
-        "ts": time.time()
-    }
+    await state.update_data(file_id=media.file_id)
+    await state.set_state(VideoProcessState.waiting_for_lang)
 
     kb = InlineKeyboardBuilder()
     for code, (title, _) in VIDEO_LANGS.items():
-        kb.button(text=title, callback_data=f"lang:{key}:{code}")
+        kb.button(text=title, callback_data=f"lang:{code}")
     kb.adjust(2)
     await message.reply("1️⃣ Tilni tanlang:", reply_markup=kb.as_markup())
 
 
-@router.callback_query(F.data.startswith("lang:"))
-async def on_lang(call: CallbackQuery) -> None:
+@router.callback_query(VideoProcessState.waiting_for_lang, F.data.startswith("lang:"))
+async def on_lang(call: CallbackQuery, state: FSMContext) -> None:
     await call.answer()
-    parts = call.data.split(":")
-    if len(parts) < 3:
-        return
-    _, key, code = parts
-    job = jobs.get(key)
-    if not job:
-        await call.message.answer("⚠️ So'rov vaqti o'tgan yoki eskirgan. Iltimos, videoni qaytadan yuboring.")
-        return
+    code = call.data.split(":")[1]
+    await state.update_data(lang=code, font="komika")
+    await state.set_state(VideoProcessState.waiting_for_size)
 
-    job["lang"] = code
-    job["font"] = "komika"
-    
     kb = InlineKeyboardBuilder()
     for skey, (title, _) in SIZES.items():
-        kb.button(text=title, callback_data=f"size:{key}:{skey}")
+        kb.button(text=title, callback_data=f"size:{skey}")
     kb.adjust(1)
     try:
         await call.message.edit_text("2️⃣ Subtitr o'lchamini tanlang:", reply_markup=kb.as_markup())
@@ -745,22 +728,16 @@ async def on_lang(call: CallbackQuery) -> None:
         pass
 
 
-@router.callback_query(F.data.startswith("size:"))
-async def on_size(call: CallbackQuery) -> None:
+@router.callback_query(VideoProcessState.waiting_for_size, F.data.startswith("size:"))
+async def on_size(call: CallbackQuery, state: FSMContext) -> None:
     await call.answer()
-    parts = call.data.split(":")
-    if len(parts) < 3:
-        return
-    _, key, skey = parts
-    job = jobs.get(key)
-    if not job:
-        await call.message.answer("⚠️ So'rov vaqti o'tgan yoki eskirgan. Iltimos, videoni qaytadan yuboring.")
-        return
+    skey = call.data.split(":")[1]
+    await state.update_data(size=SIZES[skey][1])
+    await state.set_state(VideoProcessState.waiting_for_color)
 
-    job["size"] = SIZES[skey][1]
     kb = InlineKeyboardBuilder()
     for cname, (title, _) in COLORS.items():
-        kb.button(text=title, callback_data=f"col:{key}:{cname}")
+        kb.button(text=title, callback_data=f"col:{cname}")
     kb.adjust(2)
     try:
         await call.message.edit_text("3️⃣ Subtitr rangini tanlang:", reply_markup=kb.as_markup())
@@ -768,22 +745,16 @@ async def on_size(call: CallbackQuery) -> None:
         pass
 
 
-@router.callback_query(F.data.startswith("col:"))
-async def on_color(call: CallbackQuery) -> None:
+@router.callback_query(VideoProcessState.waiting_for_color, F.data.startswith("col:"))
+async def on_color(call: CallbackQuery, state: FSMContext) -> None:
     await call.answer()
-    parts = call.data.split(":")
-    if len(parts) < 3:
-        return
-    _, key, cname = parts
-    job = jobs.get(key)
-    if not job:
-        await call.message.answer("⚠️ So'rov vaqti o'tgan yoki eskirgan. Iltimos, videoni qaytadan yuboring.")
-        return
+    cname = call.data.split(":")[1]
+    await state.update_data(color=COLORS[cname][1])
+    await state.set_state(VideoProcessState.waiting_for_animation)
 
-    job["color"] = COLORS[cname][1]
     kb = InlineKeyboardBuilder()
     for skey, sinfo in ANIMATION_STYLES.items():
-        kb.button(text=sinfo["title"], callback_data=f"anim:{key}:{skey}")
+        kb.button(text=sinfo["title"], callback_data=f"anim:{skey}")
     kb.adjust(1)
     try:
         await call.message.edit_text("4️⃣ Animatsiya uslubini tanlang:", reply_markup=kb.as_markup())
@@ -791,27 +762,21 @@ async def on_color(call: CallbackQuery) -> None:
         pass
 
 
-@router.callback_query(F.data.startswith("anim:"))
-async def on_animation(call: CallbackQuery, bot: Bot) -> None:
+@router.callback_query(VideoProcessState.waiting_for_animation, F.data.startswith("anim:"))
+async def on_animation(call: CallbackQuery, state: FSMContext, bot: Bot) -> None:
     await call.answer()
-    parts = call.data.split(":")
-    if len(parts) < 3:
-        return
-    _, key, skey = parts
-    job = jobs.get(key)
-    if not call.message:
-        return
-    if not job:
-        await call.message.answer("⚠️ So'rov vaqti o'tgan yoki eskirgan. Iltimos, videoni qaytadan yuboring.")
-        return
+    skey = call.data.split(":")[1]
+    await state.update_data(style=skey)
 
-    job["style"] = skey
-    jobs.pop(key, None)
+    data = await state.get_data()
+    await state.clear()
+
     try:
         await call.message.edit_text("✅ Sozlamalar qabul qilindi. Komika Axis shriftida video tezkor tayyorlanmoqda...")
     except Exception:
         pass
-    asyncio.create_task(process_job(bot, job))
+
+    asyncio.create_task(process_job(bot, data, call.message.chat.id, call.from_user.id))
 
 
 async def handle(request):
