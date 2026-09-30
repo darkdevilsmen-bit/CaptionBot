@@ -347,8 +347,9 @@ async def process_job(bot: Bot, data: Dict[str, Any], chat_id: int, user_id: int
         )
 
         abs_fonts_dir = str(FONTS_DIR.resolve())
+        # Serverning barcha yadrolarini (4 ta thread) ishga solib maksimal tezlikda render qilamiz
         cmd_render = [
-            "ffmpeg", "-y", "-threads", "2", "-i", "input.mp4",
+            "ffmpeg", "-y", "-threads", "4", "-i", "input.mp4",
             "-vf", f"scale=1080:1920:force_original_aspect_ratio=decrease,pad=1080:1920:(ow-iw)/2:(oh-ih)/2,ass=subtitles.ass:fontsdir='{abs_fonts_dir}'",
             "-c:v", "libx264",
             "-preset", "ultrafast",
@@ -401,10 +402,10 @@ OFERTA_FULL_TEXT = (
     "<b>1. UMUMIY QOIDALAR</b>\n"
     "1.1. Ushbu Ommaviy oferta foydalanuvchi va «Captions Pro» sun'iy intellekt botining ma'muriyati o'rtasidagi munosabatlarni tartibga soladi.\n"
     "1.2. Botdan foydalanishni boshlash orqali foydalanuvchi ushbu shartlarning barchasiga rozilik bildiradi.\n\n"
-    "<b>2. XIZMAT KO'RSATish TARTIBI</b>\n"
+    "<b>2. XIZMAT KO'RSATISH TARTIBI</b>\n"
     "2.1. Bot yuborilgan videolarga sun'iy intellekt yordamida avtomatik ravishda dinamik subtitrlar qo'shib beradi.\n"
     "2.2. Videolar <b>9:16 vertikal (1080x1920)</b> formatda va hajmi <b>50 MB dan oshmagan</b> bo'lishi shart.\n"
-    "2.3. Bepul versiyadagi videolar <b>720p</b> sifatda ishlov beriladi. **PRO Tarif (1 oylik)** egalariga esa yuqori aniqlikdagi **2K HD sifat, cheksiz videolar, prioritet navbat va eksklyuziv animatsiyalar** taqdim etiladi.\n\n"
+    "2.3. Bepul versiyadagi videolar <b>720p</b> sifatda ishlov beriladi. **PRO Tarif (1 oylik)** egalariga esa yuqori aniqlikdagi <b>2K HD sifat, cheksiz videolar, prioritet navbat va eksklyuziv animatsiyalar</b> taqdim etiladi.\n\n"
     "<b>3. TO'LOV VA QAYTARIB BERMASLIK SHARTI</b>\n"
     "3.1. Sotib olingan kreditlar va tariflar hech qanday holatda ortga qaytarilmaydi.\n"
     "3.2. To'lov faqat ko'rsatilgan karta raqamiga amalga oshirilishi shart.\n"
@@ -489,7 +490,7 @@ async def cmd_add_credits(message: Message, bot: Bot):
         return
     parts = message.text.strip().split()
     if len(parts) < 3:
-        await message.reply("⚠️ Xato format! Ishlatilishi:\n<code>/add [user_id] [kredit]</code>", parse_mode="HTML")
+        await message.reply("⚠️ Xato format! Ishlatilishi: <code>/add [user_id] [kredit]</code>", parse_mode="HTML")
         return
     try:
         clean_id_str = "".join(filter(str.isdigit, parts[1]))
@@ -701,7 +702,7 @@ async def cmd_payment(message: Message):
 
 @router.message(F.text == "👨‍💻 Admin bilan bog'lanish")
 async def cmd_contact_admin(message: Message):
-    await message.answer(f"👨‍‍💻 Admin: @{ADMIN_USERNAME}\n📞 Tel: {ADMIN_PHONE}", parse_mode="HTML")
+    await message.answer(f"👨‍💻 Admin: @{ADMIN_USERNAME}\n📞 Tel: {ADMIN_PHONE}", parse_mode="HTML")
 
 
 @router.message(F.video | (F.document & F.document.mime_type.startswith("video/")))
