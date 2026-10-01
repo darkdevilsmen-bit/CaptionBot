@@ -625,7 +625,7 @@ async def on_video(message: Message, bot: Bot) -> None:
     for code, title in VIDEO_LANGS.items():
         kb.button(text=title, callback_data=f"lang:{key}:{code}")
     kb.adjust(2)
-    await message.answer("1️⃣ <b>Videodagi nutq tilini tanlang:</b>", reply_markup=kb.as_markup(), parse_mode="HTML")
+    await message.reply("1️⃣ <b>Videodagi nutq tilini tanlang:</b>", reply_markup=kb.as_markup(), parse_mode="HTML")
 
 
 @router.callback_query(F.data.startswith("lang:"))
@@ -638,10 +638,20 @@ async def on_select_lang(call: CallbackQuery) -> None:
     
     job = jobs.get(key)
     if not job:
-        await call.message.answer("⚠️ Sessiya eskirgan. Iltimos, videoni qaytadan yuboring.")
+        await call.answer("⚠️ Sessiya eskirgan yoki yakunlangan.", show_alert=True)
+        return
+
+    # Agar allaqachon tanlangan bo'lsa, qayta ishlamaymiz
+    if job.get("lang") == code:
         return
 
     job["lang"] = code
+
+    # Eskа xabardagi tugmalarni olib tashlaymiz
+    try:
+        await call.message.edit_reply_markup(reply_markup=None)
+    except Exception:
+        pass
 
     kb = InlineKeyboardBuilder()
     for skey, title in ANIMATION_STYLES.items():
@@ -661,10 +671,18 @@ async def on_select_anim(call: CallbackQuery) -> None:
     
     job = jobs.get(key)
     if not job:
-        await call.message.answer("⚠️ Sessiya eskirgan. Iltimos, videoni qaytadan yuboring.")
+        await call.answer("⚠️ Sessiya eskirgan yoki yakunlangan.", show_alert=True)
+        return
+
+    if job.get("style") == skey:
         return
 
     job["style"] = skey
+
+    try:
+        await call.message.edit_reply_markup(reply_markup=None)
+    except Exception:
+        pass
 
     kb = InlineKeyboardBuilder()
     for ckey, (ctitle, _) in TEXT_COLORS.items():
@@ -684,10 +702,18 @@ async def on_select_color(call: CallbackQuery) -> None:
     
     job = jobs.get(key)
     if not job:
-        await call.message.answer("⚠️ Sessiya eskirgan. Iltimos, videoni qaytadan yuboring.")
+        await call.answer("⚠️ Sessiya eskirgan yoki yakunlangan.", show_alert=True)
+        return
+
+    if job.get("color") == ckey:
         return
 
     job["color"] = ckey
+
+    try:
+        await call.message.edit_reply_markup(reply_markup=None)
+    except Exception:
+        pass
 
     kb = InlineKeyboardBuilder()
     for fkey, (ftitle, _) in FONT_SIZES.items():
@@ -707,10 +733,18 @@ async def on_select_size(call: CallbackQuery) -> None:
     
     job = jobs.get(key)
     if not job:
-        await call.message.answer("⚠️ Sessiya eskirgan. Iltimos, videoni qaytadan yuboring.")
+        await call.answer("⚠️ Sessiya eskirgan yoki yakunlangan.", show_alert=True)
+        return
+
+    if job.get("size") == fkey:
         return
 
     job["size"] = fkey
+
+    try:
+        await call.message.edit_reply_markup(reply_markup=None)
+    except Exception:
+        pass
 
     kb = InlineKeyboardBuilder()
     for qkey, (title, _, _) in VIDEO_QUALITIES.items():
@@ -730,7 +764,7 @@ async def on_select_quality(call: CallbackQuery, bot: Bot) -> None:
     
     job = jobs.get(key)
     if not job:
-        await call.message.answer("⚠️ Sessiya eskirgan. Iltimos, videoni qaytadan yuboring.")
+        await call.answer("⚠️ Sessiya eskirgan yoki yakunlangan.", show_alert=True)
         return
 
     file_id = job["file_id"]
@@ -761,10 +795,11 @@ async def on_select_quality(call: CallbackQuery, bot: Bot) -> None:
         )
         return
 
+    # Ishni tugatgandan so'ng xavfsiz o'chiramiz
     jobs.pop(key, None)
     
     try:
-        await call.message.edit_text(f"✅ <b>Qabul qilindi ({quality_title})! Komika Axis shriftida video tayyorlanmoqda...</b>", parse_mode="HTML")
+        await call.message.edit_reply_markup(reply_markup=None)
     except Exception:
         pass
 
