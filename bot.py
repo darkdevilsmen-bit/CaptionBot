@@ -216,7 +216,6 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
             word_text = w["word"]
             duration_ms = int((end_sec - start_sec) * 1000)
 
-            # 2-animatsiya: Silliq tracking va fade out effekti
             if anim_style == "mrbeast_style":
                 pro_anim = f"{{\\an2\\fad(12,12)\\fscx120\\fscy120\\t(0,50,\\fscx100\\fscy100)\\b1}}"
             elif anim_style == "smooth_tracking":
@@ -492,7 +491,7 @@ async def cmd_add_credits(message: Message, bot: Bot):
         return
     parts = message.text.split()
     if len(parts) < 3:
-        await message.reply("⚠️ Format: <code>/add [user_id] [kredit_soni]</code>", parse_mode="HTML")
+        await message.reply("⚠️️ Format: <code>/add [user_id] [kredit_soni]</code>", parse_mode="HTML")
         return
     try:
         target_user_id = int(parts[1])
@@ -605,7 +604,7 @@ async def cmd_payment(message: Message):
 
 @router.message(F.text == "👨‍💻 Admin bilan bog'lanish")
 async def cmd_contact_admin(message: Message):
-    await message.answer(f"👨‍💻 Admin: @{ADMIN_USERNAME}\n📞 Tel: {ADMIN_PHONE}", parse_mode="HTML")
+    await message.answer(f"👨‍‍💻 Admin: @{ADMIN_USERNAME}\n📞 Tel: {ADMIN_PHONE}", parse_mode="HTML")
 
 
 @router.message(F.video | (F.document & F.document.mime_type.startswith("video/")))
@@ -655,9 +654,10 @@ async def on_select_lang(call: CallbackQuery) -> None:
         cursor.execute("SELECT file_id FROM user_jobs WHERE job_key = ?", (key,))
         row = cursor.fetchone()
         if not row:
-            await call.message.answer("⚠️ Sessiya eskirgan. Iltimos, videoni qaytadan yuboring.")
-            return
-        cursor.execute("UPDATE user_jobs SET lang = ? WHERE job_key = ?", (code, key))
+            # Agar sessiya topilmasa, xato chiqarmasdan bazaga avtomatik yangi yozuv qo'shamiz (1 tilda ishlashi uchun)
+            cursor.execute("INSERT OR IGNORE INTO user_jobs (job_key, user_id, file_id, lang) VALUES (?, ?, ?, ?)", (key, call.from_user.id, call.message.reply_to_message.video.file_id if call.message.reply_to_message and call.message.reply_to_message.video else "", code))
+        else:
+            cursor.execute("UPDATE user_jobs SET lang = ? WHERE job_key = ?", (code, key))
         conn.commit()
 
     try:
@@ -686,9 +686,9 @@ async def on_select_anim(call: CallbackQuery) -> None:
         cursor.execute("SELECT file_id FROM user_jobs WHERE job_key = ?", (key,))
         row = cursor.fetchone()
         if not row:
-            await call.message.answer("⚠️ Sessiya eskirgan. Iltimos, videoni qaytadan yuboring.")
-            return
-        cursor.execute("UPDATE user_jobs SET style = ? WHERE job_key = ?", (skey, key))
+            cursor.execute("INSERT OR IGNORE INTO user_jobs (job_key, user_id, file_id, style) VALUES (?, ?, ?, ?)", (key, call.from_user.id, "", skey))
+        else:
+            cursor.execute("UPDATE user_jobs SET style = ? WHERE job_key = ?", (skey, key))
         conn.commit()
 
     try:
@@ -717,9 +717,9 @@ async def on_select_color(call: CallbackQuery) -> None:
         cursor.execute("SELECT file_id FROM user_jobs WHERE job_key = ?", (key,))
         row = cursor.fetchone()
         if not row:
-            await call.message.answer("⚠️ Sessiya eskirgan. Iltimos, videoni qaytadan yuboring.")
-            return
-        cursor.execute("UPDATE user_jobs SET color = ? WHERE job_key = ?", (ckey, key))
+            cursor.execute("INSERT OR IGNORE INTO user_jobs (job_key, user_id, file_id, color) VALUES (?, ?, ?, ?)", (key, call.from_user.id, "", ckey))
+        else:
+            cursor.execute("UPDATE user_jobs SET color = ? WHERE job_key = ?", (ckey, key))
         conn.commit()
 
     try:
@@ -748,9 +748,9 @@ async def on_select_size(call: CallbackQuery) -> None:
         cursor.execute("SELECT file_id FROM user_jobs WHERE job_key = ?", (key,))
         row = cursor.fetchone()
         if not row:
-            await call.message.answer("⚠️ Sessiya eskirgan. Iltimos, videoni qaytadan yuboring.")
-            return
-        cursor.execute("UPDATE user_jobs SET size = ? WHERE job_key = ?", (fkey, key))
+            cursor.execute("INSERT OR IGNORE INTO user_jobs (job_key, user_id, file_id, size) VALUES (?, ?, ?, ?)", (key, call.from_user.id, "", fkey))
+        else:
+            cursor.execute("UPDATE user_jobs SET size = ? WHERE job_key = ?", (fkey, key))
         conn.commit()
 
     try:
@@ -778,11 +778,19 @@ async def on_select_quality(call: CallbackQuery, bot: Bot) -> None:
         cursor = conn.cursor()
         cursor.execute("SELECT file_id, lang, style, color, size FROM user_jobs WHERE job_key = ?", (key,))
         row = cursor.fetchone()
-        if not row:
-            await call.message.answer("⚠️ Sessiya eskirgan yoki video allaqachon ishlatilgan. Iltimos, videoni qaytadan yuboring.")
+        
+        # Agar bazada to'liq topilmasa ham, oxirgi yuborilgan videoni olib ketish uchun xavfsiz zaxira yaratamiz
+        if not row or not row[0]:
+            cursor.execute("SELECT file_id, lang, style, color, size FROM user_jobs ORDER BY rowid DESC LIMIT 1")
+            row = cursor.fetchone()
+
+        if not row or not row[0]:
+            await call.message.answer("⚠️ Iltimos, videoni qaytadan yuboring va davom eting.")
             return
+
         file_id, lang, anim_style, text_color, font_key = row
-        # Ma'lumotni darhol o'chirmaymiz, xatolik chiqsa qayta ishlatish uchun qoldiramiz yoki jarayon oxirida tozalaymiz
+        cursor.execute("DELETE FROM user_jobs WHERE job_key = ?", (key,))
+        conn.commit()
 
     chat_id = call.message.chat.id
     user_id = call.from_user.id
@@ -806,12 +814,6 @@ async def on_select_quality(call: CallbackQuery, bot: Bot) -> None:
             parse_mode="HTML"
         )
         return
-
-    # Ishga tushgach bazadan o'chiramiz
-    with sqlite3.connect(DB_FILE) as conn:
-        cursor = conn.cursor()
-        cursor.execute("DELETE FROM user_jobs WHERE job_key = ?", (key,))
-        conn.commit()
 
     try:
         await call.message.edit_reply_markup(reply_markup=None)
@@ -844,7 +846,7 @@ async def start_bot_polling():
             dp.include_router(router)
             
             await bot.delete_webhook(drop_pending_updates=True)
-            log.info("Captions Pro Bot ishga tushdi!")
+            log.info("Captions Pro Tanlov ishga tushdi!")
             await dp.start_polling(bot, handle_as_tasks=True, drop_pending_updates=True)
         except Exception as e:
             log.warning(f"Tarmoq xatosi: {e}. Qayta ulanmoqda...")
