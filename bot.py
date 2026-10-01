@@ -25,6 +25,7 @@ from aiogram.types import (
 from aiogram.utils.keyboard import InlineKeyboardBuilder
 from aiogram.client.session.aiohttp import AiohttpSession
 from aiogram.fsm.context import FSMContext
+from aiogram.fsm.state import State, StatesGroup
 from aiogram.fsm.storage.memory import MemoryStorage
 from elevenlabs.client import ElevenLabs
 
@@ -62,7 +63,16 @@ ANIMATION_STYLES = {
     "active_word_box": "⬛ Active Word Highlight (Box)"
 }
 
-jobs: Dict[str, Dict[str, Any]] = {}
+VIDEO_QUALITIES = {
+    "720p": ("📱 Standard HD (720p)", "1280:720"),
+    "2k": ("💎 PRO 2K Ultra (1440p)", "2560:1440")
+}
+
+class SubtitleState(StatesGroup):
+    waiting_for_lang = State()
+    waiting_for_anim = State()
+    waiting_for_quality = State()
+
 router = Router()
 el_client = ElevenLabs(api_key=ELEVENLABS_API_KEY)
 
@@ -71,7 +81,7 @@ def get_main_keyboard() -> ReplyKeyboardMarkup:
     keyboard = [
         [KeyboardButton(text="⚡ Auto Subtitr qo'yish")],
         [KeyboardButton(text="🎨 Subtitr uslublari"), KeyboardButton(text="💳 Balans")],
-        [KeyboardButton(text="💰 To'lov qilish"), KeyboardButton(text="📜 Oferta")],
+        [KeyboardButton(text="💎 PRO Tariflar"), KeyboardButton(text="📜 Oferta")],
         [KeyboardButton(text="👨‍💻 Admin bilan bog'lanish")]
     ]
     return ReplyKeyboardMarkup(keyboard=keyboard, resize_keyboard=True)
@@ -200,7 +210,7 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
     return count
 
 
-async def process_job(bot: Bot, chat_id: int, user_id: int, file_id: str, lang: str, anim_style: str) -> None:
+async def process_job(bot: Bot, chat_id: int, user_id: int, file_id: str, lang: str, anim_style: str, quality_res: str) -> None:
     job_key = uuid.uuid4().hex[:8]
     work_dir = WORK_ROOT / job_key
     work_dir.mkdir(parents=True, exist_ok=True)
@@ -276,9 +286,12 @@ async def process_job(bot: Bot, chat_id: int, user_id: int, file_id: str, lang: 
             return
 
         abs_fonts_dir = str(FONTS_DIR.resolve())
+        # Sifatni (720p yoki 2k) ffmpeg video filteriga moslaymiz
+        vf_filter = f"scale={quality_res}:force_original_aspect_ratio=decrease,pad={quality_res}:(ow-iw)/2:(oh-ih)/2,ass=subtitles.ass:fontsdir='{abs_fonts_dir}'"
+
         cmd_render = [
             "ffmpeg", "-y", "-i", "input.mp4",
-            "-vf", f"ass=subtitles.ass:fontsdir='{abs_fonts_dir}'",
+            "-vf", vf_filter,
             "-c:v", "libx264",
             "-preset", "ultrafast",
             "-crf", "22",
@@ -290,7 +303,7 @@ async def process_job(bot: Bot, chat_id: int, user_id: int, file_id: str, lang: 
         await status_msg.edit_text(
             "⚡ <b>Pro AI Subtitr tayyorlanmoqda...</b>\n\n"
             "▓▓▓▓▓▓▓▓░░ 85%\n\n"
-            "🎬 <i>Komika Axis subtitr videoga yozilmoqda...</i>",
+            "🎬 <i>Komika Axis subtitr va tanlangan sifat videoga yozilmoqda...</i>",
             parse_mode="HTML"
         )
 
@@ -400,6 +413,26 @@ async def cmd_subtitr_styles(message: Message):
         "<i>Videongizni yuboring va istalgan uslubni tanlang!</i>"
     )
     await message.answer(text, parse_mode="HTML")
+
+
+@router.message(F.text == "💎 PRO Tariflar")
+async def cmd_pro_tariffs(message: Message):
+    text = (
+        "💎 <b>PRO TARIFLAR VA IMkoniyatlar</b>\n\n"
+        "• 📱 <b>Standard HD (720p)</b> — Standart tezkor render va qulay format.\n"
+        "• 💎 <b>PRO 2K Ultra (1440p)</b> — Oliy sifatli kristalli tiniq video va ustuvor navbat.\n\n"
+        "💳 <b>Kredit paketlari narxlari:</b>\n"
+        "• 10 ta video — 45,000 so'm\n"
+        "• 25 ta video — 95,000 so'm\n"
+        "• 50 ta video — 175,000 so'm\n\n"
+        f"💳 Karta: <code>{CARD_NUMBER}</code>\n"
+        f"👤 Egasi: <b>{CARD_HOLDER}</b>\n\n"
+        "📸 To'lov qilgach, chekni adminga yuboring!"
+    )
+    kb = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="💎 Tariflarni tanlab to'ldirish", callback_data="show_tariffs")]
+    ])
+    await message.answer(text, reply_markup=kb, parse_mode="HTML")
 
 
 @router.message(F.text == "📜 Oferta")
@@ -536,12 +569,38 @@ async def on_select_lang(call: CallbackQuery) -> None:
 
 
 @router.callback_query(F.data.startswith("anim:"))
-async def on_select_anim(call: CallbackQuery, bot: Bot) -> None:
-    await call.answer("Qabul qilindi! Ish boshlandi...")
+async def on_select_anim(call: CallbackQuery) -> None:
+    await call.answer()
     parts = call.data.split(":")
     if len(parts) < 3:
         return
     _, key, skey = parts
+    
+    job = jobs.get(key)
+    if not job:
+        await call.message.answer("⚠️ So'rov muddati o'tgan. Iltimos, videoni qaytadan yuboring.")
+        return
+
+    job["style"] = skey
+
+    kb = InlineKeyboardBuilder()
+    for qkey, (title, _) in VIDEO_QUALITIES.items():
+        kb.button(text=title, callback_data=f"qual:{key}:{qkey}")
+    kb.adjust(1)
+
+    try:
+        await call.message.edit_text("3️⃣ <b>Video sifatini tanlang:</b>", reply_markup=kb.as_markup(), parse_mode="HTML")
+    except Exception:
+        await call.message.answer("3️⃣ <b>Video sifatini tanlang:</b>", reply_markup=kb.as_markup(), parse_mode="HTML")
+
+
+@router.callback_query(F.data.startswith("qual:"))
+async def on_select_quality(call: CallbackQuery, bot: Bot) -> None:
+    await call.answer("Qabul qilindi! Ish boshlandi...")
+    parts = call.data.split(":")
+    if len(parts) < 3:
+        return
+    _, key, qkey = parts
     
     job = jobs.pop(key, None)
     if not job:
@@ -552,13 +611,15 @@ async def on_select_anim(call: CallbackQuery, bot: Bot) -> None:
     chat_id = job["chat_id"]
     user_id = job["user_id"]
     lang = job.get("lang", "uz")
+    anim_style = job.get("style", "mrbeast_style")
+    quality_res = VIDEO_QUALITIES.get(qkey, ("Standard HD", "1280:720"))[1]
     
     try:
         await call.message.edit_text("✅ <b>Qabul qilindi! Komika Axis shriftida video tayyorlanmoqda...</b>", parse_mode="HTML")
     except Exception:
         pass
 
-    asyncio.create_task(process_job(bot, chat_id, user_id, file_id, lang, skey))
+    asyncio.create_task(process_job(bot, chat_id, user_id, file_id, lang, anim_style, quality_res))
 
 
 async def handle(request):
