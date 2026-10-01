@@ -300,8 +300,6 @@ async def process_job(bot: Bot, chat_id: int, user_id: int, file_id: str, lang: 
             return
 
         abs_fonts_dir = str(FONTS_DIR.resolve())
-        
-        # Instagram 9:16 vertikal format (1080x1920 yoki mos ravishda pro) qat'iy saqlanishi uchun to'g'ri filter
         vf_filter = f"scale=1080:1920:force_original_aspect_ratio=increase,crop=1080:1920,ass=subtitles.ass:fontsdir='{abs_fonts_dir}'"
 
         cmd_render = [
@@ -647,16 +645,17 @@ async def on_select_lang(call: CallbackQuery) -> None:
         return
 
     job["lang"] = code
+    try:
+        await call.message.edit_reply_markup(reply_markup=None)
+    except Exception:
+        pass
 
     kb = InlineKeyboardBuilder()
     for skey, title in ANIMATION_STYLES.items():
         kb.button(text=title, callback_data=f"anim:{key}:{skey}")
     kb.adjust(1)
 
-    try:
-        await call.message.edit_text("2️⃣ <b>Subtitr animatsiya uslubini tanlang:</b>\n<i>(Shrift: Komika Axis)</i>", reply_markup=kb.as_markup(), parse_mode="HTML")
-    except Exception:
-        await call.message.answer("2️⃣ <b>Subtitr animatsiya uslubini tanlang:</b>\n<i>(Shrift: Komika Axis)</i>", reply_markup=kb.as_markup(), parse_mode="HTML")
+    await call.message.answer("2️⃣ <b>Subtitr animatsiya uslubini tanlang:</b>\n<i>(Shrift: Komika Axis)</i>", reply_markup=kb.as_markup(), parse_mode="HTML")
 
 
 @router.callback_query(F.data.startswith("anim:"))
@@ -676,16 +675,17 @@ async def on_select_anim(call: CallbackQuery) -> None:
         return
 
     job["style"] = skey
+    try:
+        await call.message.edit_reply_markup(reply_markup=None)
+    except Exception:
+        pass
 
     kb = InlineKeyboardBuilder()
     for ckey, (ctitle, _) in TEXT_COLORS.items():
         kb.button(text=ctitle, callback_data=f"color:{key}:{ckey}")
     kb.adjust(2)
 
-    try:
-        await call.message.edit_text("🎨 <b>Subtitr matn rangini tanlang:</b>", reply_markup=kb.as_markup(), parse_mode="HTML")
-    except Exception:
-        await call.message.answer("🎨 <b>Subtitr matn rangini tanlang:</b>", reply_markup=kb.as_markup(), parse_mode="HTML")
+    await call.message.answer("🎨 <b>Subtitr matn rangini tanlang:</b>", reply_markup=kb.as_markup(), parse_mode="HTML")
 
 
 @router.callback_query(F.data.startswith("color:"))
@@ -705,16 +705,17 @@ async def on_select_color(call: CallbackQuery) -> None:
         return
 
     job["color"] = ckey
+    try:
+        await call.message.edit_reply_markup(reply_markup=None)
+    except Exception:
+        pass
 
     kb = InlineKeyboardBuilder()
     for fkey, (ftitle, _) in FONT_SIZES.items():
         kb.button(text=ftitle, callback_data=f"size:{key}:{fkey}")
     kb.adjust(2)
 
-    try:
-        await call.message.edit_text("📏 <b>Subtitr matn o'lchamini tanlang:</b>", reply_markup=kb.as_markup(), parse_mode="HTML")
-    except Exception:
-        await call.message.answer("📏 <b>Subtitr matn o'lchamini tanlang:</b>", reply_markup=kb.as_markup(), parse_mode="HTML")
+    await call.message.answer("📏 <b>Subtitr matn o'lchamini tanlang:</b>", reply_markup=kb.as_markup(), parse_mode="HTML")
 
 
 @router.callback_query(F.data.startswith("size:"))
@@ -734,16 +735,17 @@ async def on_select_size(call: CallbackQuery) -> None:
         return
 
     job["size"] = fkey
+    try:
+        await call.message.edit_reply_markup(reply_markup=None)
+    except Exception:
+        pass
 
     kb = InlineKeyboardBuilder()
     for qkey, (title, _, _) in VIDEO_QUALITIES.items():
         kb.button(text=title, callback_data=f"qual:{key}:{qkey}")
     kb.adjust(1)
 
-    try:
-        await call.message.edit_text("3️⃣ <b>Video sifatini tanlang:</b>", reply_markup=kb.as_markup(), parse_mode="HTML")
-    except Exception:
-        await call.message.answer("3️⃣ <b>Video sifatini tanlang:</b>", reply_markup=kb.as_markup(), parse_mode="HTML")
+    await call.message.answer("3️⃣ <b>Video sifatini tanlang:</b>", reply_markup=kb.as_markup(), parse_mode="HTML")
 
 
 @router.callback_query(F.data.startswith("qual:"))
