@@ -544,7 +544,7 @@ async def cmd_pro_tariffs(message: Message):
     )
     kb = InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text="💎 PRO sotib olish uchun adminga yozish", url=f"https://t.me/{ADMIN_USERNAME}?text=Salom,%20men%20PRO%20tarif%20sotib%20olmoqchiman.%20ID%20raqamim:%20{user_id}")],
-        [InlineKeyboardButton(text="👨‍‍💻 Adminga chek yuborish", url=f"https://t.me/{ADMIN_USERNAME}")]
+        [InlineKeyboardButton(text="👨‍💻 Adminga chek yuborish", url=f"https://t.me/{ADMIN_USERNAME}")]
     ])
     await message.answer(text, reply_markup=kb, parse_mode="HTML")
 
@@ -625,7 +625,7 @@ async def on_video(message: Message, bot: Bot) -> None:
     for code, title in VIDEO_LANGS.items():
         kb.button(text=title, callback_data=f"lang:{key}:{code}")
     kb.adjust(2)
-    await message.reply("1️⃣ <b>Videodagi nutq tilini tanlang:</b>", reply_markup=kb.as_markup(), parse_mode="HTML")
+    await message.answer("1️⃣ <b>Videodagi nutq tilini tanlang:</b>", reply_markup=kb.as_markup(), parse_mode="HTML")
 
 
 @router.callback_query(F.data.startswith("lang:"))
@@ -772,7 +772,7 @@ async def on_select_quality(call: CallbackQuery, bot: Bot) -> None:
 
 
 async def handle(request):
-    return web.Response(text="Captions Pro Data is live and running!")
+    return web.Response(text="Captions Pro Bot is live and running!")
 
 async def web_server():
     app = web.Application()
