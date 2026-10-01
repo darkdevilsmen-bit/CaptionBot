@@ -602,7 +602,7 @@ async def cmd_payment(message: Message):
     await message.answer(payment_text, reply_markup=kb, parse_mode="HTML")
 
 
-@router.message(F.text == "👨‍‍💻 Admin bilan bog'lanish")
+@router.message(F.text == "👨‍💻 Admin bilan bog'lanish")
 async def cmd_contact_admin(message: Message):
     await message.answer(f"👨‍💻 Admin: @{ADMIN_USERNAME}\n📞 Tel: {ADMIN_PHONE}", parse_mode="HTML")
 
@@ -651,16 +651,12 @@ async def on_select_lang(call: CallbackQuery) -> None:
     
     with sqlite3.connect(DB_FILE) as conn:
         cursor = conn.cursor()
-        cursor.execute("SELECT file_id, lang FROM user_jobs WHERE job_key = ?", (key,))
+        cursor.execute("SELECT file_id FROM user_jobs WHERE job_key = ?", (key,))
         row = cursor.fetchone()
         if not row:
-            await call.message.answer("⚠️ Sessiya eskirgan. Iltimos, videoni qaytadan yuboring.")
+            # Agar eski kalit topilmasa, foydalanuvchiga yangi sessiya ochib beramiz yoki xatolikni oldini olamiz
+            await call.message.answer("⚠️ Bu video uchun sessiya eskirgan. Iltimos, videoni qaytadan yuboring.")
             return
-        
-        # Agar allaqachon shu til tanlangan bo'lsa, qayta xabar yubormaslik uchun tekshiramiz
-        if row[1] == code:
-            return
-
         cursor.execute("UPDATE user_jobs SET lang = ? WHERE job_key = ?", (code, key))
         conn.commit()
 
@@ -687,15 +683,11 @@ async def on_select_anim(call: CallbackQuery) -> None:
     
     with sqlite3.connect(DB_FILE) as conn:
         cursor = conn.cursor()
-        cursor.execute("SELECT file_id, style FROM user_jobs WHERE job_key = ?", (key,))
+        cursor.execute("SELECT file_id FROM user_jobs WHERE job_key = ?", (key,))
         row = cursor.fetchone()
         if not row:
             await call.message.answer("⚠️ Sessiya eskirgan. Iltimos, videoni qaytadan yuboring.")
             return
-        
-        if row[1] == skey:
-            return
-
         cursor.execute("UPDATE user_jobs SET style = ? WHERE job_key = ?", (skey, key))
         conn.commit()
 
@@ -722,15 +714,11 @@ async def on_select_color(call: CallbackQuery) -> None:
     
     with sqlite3.connect(DB_FILE) as conn:
         cursor = conn.cursor()
-        cursor.execute("SELECT file_id, color FROM user_jobs WHERE job_key = ?", (key,))
+        cursor.execute("SELECT file_id FROM user_jobs WHERE job_key = ?", (key,))
         row = cursor.fetchone()
         if not row:
             await call.message.answer("⚠️ Sessiya eskirgan. Iltimos, videoni qaytadan yuboring.")
             return
-
-        if row[1] == ckey:
-            return
-
         cursor.execute("UPDATE user_jobs SET color = ? WHERE job_key = ?", (ckey, key))
         conn.commit()
 
@@ -757,15 +745,11 @@ async def on_select_size(call: CallbackQuery) -> None:
     
     with sqlite3.connect(DB_FILE) as conn:
         cursor = conn.cursor()
-        cursor.execute("SELECT file_id, size FROM user_jobs WHERE job_key = ?", (key,))
+        cursor.execute("SELECT file_id FROM user_jobs WHERE job_key = ?", (key,))
         row = cursor.fetchone()
         if not row:
             await call.message.answer("⚠️ Sessiya eskirgan. Iltimos, videoni qaytadan yuboring.")
             return
-
-        if row[1] == fkey:
-            return
-
         cursor.execute("UPDATE user_jobs SET size = ? WHERE job_key = ?", (fkey, key))
         conn.commit()
 
@@ -795,7 +779,7 @@ async def on_select_quality(call: CallbackQuery, bot: Bot) -> None:
         cursor.execute("SELECT file_id, lang, style, color, size FROM user_jobs WHERE job_key = ?", (key,))
         row = cursor.fetchone()
         if not row:
-            await call.message.answer("⚠️ Sessiya eskirgan yoki allaqachon bajarilgan. Iltimos, videoni qaytadan yuboring.")
+            await call.message.answer("⚠️ Sessiya eskirgan. Iltimos, videoni qaytadan yuboring.")
             return
         file_id, lang, anim_style, text_color, font_key = row
         cursor.execute("DELETE FROM user_jobs WHERE job_key = ?", (key,))
