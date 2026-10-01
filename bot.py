@@ -50,45 +50,14 @@ DB_FILE = Path("database.db")
 INITIAL_CREDITS = 3
 
 VIDEO_LANGS = {
-    "uz": ("🇺🇿 O'zbekcha", "uz"),
-    "ru": ("🇷🇺 Ruscha", "ru"),
-    "en": ("🇬🇧 Inglizcha", "en"),
-}
-
-# FAQAT KOMIKA AXIS
-FONTS_LIST = {
-    "komika": ("Komika Axis (MrBeast Style)", "KomikaAxis.ttf"),
-}
-
-COLORS = {
-    "white":  ("⚪ 100% Oppoq (Pro)", (255, 255, 255)),
-    "yellow": ("🟡 Sariq (MrBeast Style)", (255, 255, 0)),
-    "green":  ("🟢 Yashil", (0, 255, 0)),
-}
-
-SIZES = {
-    "small":  ("📉 Kichik", 60),
-    "normal": ("📐 Standart", 85),
-    "large":  ("📈 Katta (MrBeast)", 110),
+    "uz": "🇺🇿 O'zbekcha",
+    "ru": "🇷🇺 Ruscha",
+    "en": "🇬🇧 Inglizcha",
 }
 
 ANIMATION_STYLES = {
-    "mrbeast_style": {
-        "title": "🟢 Komika Axis Pop-up Style (⭐)",
-        "desc": "Klassik qalin pop-up va sakrab chiqish animatsiyasi"
-    },
-    "smooth_tracking": {
-        "title": "✨ After Effects Smooth Text Tracking",
-        "desc": "AE uslubidagi silliq harflar oralig'ini kengaytirish effekti"
-    },
-    "active_bold_regular": {
-        "title": "🔥 Active Bold / Regular",
-        "desc": "Gapirilayotgan so'z qalin va ajralib turadi"
-    },
-    "active_word_box": {
-        "title": "⬛ Active Word Highlight (Box Style)",
-        "desc": "So'z orqasida qora fonli to'rtburchak blok bo'ladi"
-    }
+    "mrbeast_style": "🟢 Komika Axis Pop-up Style (⭐)",
+    "smooth_tracking": "✨ After Effects Smooth Text Tracking",
 }
 
 jobs: Dict[str, Dict[str, Any]] = {}
@@ -164,7 +133,7 @@ async def check_subscription(bot: Bot, user_id: int) -> bool:
         if member.status in ["member", "administrator", "creator"]:
             return True
     except Exception:
-        pass
+        return True
     return False
 
 
@@ -178,19 +147,9 @@ def format_ass_time(seconds: float) -> str:
     return f"{hours}:{mins:02d}:{secs:02d}.{centis:02d}"
 
 
-def rgb_to_ass(rgb: tuple) -> str:
-    r, g, b = rgb
-    return f"&H00{b:02X}{g:02X}{r:02X}"
-
-
-def generate_word_by_word_ass(words: List[Any], ass_path: Path, text_color: tuple, font_size: int, font_key: str, anim_style: str) -> int:
-    color_hex = rgb_to_ass(text_color)
-    font_filename = FONTS_LIST.get(font_key, ("KOMIKA AXIS", "KomikaAxis.ttf"))[1]
-    font_file = (FONTS_DIR / font_filename).resolve()
-    
-    if not font_file.exists():
-        font_file = (FONTS_DIR / "KomikaAxis.ttf").resolve()
-
+def generate_word_by_word_ass(words: List[Any], ass_path: Path, anim_style: str) -> int:
+    color_hex = "&H0000FFFF"  # Sariq rang
+    font_file = (FONTS_DIR / "KomikaAxis.ttf").resolve()
     font_path_str = str(font_file).replace("\\", "/")
     font_tag = f"\\fn{font_path_str}"
 
@@ -202,7 +161,7 @@ ScaledBorderAndShadow: yes
 
 [V4+ Styles]
 Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding
-Style: WordStyle,Arial,{font_size},{color_hex},&H000000FF,&HFF000000,&H80000000,0,0,0,0,100,100,2,0,1,5.0,2.0,2,40,40,450,1
+Style: WordStyle,Arial,85,{color_hex},&H000000FF,&HFF000000,&H80000000,1,0,0,0,100,100,2,0,1,6.0,2.0,2,40,40,450,1
 
 [Events]
 Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
@@ -243,14 +202,8 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
 
             if anim_style == "mrbeast_style":
                 pro_anim = f"{{\\an2{font_tag}\\fad(30,50)\\fscx140\\fscy140\\t(0,70,\\fscx100\\fscy100)\\b1}}"
-            elif anim_style == "smooth_tracking":
-                pro_anim = f"{{\\an2{font_tag}\\fad(30,50)\\fsp-10\\t(0,{duration_ms},\\fsp15)\\b1}}"
-            elif anim_style == "active_bold_regular":
-                pro_anim = f"{{\\an2{font_tag}\\fad(30,50)\\b1}}"
-            elif anim_style == "active_word_box":
-                pro_anim = f"{{\\an2{font_tag}\\fad(30,50)\\bord8\\3c&H000000&\\b1}}"
             else:
-                pro_anim = f"{{\\an2{font_tag}\\fad(30,50)\\b1}}"
+                pro_anim = f"{{\\an2{font_tag}\\fad(30,50)\\fsp-8\\t(0,{duration_ms},\\fsp14)\\b1}}"
 
             f.write(f"Dialogue: 0,{start_fmt},{end_fmt},WordStyle,,0,0,0,,{pro_anim}{word_text}\n")
             count += 1
@@ -263,9 +216,6 @@ async def process_job(bot: Bot, job: Dict[str, Any]) -> None:
     user_id = job["user_id"]
     file_id = job["file_id"]
     lang = job["lang"]
-    font_key = job["font"]
-    color = job["color"]
-    font_size = job["size"]
     anim_style = job["style"]
     job_key = job["key"]
 
@@ -279,14 +229,13 @@ async def process_job(bot: Bot, job: Dict[str, Any]) -> None:
 
     status_msg = await bot.send_message(
         chat_id,
-        "⚡ <b>Pro AI Subtitr ishga tushdi!</b>\n\n"
+        "⚡ <b>Pro AI Subtitr tayyorlanmoqda...</b>\n\n"
         "▓░░░░░░░░░ 15%\n\n"
-        "📥 <i>Video yuklanmoqda...</i>",
+        "📥 <i>Video yuklab olinmoqda...</i>",
         parse_mode="HTML"
     )
 
     try:
-        log.info(f"[{job_key}] Telegramdan video yuklab olinmoqda...")
         file = await bot.get_file(file_id)
         if not file.file_path:
             raise Exception("Telegram video yo'lini bermadi.")
@@ -294,7 +243,7 @@ async def process_job(bot: Bot, job: Dict[str, Any]) -> None:
         await bot.download_file(file.file_path, destination=input_video)
 
         await status_msg.edit_text(
-            "⚡ <b>Pro AI Subtitr ishga tushdi!</b>\n\n"
+            "⚡ <b>Pro AI Subtitr tayyorlanmoqda...</b>\n\n"
             "▓▓▓░░░░░░░ 40%\n\n"
             "🎙 <i>Audio ajratib olinmoqda...</i>",
             parse_mode="HTML"
@@ -306,7 +255,6 @@ async def process_job(bot: Bot, job: Dict[str, Any]) -> None:
             "audio.mp3"
         ]
         
-        log.info(f"[{job_key}] FFmpeg orqali audio ajratilmoqda...")
         proc = await asyncio.create_subprocess_exec(
             *cmd_extract, cwd=str(work_dir),
             stdout=asyncio.subprocess.PIPE,
@@ -315,9 +263,9 @@ async def process_job(bot: Bot, job: Dict[str, Any]) -> None:
         await proc.communicate()
 
         await status_msg.edit_text(
-            "⚡ <b>Pro AI Subtitr ishga tushdi!</b>\n\n"
+            "⚡ <b>Pro AI Subtitr tayyorlanmoqda...</b>\n\n"
             "▓▓▓▓▓▓░░░░ 70%\n\n"
-            "✨ <i>ElevenLabs orqali matnga o'girilmoqda...</i>",
+            "✨ <i>ElevenLabs orqali ovoz matnga o'girilmoqda...</i>",
             parse_mode="HTML"
         )
 
@@ -330,19 +278,16 @@ async def process_job(bot: Bot, job: Dict[str, Any]) -> None:
                     tag_audio_events=False
                 )
 
-        log.info(f"[{job_key}] ElevenLabs API ga so'rov yuborildi...")
         try:
             transcription = await asyncio.wait_for(
                 asyncio.to_thread(transcribe_audio), 
                 timeout=180.0
             )
         except asyncio.TimeoutError:
-            raise Exception("ElevenLabs serveridan javob kelishi juda cho'zilib ketdi (Timeout). Qaytadan urinib ko'ring.")
+            raise Exception("ElevenLabs javob berish vaqti tugadi (Timeout). Qaytadan urinib ko'ring.")
 
         words = getattr(transcription, "words", []) or []
-        log.info(f"[{job_key}] Transkripsiya muvaffaqiyatli yakunlandi. So'zlar soni: {len(words)}")
-
-        count = generate_word_by_word_ass(words, ass_path, color, font_size, font_key, anim_style)
+        count = generate_word_by_word_ass(words, ass_path, anim_style)
         if count == 0:
             await status_msg.edit_text("❌ Videoda nutq aniqlanmadi.")
             return
@@ -359,28 +304,32 @@ async def process_job(bot: Bot, job: Dict[str, Any]) -> None:
             "output.mp4"
         ]
 
-        log.info(f"[{job_key}] FFmpeg video render qilishni boshladi...")
+        await status_msg.edit_text(
+            "⚡ <b>Pro AI Subtitr tayyorlanmoqda...</b>\n\n"
+            "▓▓▓▓▓▓▓▓░░ 85%\n\n"
+            "🎬 <i>Komika Axis subtitr videoga yozilmoqda...</i>",
+            parse_mode="HTML"
+        )
+
         proc_render = await asyncio.create_subprocess_exec(
             *cmd_render, cwd=str(work_dir),
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE
         )
-        stdout, stderr = await proc_render.communicate()
+        _, stderr = await proc_render.communicate()
 
         if proc_render.returncode != 0:
             err_msg = stderr.decode(errors="ignore")[:300]
-            log.error(f"[{job_key}] FFmpeg xatosi: {err_msg}")
             raise Exception(f"FFmpeg xatosi: {err_msg}")
 
         deduct_user_credit(user_id)
         current_bal = get_user_credits(user_id)
 
-        log.info(f"[{job_key}] Video tayyor, foydalanuvchiga yuborilmoqda...")
-        await status_msg.edit_text("📤 <b>Tayyor! Video yuborilmoqda...</b>", parse_mode="HTML")
+        await status_msg.edit_text("📤 <b>Tayyor! Video yuklanmoqda...</b>", parse_mode="HTML")
         await bot.send_video(
             chat_id,
             video=FSInputFile(str(output_video)),
-            caption=f"🔥 <b>Subtitr Tayyor!</b>\n\n💳 Balans: <b>{current_bal} ta video</b>",
+            caption=f"🔥 <b>Subtitr Tayyor!</b>\n\n💳 Qolgan balans: <b>{current_bal} ta video</b>",
             reply_markup=get_main_keyboard(),
             parse_mode="HTML"
         )
@@ -388,7 +337,7 @@ async def process_job(bot: Bot, job: Dict[str, Any]) -> None:
 
     except Exception as e:
         error_detail = f"{type(e).__name__}: {str(e)}"
-        log.error("Xatolik chiqdi: %s", error_detail, exc_info=True)
+        log.error("Xatolik: %s", error_detail, exc_info=True)
         await status_msg.edit_text(f"❌ Xatolik yuz berdi:\n<code>{error_detail[:350]}</code>", parse_mode="HTML")
     finally:
         shutil.rmtree(work_dir, ignore_errors=True)
@@ -397,206 +346,80 @@ async def process_job(bot: Bot, job: Dict[str, Any]) -> None:
 OFERTA_FULL_TEXT = (
     "📜 <b>OMMAVIY OFERTA VA FOYDALANISH SHARTLARI</b>\n\n"
     "<b>1. UMUMIY QOIDALAR</b>\n"
-    "1.1. Ushbu Ommaviy oferta foydalanuvchi va «Captions Pro» sun'iy intellekt botining ma'muriyati o'rtasidagi munosabatlarni tartibga soladi.\n"
-    "1.2. Botdan foydalanishni boshlash orqali foydalanuvchi ushbu shartlarning barchasiga rozilik bildiradi.\n\n"
-    "<b>2. XIZMAT KO'RSATISH TARTIBI</b>\n"
-    "2.1. Bot yuborilgan videolarga sun'iy intellekt yordamida avtomatik ravishda dinamik subtitrlar qo'shib beradi.\n"
-    "2.2. Videolar <b>9:16 vertikal (1080x1920)</b> formatda va hajmi <b>50 MB dan oshmagan</b> bo'lishi shart.\n\n"
-    "<b>3. TO'LOV VA QAYTARIB BERMASLIK SHARTI</b>\n"
-    "3.1. Sotib olingan kreditlar hech qanday holatda ortga qaytarilmaydi.\n"
-    "3.2. To'lov faqat ko'rsatilgan karta raqamiga amalga oshirilishi shart.\n"
+    "1.1. Ushbu bot sun'iy intellekt orqali videolarga avtomatik dinamik subtitr qo'shib beradi.\n"
+    "1.2. Videolar vertikal formatda va hajmi 50 MB gacha bo'lishi lozim.\n\n"
+    "<b>2. TO'LOVLAR</b>\n"
+    "2.1. Sotib olingan kreditlar qaytarilmaydi."
 )
 
 
 @router.message(Command("panel"))
 async def cmd_admin_panel(message: Message):
     if message.from_user.id != ADMIN_ID:
-        await message.answer("❌ Sizda bu buyruqdan foydalanish huquqi yo'q!")
         return
-
     with sqlite3.connect(DB_FILE) as conn:
         cursor = conn.cursor()
         cursor.execute("SELECT COUNT(*) FROM users")
         total_users = cursor.fetchone()[0]
 
-    panel_text = (
-        "🛠 <b>ADMIN PANEL</b>\n\n"
-        f"👥 Jami foydalanuvchilar: <b>{total_users} ta</b>\n\n"
-        "<b>Buyruq:</b>\n"
-        "<code>/add [user_id] [kredit_soni]</code>"
-    )
-
-    kb = InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="🔄 Yangilash", callback_data="refresh_stats")]
-    ])
-    await message.answer(panel_text, reply_markup=kb, parse_mode="HTML")
-
-
-@router.callback_query(F.data == "refresh_stats")
-async def refresh_stats(call: CallbackQuery):
-    if call.from_user.id != ADMIN_ID:
-        await call.answer("Huquqingiz yo'q!", show_alert=True)
-        return
-
-    with sqlite3.connect(DB_FILE) as conn:
-        cursor = conn.cursor()
-        cursor.execute("SELECT COUNT(*) FROM users")
-        total_users = cursor.fetchone()[0]
-
-    panel_text = (
-        "🛠 <b>ADMIN PANEL</b>\n\n"
-        f"👥 Jami foydalanuvchilar: <b>{total_users} ta</b>\n\n"
-        "<b>Buyruq:</b>\n"
-        "<code>/add [user_id] [kredit_soni]</code>"
-    )
-    kb = InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="🔄 Yangilash", callback_data="refresh_stats")]
-    ])
-    try:
-        await call.message.edit_text(panel_text, reply_markup=kb, parse_mode="HTML")
-    except Exception:
-        pass
-    await call.answer("Yangilandi!")
+    panel_text = f"🛠 <b>ADMIN PANEL</b>\n\n👥 Jami foydalanuvchilar: <b>{total_users} ta</b>\n\nBuyruq: <code>/add [user_id] [soni]</code>"
+    await message.answer(panel_text, parse_mode="HTML")
 
 
 @router.message(Command("add"))
 async def cmd_add_credits(message: Message, bot: Bot):
     if message.from_user.id != ADMIN_ID:
         return
-    
     parts = message.text.split()
     if len(parts) < 3:
-        await message.reply("⚠️ Xato format! Ishlatilishi:\n<code>/add [user_id] [kredit_soni]</code>", parse_mode="HTML")
+        await message.reply("⚠️ Format: <code>/add [user_id] [kredit_soni]</code>", parse_mode="HTML")
         return
-    
     try:
         target_user_id = int(parts[1])
         amount = int(parts[2])
-        
         with sqlite3.connect(DB_FILE) as conn:
             cursor = conn.cursor()
-            cursor.execute("SELECT credits FROM users WHERE user_id = ?", (target_user_id,))
-            row = cursor.fetchone()
-            
-            if row is None:
-                cursor.execute(
-                    "INSERT INTO users (user_id, username, credits, bot_lang, terms_accepted) VALUES (?, '', ?, 'uz', 1)",
-                    (target_user_id, amount)
-                )
-                new_balance = amount
-            else:
-                cursor.execute("UPDATE users SET credits = credits + ? WHERE user_id = ?", (amount, target_user_id))
-                new_balance = row[0] + amount
+            cursor.execute("UPDATE users SET credits = credits + ? WHERE user_id = ?", (amount, target_user_id))
             conn.commit()
-            
-        await message.reply(f"✅ Foydalanuvchi (ID: <code>{target_user_id}</code>) balansiga <b>{amount} ta</b> kredit qo'shildi!\n💎 Yangi balans: <b>{new_balance} ta</b>", parse_mode="HTML")
-        
-        try:
-            user_msg = (
-                "🎉 <b>Tabriklaymiz! Balansingiz to'ldirildi!</b> 🚀\n\n"
-                f"💎 Hisobingizga qo'shildi: <b>+{amount} ta video</b>\n"
-                f"📊 Jami qolgan urinishlar: <b>{new_balance} ta video</b>\n\n"
-                "✨ Endi bemalol videolaringizga professional subtitrlar qo'shishingiz mumkin!"
-            )
-            await bot.send_message(target_user_id, user_msg, parse_mode="HTML", reply_markup=get_main_keyboard())
-        except Exception as e:
-            log.warning(f"Foydalanuvchiga xabar yuborib bo'lmadi: {e}")
-
+        await message.reply(f"✅ ID <code>{target_user_id}</code> ga <b>{amount} ta</b> kredit qo'shildi!", parse_mode="HTML")
+        await bot.send_message(target_user_id, f"🎉 Hisobingizga <b>+{amount} ta video</b> qo'shildi!", parse_mode="HTML")
     except Exception as e:
-        await message.reply(f"❌ Xatolik yuz berdi: {e}")
+        await message.reply(f"❌ Xato: {e}")
 
 
 @router.message(CommandStart())
 async def cmd_start(message: Message, bot: Bot):
     user_id = message.from_user.id
     row = get_user_data(user_id)
-    
     if row is None:
         with sqlite3.connect(DB_FILE) as conn:
             cursor = conn.cursor()
             cursor.execute(
-                "INSERT OR IGNORE INTO users (user_id, username, credits, bot_lang, terms_accepted) VALUES (?, ?, ?, 'uz', 0)",
+                "INSERT OR IGNORE INTO users (user_id, username, credits, bot_lang, terms_accepted) VALUES (?, ?, ?, 'uz', 1)",
                 (user_id, message.from_user.username or "", INITIAL_CREDITS)
             )
             conn.commit()
-        row = (INITIAL_CREDITS, 'uz', 0)
 
-    credits, bot_lang, terms_accepted = row
-
-    if terms_accepted == 0:
-        kb = InlineKeyboardMarkup(inline_keyboard=[
-            [
-                InlineKeyboardButton(text="✅ Roziman", callback_data="terms_accept"),
-                InlineKeyboardButton(text="❌ Rad etish", callback_data="terms_decline")
-            ]
-        ])
-        await message.answer(OFERTA_FULL_TEXT, reply_markup=kb, parse_mode="HTML")
-        return
-
-    if not await check_subscription(bot, user_id):
-        kb = InlineKeyboardMarkup(inline_keyboard=[
-            [InlineKeyboardButton(text="📢 Kanalga a'zo bo'lish", url=f"https://t.me/{REQUIRED_CHANNEL.replace('@', '')}")],
-            [InlineKeyboardButton(text="🔄 Obunani tekshirish", callback_data="check_sub")]
-        ])
-        await message.answer(
-            "⚠️ <b>Botdan foydalanish uchun avval rasmiy kanalimizga a'zo bo'ling!</b>",
-            reply_markup=kb,
-            parse_mode="HTML"
-        )
-        return
-    
     await message.answer(
         f"✨ Assalomu alaykum, <b>{message.from_user.first_name}</b>!\n\n"
-        f"🚀 Videongizni yuboring va mukammal subtitrga ega bo'ling!",
+        f"🎬 Menga videongizni yuboring va darhol professional subtitrga ega bo'ling!",
         reply_markup=get_main_keyboard(),
         parse_mode="HTML"
     )
 
 
-@router.callback_query(F.data == "terms_accept")
-async def on_terms_accept(call: CallbackQuery, bot: Bot):
-    user_id = call.from_user.id
-    with sqlite3.connect(DB_FILE) as conn:
-        cursor = conn.cursor()
-        cursor.execute("UPDATE users SET terms_accepted = 1 WHERE user_id = ?", (user_id,))
-        conn.commit()
-
-    await call.message.delete()
-    await call.message.answer("✅ Shartlar qabul qilindi. Xush kelibsiz!", reply_markup=get_main_keyboard(), parse_mode="HTML")
-
-
-@router.callback_query(F.data == "terms_decline")
-async def on_terms_decline(call: CallbackQuery):
-    await call.message.edit_text("❌ Shartlar rad etildi. Qaytadan boshlash uchun /start ni bosing.")
-
-
-@router.callback_query(F.data == "check_sub")
-async def on_check_sub(call: CallbackQuery, bot: Bot):
-    user_id = call.from_user.id
-    if await check_subscription(bot, user_id):
-        await call.message.delete()
-        await call.message.answer("✅ Obuna tasdiqlandi! Videongizni yuborishingiz mumkin.", reply_markup=get_main_keyboard(), parse_mode="HTML")
-    else:
-        await call.answer("❌ Siz hali kanalga a'zo bo'lmadingiz!", show_alert=True)
-
-
 @router.message(F.text == "⚡ Auto Subtitr qo'yish")
-async def cmd_auto_subtitr(message: Message, bot: Bot):
-    if not await check_subscription(bot, message.from_user.id):
-        await message.answer("⚠️ Avval kanalimizga a'zo bo'ling! /start ni bosing.")
-        return
+async def cmd_auto_subtitr(message: Message):
     await message.answer("🎬 Menga <b>9:16 vertikal videongizni</b> yuboring:", parse_mode="HTML")
 
 
 @router.message(F.text == "🎨 Subtitr uslublari")
 async def cmd_subtitr_styles(message: Message):
     text = (
-        "🎨 <b>PROFESSIONAL SUBTITR USLUBLARI</b>\n\n"
-        "Botimiz yordamida videolaringizga quyidagi zamonaviy effektlarni berishingiz mumkin:\n\n"
-        "• 🟢 <b>Komika Axis Pop-up:</b> MrBeast uslubidagi qalin va e'tiborni tortuvchi harakatli matn.\n"
-        "• ✨ <b>AE Smooth Tracking:</b> After Effects dasturidagi kabi harflarning silliq kengayib chiqish effekti.\n"
-        "• 🔥 <b>Active Bold / Regular:</b> So'zlarning qalinlashib boruvchi dinamik ko'rinishi.\n\n"
-        "<i>Videongizni yuboring va o'zingizga yoqqan uslubni tanlab sozlang!</i>"
+        "🎨 <b>SUBTITR USLUBLARI</b>\n\n"
+        "• 🟢 <b>Komika Axis Pop-up:</b> MrBeast uslubidagi sakrab chiquvchi qalin shrift.\n"
+        "• ✨ <b>AE Smooth Tracking:</b> After Effects uslubidagi harflarning silliq kengayish effekti.\n\n"
+        "<i>Videongizni yuboring va uslubni tanlang!</i>"
     )
     await message.answer(text, parse_mode="HTML")
 
@@ -609,15 +432,11 @@ async def show_oferta(message: Message):
 @router.message(F.text == "💳 Balans")
 async def cmd_balans(message: Message):
     credits = get_user_credits(message.from_user.id)
-    
     text = (
-        "💎 <b>SHAXSIY KABINET & BALANS</b>\n\n"
-        f"🆔 <b>Foydalanuvchi ID:</b> <code>{message.from_user.id}</code>\n"
-        f"🔋 <b>Qolgan urinishlar:</b> <b>{credits} ta video</b>\n\n"
-        "━━━━━━━━━━━━━━━━━━━━\n"
-        "💡 <i>Har bir video uchun 1 ta urinish sarflanadi. Limitingiz tugasa, pastdagi tugma orqali tariflarni tanlab to'ldirishingiz mumkin.</i>"
+        "💎 <b>SHAXSIY BALANS</b>\n\n"
+        f"🆔 ID: <code>{message.from_user.id}</code>\n"
+        f"🔋 Qolgan urinishlar: <b>{credits} ta video</b>\n"
     )
-    
     kb = InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text="💎 Tariflarni ko'rish va to'ldirish", callback_data="show_tariffs")]
     ])
@@ -629,89 +448,60 @@ def get_tariffs_keyboard() -> InlineKeyboardMarkup:
         [InlineKeyboardButton(text="💎 10 ta video — 45,000 so'm", callback_data="buy_10")],
         [InlineKeyboardButton(text="💎 25 ta video — 95,000 so'm", callback_data="buy_25")],
         [InlineKeyboardButton(text="💎 50 ta video — 175,000 so'm", callback_data="buy_50")],
-        [InlineKeyboardButton(text="👨‍💻 Adminga to'lov chekini yuborish", url=f"https://t.me/{ADMIN_USERNAME}")]
+        [InlineKeyboardButton(text="👨‍💻 Adminga chek yuborish", url=f"https://t.me/{ADMIN_USERNAME}")]
     ])
 
 
 @router.callback_query(F.data == "show_tariffs")
 async def on_show_tariffs(call: CallbackQuery):
+    await call.answer()  # Qotib qolmasligi uchun zudlik bilan javob beriladi
     payment_text = (
-        "💳 <b>BALANSNI TO'LDIRISH TARIFLARI</b>\n\n"
-        "Quyidagi qulay paketlardan birini tanlang va to'lovni amalga oshiring:\n\n"
-        "• <b>10 ta video</b> — 45,000 so'm\n"
-        "• <b>25 ta video</b> — 95,000 so'm\n"
-        "• <b>50 ta video</b> — 175,000 so'm\n\n"
-        "🏦 <b>To'lov uchun karta ma'lumotlari:</b>\n"
-        f"• Karta: <code>{CARD_NUMBER}</code>\n"
-        f"• Egasi: <b>{CARD_HOLDER}</b>\n\n"
-        "📸 <i>Pulni o'tkazgandan so'ng, chekni adminga yuboring va darhol balansingizga qo'shib beriladi!</i>"
+        "💳 <b>TARIFLAR:</b>\n\n"
+        "• 10 ta video — 45,000 so'm\n"
+        "• 25 ta video — 95,000 so'm\n"
+        "• 50 ta video — 175,000 so'm\n\n"
+        f"💳 Karta: <code>{CARD_NUMBER}</code>\n"
+        f"👤 Egasi: <b>{CARD_HOLDER}</b>\n\n"
+        "📸 To'lov qilgach, chekni adminga yuboring!"
     )
-    try:
-        await call.message.edit_text(payment_text, reply_markup=get_tariffs_keyboard(), parse_mode="HTML")
-    except Exception:
-        await call.message.answer(payment_text, reply_markup=get_tariffs_keyboard(), parse_mode="HTML")
-    await call.answer()
+    await call.message.answer(payment_text, reply_markup=get_tariffs_keyboard(), parse_mode="HTML")
 
 
 @router.callback_query(F.data.in_({"buy_10", "buy_25", "buy_50"}))
 async def on_buy_package(call: CallbackQuery):
-    packages = {
-        "buy_10": ("10 ta video", "45,000 so'm"),
-        "buy_25": ("25 ta video", "95,000 so'm"),
-        "buy_50": ("50 ta video", "175,000 so'm"),
-    }
-    pkg_name, pkg_price = packages.get(call.data, ("Paket", ""))
-    
+    await call.answer()
     text = (
-        f"✅ Siz <b>{pkg_name}</b> ({pkg_price}) paketini tanladingiz!\n\n"
-        f"💳 <b>Karta raqami:</b> <code>{CARD_NUMBER}</code>\n"
-        f"👤 <b>Karta egasi:</b> {CARD_HOLDER}\n\n"
-        f"📲 To'lovni amalga oshirgach, chekni quyidagi tugma orqali adminga yuboring:"
+        f"💳 <b>Karta:</b> <code>{CARD_NUMBER}</code>\n"
+        f"👤 <b>Egasi:</b> {CARD_HOLDER}\n\n"
+        f"To'lovni amalga oshirib, chekni quyidagi adminga yuboring:"
     )
     kb = InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="📤 Chekni adminga yuborish", url=f"https://t.me/{ADMIN_USERNAME}")],
-        [InlineKeyboardButton(text="◀️ Orqaga qaytish", callback_data="show_tariffs")]
+        [InlineKeyboardButton(text="📤 Chekni yuborish", url=f"https://t.me/{ADMIN_USERNAME}")]
     ])
-    try:
-        await call.message.edit_text(text, reply_markup=kb, parse_mode="HTML")
-    except Exception:
-        await call.message.answer(text, reply_markup=kb, parse_mode="HTML")
-    await call.answer()
+    await call.message.answer(text, reply_markup=kb, parse_mode="HTML")
 
 
 @router.message(F.text == "💰 To'lov qilish")
 async def cmd_payment(message: Message):
     payment_text = (
-        "💳 <b>BALANSNI TO'LDIRISH TARIFLARI</b>\n\n"
-        "Quyidagi qulay paketlardan birini tanlang va to'lovni amalga oshiring:\n\n"
-        "• <b>10 ta video</b> — 45,000 so'm\n"
-        "• <b>25 ta video</b> — 95,000 so'm\n"
-        "• <b>50 ta video</b> — 175,000 so'm\n\n"
-        "🏦 <b>To'lov uchun karta ma'lumotlari:</b>\n"
-        f"• Karta: <code>{CARD_NUMBER}</code>\n"
-        f"• Egasi: <b>{CARD_HOLDER}</b>\n\n"
-        "📸 <i>Pulni o'tkazgandan so'ng, chekni adminga yuboring va darhol balansingizga qo'shib beriladi!</i>"
+        "💳 <b>TARIFLAR:</b>\n\n"
+        "• 10 ta video — 45,000 so'm\n"
+        "• 25 ta video — 95,000 so'm\n"
+        "• 50 ta video — 175,000 so'm\n\n"
+        f"💳 Karta: <code>{CARD_NUMBER}</code>\n"
+        f"👤 Egasi: <b>{CARD_HOLDER}</b>\n\n"
+        "📸 To'lov qilgach, chekni adminga yuboring!"
     )
     await message.answer(payment_text, reply_markup=get_tariffs_keyboard(), parse_mode="HTML")
 
 
 @router.message(F.text == "👨‍💻 Admin bilan bog'lanish")
 async def cmd_contact_admin(message: Message):
-    admin_text = (
-        "👨‍💻 <b>ADMIN BILAN BOG'LANISH</b>\n\n"
-        f"• <b>Menejer:</b> @{ADMIN_USERNAME}\n"
-        f"• <b>Telefon raqam:</b> {ADMIN_PHONE}\n\n"
-        "<i>Savollar, takliflar yoki to'lov cheklarini yuborish uchun adminga yozishingiz mumkin.</i>"
-    )
-    await message.answer(admin_text, parse_mode="HTML")
+    await message.answer(f"👨‍💻 Admin: @{ADMIN_USERNAME}\n📞 Tel: {ADMIN_PHONE}", parse_mode="HTML")
 
 
 @router.message(F.video | (F.document & F.document.mime_type.startswith("video/")))
 async def on_video(message: Message, state: FSMContext, bot: Bot) -> None:
-    if not await check_subscription(bot, message.from_user.id):
-        await message.reply("⚠️ Avval kanalimizga a'zo bo'ling!")
-        return
-
     await state.clear()
     user_id = message.from_user.id
     credits = get_user_credits(user_id, message.from_user.username or "")
@@ -720,7 +510,7 @@ async def on_video(message: Message, state: FSMContext, bot: Bot) -> None:
         kb = InlineKeyboardMarkup(inline_keyboard=[
             [InlineKeyboardButton(text="💎 Tariflarni ko'rish", callback_data="show_tariffs")]
         ])
-        await message.reply("❌ <b>Balansingiz tugagan!</b>\n\nBepul foydalanish limiti tugadi. Davom etish uchun balansni to'ldiring:", reply_markup=kb, parse_mode="HTML")
+        await message.reply("❌ Balansingiz tugagan. Davom etish uchun to'ldiring:", reply_markup=kb, parse_mode="HTML")
         return
 
     media = message.video or message.document
@@ -735,142 +525,61 @@ async def on_video(message: Message, state: FSMContext, bot: Bot) -> None:
         "chat_id": message.chat.id,
         "file_id": media.file_id,
         "lang": "uz",
-        "font": "komika",
-        "size": 85,
-        "color": (255, 255, 0),
-        "style": "mrbeast_style",
-        "ts": time.time()
+        "style": "mrbeast_style"
     }
 
     kb = InlineKeyboardBuilder()
-    for code, (title, _) in VIDEO_LANGS.items():
-        kb.button(text=title, callback_data=f"lang:{key}:{code}")
+    for code, title in VIDEO_LANGS.items():
+        kb.button(text=title, callback_data=f"l:{key}:{code}")
     kb.adjust(2)
-    await message.reply("1️⃣ Tilni tanlang:", reply_markup=kb.as_markup())
+    await message.reply("1️⃣ <b>Videodagi nutq tilini tanlang:</b>", reply_markup=kb.as_markup(), parse_mode="HTML")
 
 
-@router.callback_query(F.data.startswith("lang:"))
-async def on_lang(call: CallbackQuery) -> None:
+@router.callback_query(F.data.startswith("l:"))
+async def on_select_lang(call: CallbackQuery) -> None:
+    await call.answer()  # Tugma aylanishini darhol to'xtatish
     parts = call.data.split(":")
     if len(parts) < 3:
-        await call.answer("Eskirgan so'rov.", show_alert=True)
         return
     _, key, code = parts
     job = jobs.get(key)
     if not job:
-        await call.answer("Eskirgan so'rov yoki vaqt o'tdi.", show_alert=True)
+        await call.message.answer("⚠️ So'rov muddati o'tgan. Iltimos, videoni qaytadan yuboring.")
         return
 
     job["lang"] = code
+
     kb = InlineKeyboardBuilder()
-    for fkey, (title, _) in FONTS_LIST.items():
-        kb.button(text=title, callback_data=f"font:{key}:{fkey}")
+    for skey, title in ANIMATION_STYLES.items():
+        kb.button(text=title, callback_data=f"a:{key}:{skey}")
     kb.adjust(1)
-    
+
     try:
-        await call.message.edit_text("2️⃣ Shrift turini tanlang:", reply_markup=kb.as_markup())
+        await call.message.edit_text("2️⃣ <b>Subtitr animatsiya uslubini tanlang:</b>\n<i>(Shrift: Komika Axis)</i>", reply_markup=kb.as_markup(), parse_mode="HTML")
     except Exception:
-        await call.message.answer("2️⃣ Shrift turini tanlang:", reply_markup=kb.as_markup())
-    await call.answer()
+        await call.message.answer("2️⃣ <b>Subtitr animatsiya uslubini tanlang:</b>\n<i>(Shrift: Komika Axis)</i>", reply_markup=kb.as_markup(), parse_mode="HTML")
 
 
-@router.callback_query(F.data.startswith("font:"))
-async def on_font(call: CallbackQuery) -> None:
+@router.callback_query(F.data.startswith("a:"))
+async def on_select_anim(call: CallbackQuery, bot: Bot) -> None:
+    await call.answer()  # Tugma aylanishini darhol to'xtatish
     parts = call.data.split(":")
     if len(parts) < 3:
-        await call.answer("Eskirgan so'rov.", show_alert=True)
-        return
-    _, key, fkey = parts
-    job = jobs.get(key)
-    if not job:
-        await call.answer("Eskirgan so'rov yoki vaqt o'tdi.", show_alert=True)
-        return
-
-    job["font"] = fkey
-    kb = InlineKeyboardBuilder()
-    for skey, (title, _) in SIZES.items():
-        kb.button(text=title, callback_data=f"size:{key}:{skey}")
-    kb.adjust(1)
-    
-    try:
-        await call.message.edit_text("3️⃣ Subtitr o'lchamini tanlang:", reply_markup=kb.as_markup())
-    except Exception:
-        await call.message.answer("3️⃣ Subtitr o'lchamini tanlang:", reply_markup=kb.as_markup())
-    await call.answer()
-
-
-@router.callback_query(F.data.startswith("size:"))
-async def on_size(call: CallbackQuery) -> None:
-    parts = call.data.split(":")
-    if len(parts) < 3:
-        await call.answer("Eskirgan so'rov.", show_alert=True)
         return
     _, key, skey = parts
     job = jobs.get(key)
     if not job:
-        await call.answer("Eskirgan so'rov yoki vaqt o'tdi.", show_alert=True)
-        return
-
-    job["size"] = SIZES[skey][1]
-    kb = InlineKeyboardBuilder()
-    for cname, (title, _) in COLORS.items():
-        kb.button(text=title, callback_data=f"col:{key}:{cname}")
-    kb.adjust(2)
-    
-    try:
-        await call.message.edit_text("4️⃣ Subtitr rangini tanlang:", reply_markup=kb.as_markup())
-    except Exception:
-        await call.message.answer("4️⃣ Subtitr rangini tanlang:", reply_markup=kb.as_markup())
-    await call.answer()
-
-
-@router.callback_query(F.data.startswith("col:"))
-async def on_color(call: CallbackQuery) -> None:
-    parts = call.data.split(":")
-    if len(parts) < 3:
-        await call.answer("Eskirgan so'rov.", show_alert=True)
-        return
-    _, key, cname = parts
-    job = jobs.get(key)
-    if not job:
-        await call.answer("Eskirgan so'rov.", show_alert=True)
-        return
-
-    job["color"] = COLORS[cname][1]
-    kb = InlineKeyboardBuilder()
-    for skey, sinfo in ANIMATION_STYLES.items():
-        kb.button(text=sinfo["title"], callback_data=f"anim:{key}:{skey}")
-    kb.adjust(1)
-    
-    try:
-        await call.message.edit_text("5️⃣ Animatsiya uslubini tanlang:", reply_markup=kb.as_markup())
-    except Exception:
-        await call.message.answer("5️⃣ Animatsiya uslubini tanlang:", reply_markup=kb.as_markup())
-    await call.answer()
-
-
-@router.callback_query(F.data.startswith("anim:"))
-async def on_animation(call: CallbackQuery, bot: Bot) -> None:
-    parts = call.data.split(":")
-    if len(parts) < 3:
-        await call.answer("Eskirgan so'rov.", show_alert=True)
-        return
-    _, key, skey = parts
-    job = jobs.get(key)
-    if not call.message:
-        return
-    if not job:
-        await call.answer("Eskirgan so'rov.", show_alert=True)
+        await call.message.answer("⚠️ So'rov muddati o'tgan. Iltimos, videoni qaytadan yuboring.")
         return
 
     job["style"] = skey
     jobs.pop(key, None)
     
     try:
-        await call.message.edit_text("✅ Sozlamalar qabul qilindi. Tanlangan shrift va animatsiyada video tezkor tayyorlanmoqda...")
+        await call.message.edit_text("✅ <b>Qabul qilindi! Komika Axis shriftida video tayyorlanmoqda...</b>", parse_mode="HTML")
     except Exception:
         pass
-        
+
     asyncio.create_task(process_job(bot, job))
 
 
