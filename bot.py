@@ -25,6 +25,7 @@ from aiogram.types import (
 from aiogram.utils.keyboard import InlineKeyboardBuilder
 from aiogram.client.session.aiohttp import AiohttpSession
 from aiogram.fsm.context import FSMContext
+from aiogram.fsm.state import State, StatesGroup
 from aiogram.fsm.storage.memory import MemoryStorage
 from elevenlabs.client import ElevenLabs
 
@@ -63,11 +64,15 @@ ANIMATION_STYLES = {
 }
 
 VIDEO_QUALITIES = {
-    "720p": ("📱 Standard HD (720p)", "1280:720"),
-    "2k": ("💎 PRO 2K Ultra (1440p)", "2560:1440")
+    "720p": ("📱 Standard HD (720p) [Free]", "1280:720", False),
+    "2k": ("💎 PRO 2K Ultra (1440p) [PRO]", "2560:1440", True)
 }
 
-jobs: Dict[str, Dict[str, Any]] = {}
+class SubtitleState(StatesGroup):
+    waiting_for_lang = State()
+    waiting_for_anim = State()
+    waiting_for_quality = State()
+
 router = Router()
 el_client = ElevenLabs(api_key=ELEVENLABS_API_KEY)
 
@@ -77,7 +82,7 @@ def get_main_keyboard() -> ReplyKeyboardMarkup:
         [KeyboardButton(text="⚡ Auto Subtitr qo'yish")],
         [KeyboardButton(text="🎨 Subtitr uslublari"), KeyboardButton(text="💳 Balans")],
         [KeyboardButton(text="💎 PRO Tariflar"), KeyboardButton(text="📜 Oferta")],
-        [KeyboardButton(text="👨‍‍💻 Admin bilan bog'lanish")]
+        [KeyboardButton(text="👨‍💻 Admin bilan bog'lanish")]
     ]
     return ReplyKeyboardMarkup(keyboard=keyboard, resize_keyboard=True)
 
@@ -90,6 +95,7 @@ def init_db():
                 user_id INTEGER PRIMARY KEY,
                 username TEXT,
                 credits INTEGER DEFAULT 3,
+                is_pro INTEGER DEFAULT 0,
                 bot_lang TEXT DEFAULT 'uz',
                 terms_accepted INTEGER DEFAULT 0,
                 joined_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
@@ -105,12 +111,20 @@ def get_user_credits(user_id: int, username: str = "") -> int:
         row = cursor.fetchone()
         if row is None:
             cursor.execute(
-                "INSERT OR IGNORE INTO users (user_id, username, credits, bot_lang, terms_accepted) VALUES (?, ?, ?, 'uz', 0)",
+                "INSERT OR IGNORE INTO users (user_id, username, credits, is_pro, bot_lang, terms_accepted) VALUES (?, ?, ?, 0, 'uz', 0)",
                 (user_id, username, INITIAL_CREDITS)
             )
             conn.commit()
             return INITIAL_CREDITS
         return row[0]
+
+
+def is_user_pro(user_id: int) -> bool:
+    with sqlite3.connect(DB_FILE) as conn:
+        cursor = conn.cursor()
+        cursor.execute("SELECT is_pro FROM users WHERE user_id = ?", (user_id,))
+        row = cursor.fetchone()
+        return bool(row and row[0] == 1)
 
 
 def deduct_user_credit(user_id: int) -> bool:
@@ -362,7 +376,7 @@ async def cmd_add_credits(message: Message, bot: Bot):
         return
     parts = message.text.split()
     if len(parts) < 3:
-        await message.reply("⚠️ Format: <code>/add [user_id] [kredit_soni]</code>", parse_mode="HTML")
+        await message.reply("⚠️️ Format: <code>/add [user_id] [kredit_soni]</code>", parse_mode="HTML")
         return
     try:
         target_user_id = int(parts[1])
@@ -413,8 +427,8 @@ async def cmd_subtitr_styles(message: Message):
 async def cmd_pro_tariffs(message: Message):
     text = (
         "💎 <b>PRO TARIFLAR VA IMKONIYATLAR</b>\n\n"
-        "• 📱 <b>Standard HD (720p)</b> — Standart tezkor render va qulay format.\n"
-        "• 💎 <b>PRO 2K Ultra (1440p)</b> — Oliy sifatli kristalli tiniq video va ustuvor navbat.\n\n"
+        "• 📱 <b>Standard HD (720p)</b> — Barcha foydalanuvchilar uchun.\n"
+        "• 💎 <b>PRO 2K Ultra (1440p)</b> — Faqat PRO obunachilar uchun maxsus kristalli tiniq sifat.\n\n"
         "💳 <b>Kredit paketlari narxlari:</b>\n"
         "• 10 ta video — 45,000 so'm\n"
         "• 25 ta video — 95,000 so'm\n"
@@ -437,10 +451,14 @@ async def show_oferta(message: Message):
 @router.message(F.text == "💳 Balans")
 async def cmd_balans(message: Message):
     credits = get_user_credits(message.from_user.id)
+    is_pro = is_user_pro(message.from_user.id)
+    status_text = "💎 <b>PRO Obuna:</b> Faol ✅" if is_pro else "👤 <b>Status:</b> Free (Standart)"
+    
     text = (
         "💎 <b>SHAXSIY BALANS</b>\n\n"
         f"🆔 ID: <code>{message.from_user.id}</code>\n"
         f"🔋 Qolgan urinishlar: <b>{credits} ta video</b>\n"
+        f"{status_text}\n"
     )
     kb = InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text="💎 Tariflarni ko'rish va to'ldirish", callback_data="show_tariffs")]
@@ -522,38 +540,27 @@ async def on_video(message: Message, state: FSMContext, bot: Bot) -> None:
         await message.answer("❌ Video hajmi 50 MB dan oshmasligi kerak.")
         return
 
-    key = uuid.uuid4().hex[:8]
-    jobs[key] = {
-        "file_id": media.file_id,
-        "chat_id": message.chat.id,
-        "user_id": user_id
-    }
+    await state.clear()
+    await state.update_data(file_id=media.file_id, chat_id=message.chat.id, user_id=user_id)
+    await state.set_state(SubtitleState.waiting_for_lang)
 
     kb = InlineKeyboardBuilder()
     for code, title in VIDEO_LANGS.items():
-        kb.button(text=title, callback_data=f"lang:{key}:{code}")
+        kb.button(text=title, callback_data=f"lang_{code}")
     kb.adjust(2)
     await message.reply("1️⃣ <b>Videodagi nutq tilini tanlang:</b>", reply_markup=kb.as_markup(), parse_mode="HTML")
 
 
-@router.callback_query(F.data.startswith("lang:"))
-async def on_select_lang(call: CallbackQuery) -> None:
+@router.callback_query(SubtitleState.waiting_for_lang, F.data.startswith("lang_"))
+async def on_select_lang(call: CallbackQuery, state: FSMContext) -> None:
     await call.answer()
-    parts = call.data.split(":")
-    if len(parts) < 3:
-        return
-    _, key, code = parts
-    
-    job = jobs.get(key)
-    if not job:
-        await call.message.answer("⚠️ So'rov muddati o'tgan. Iltimos, videoni qaytadan yuboring.")
-        return
-
-    job["lang"] = code
+    code = call.data.split("_")[1]
+    await state.update_data(lang=code)
+    await state.set_state(SubtitleState.waiting_for_anim)
 
     kb = InlineKeyboardBuilder()
     for skey, title in ANIMATION_STYLES.items():
-        kb.button(text=title, callback_data=f"anim:{key}:{skey}")
+        kb.button(text=title, callback_data=f"anim_{skey}")
     kb.adjust(1)
 
     try:
@@ -562,24 +569,16 @@ async def on_select_lang(call: CallbackQuery) -> None:
         await call.message.answer("2️⃣ <b>Subtitr animatsiya uslubini tanlang:</b>\n<i>(Shrift: Komika Axis)</i>", reply_markup=kb.as_markup(), parse_mode="HTML")
 
 
-@router.callback_query(F.data.startswith("anim:"))
-async def on_select_anim(call: CallbackQuery) -> None:
+@router.callback_query(SubtitleState.waiting_for_anim, F.data.startswith("anim_"))
+async def on_select_anim(call: CallbackQuery, state: FSMContext) -> None:
     await call.answer()
-    parts = call.data.split(":")
-    if len(parts) < 3:
-        return
-    _, key, skey = parts
-    
-    job = jobs.get(key)
-    if not job:
-        await call.message.answer("⚠️ So'rov muddati o'tgan. Iltimos, videoni qaytadan yuboring.")
-        return
-
-    job["style"] = skey
+    skey = call.data.split("_", 1)[1]
+    await state.update_data(style=skey)
+    await state.set_state(SubtitleState.waiting_for_quality)
 
     kb = InlineKeyboardBuilder()
-    for qkey, (title, _) in VIDEO_QUALITIES.items():
-        kb.button(text=title, callback_data=f"qual:{key}:{qkey}")
+    for qkey, (title, _, _) in VIDEO_QUALITIES.items():
+        kb.button(text=title, callback_data=f"qual_{qkey}")
     kb.adjust(1)
 
     try:
@@ -588,28 +587,47 @@ async def on_select_anim(call: CallbackQuery) -> None:
         await call.message.answer("3️⃣ <b>Video sifatini tanlang:</b>", reply_markup=kb.as_markup(), parse_mode="HTML")
 
 
-@router.callback_query(F.data.startswith("qual:"))
-async def on_select_quality(call: CallbackQuery, bot: Bot) -> None:
-    await call.answer("Qabul qilindi! Ish boshlandi...")
-    parts = call.data.split(":")
-    if len(parts) < 3:
-        return
-    _, key, qkey = parts
+@router.callback_query(SubtitleState.waiting_for_quality, F.data.startswith("qual_"))
+async def on_select_quality(call: CallbackQuery, state: FSMContext, bot: Bot) -> None:
+    await call.answer()
+    qkey = call.data.split("_")[1]
+    data = await state.get_data()
     
-    job = jobs.pop(key, None)
-    if not job:
+    file_id = data.get("file_id")
+    chat_id = data.get("chat_id")
+    user_id = data.get("user_id", call.from_user.id)
+    lang = data.get("lang", "uz")
+    anim_style = data.get("style", "mrbeast_style")
+
+    if not file_id:
         await call.message.answer("⚠️ Ma'lumot topilmadi. Iltimos, videoni qaytadan yuboring.")
+        await state.clear()
         return
 
-    file_id = job["file_id"]
-    chat_id = job["chat_id"]
-    user_id = job["user_id"]
-    lang = job.get("lang", "uz")
-    anim_style = job.get("style", "mrbeast_style")
-    quality_res = VIDEO_QUALITIES.get(qkey, ("Standard HD", "1280:720"))[1]
+    q_info = VIDEO_QUALITIES.get(qkey)
+    if not q_info:
+        return
+
+    quality_title, quality_res, is_pro_required = q_info
+
+    # Agar 2K (PRO) tanlansa va foydalanuvchi PRO bo'lmasa
+    if is_pro_required and not is_user_pro(user_id):
+        kb = InlineKeyboardMarkup(inline_keyboard=[
+            [InlineKeyboardButton(text="💎 PRO Tarifni sotib olish", callback_data="show_tariffs")],
+            [InlineKeyboardButton(text="📱 Standard HD (720p) bilan davom etish", callback_data="qual_720p")]
+        ])
+        await call.message.answer(
+            "💎 <b>Bu imkoniyat faqat PRO obunachilar uchun!</b>\n\n"
+            "Siz Standard (Free) tarifdasiz. <b>PRO 2K Ultra</b> sifatidan foydalanish uchun hisobingizni PRO tarifga o'tkazing yoki 720p sifatini tanlang.",
+            reply_markup=kb,
+            parse_mode="HTML"
+        )
+        return
+
+    await state.clear()
     
     try:
-        await call.message.edit_text("✅ <b>Qabul qilindi! Komika Axis shriftida video tayyorlanmoqda...</b>", parse_mode="HTML")
+        await call.message.edit_text(f"✅ <b>Qabul qilindi ({quality_title})! Komika Axis shriftida video tayyorlanmoqda...</b>", parse_mode="HTML")
     except Exception:
         pass
 
