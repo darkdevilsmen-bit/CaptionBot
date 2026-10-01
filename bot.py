@@ -55,9 +55,9 @@ VIDEO_LANGS = {
     "en": ("🇬🇧 Inglizcha", "en"),
 }
 
+# FAQAT KOMIKA AXIS QOLDIRILDI
 FONTS_LIST = {
     "komika": ("Komika Axis (MrBeast Style)", "KomikaAxis.ttf"),
-    "coolvetica": ("Coolvetica (Clean & Modern)", "coolvetica.ttf"),
 }
 
 COLORS = {
@@ -78,8 +78,8 @@ ANIMATION_STYLES = {
         "desc": "Klassik qalin pop-up va sakrab chiqish animatsiyasi"
     },
     "smooth_tracking": {
-        "title": "✨ After Effects Text Tracking (AE)",
-        "desc": "Harflarning silliq kengayib va tarqalib chiqish effekti"
+        "title": "✨ After Effects Smooth Text Tracking",
+        "desc": "AE uslubidagi silliq harflar oralig'ini kengaytirish effekti"
     },
     "active_bold_regular": {
         "title": "🔥 Active Bold / Regular",
@@ -241,10 +241,12 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
             word_text = w["word"]
             duration_ms = int((end_sec - start_sec) * 1000)
 
+            # After Effects Smooth Text Tracking va Pop-up animatsiyalari
             if anim_style == "mrbeast_style":
                 pro_anim = f"{{\\an2{font_tag}\\fad(30,50)\\fscx140\\fscy140\\t(0,70,\\fscx100\\fscy100)\\b1}}"
             elif anim_style == "smooth_tracking":
-                pro_anim = f"{{\\an2{font_tag}\\fad(30,50)\\fsp-5\\t(0,{duration_ms},\\fsp10)\\b1}}"
+                # AE Smooth Text Tracking: harflar oralig'i (spacing) silliq ochilib boradi
+                pro_anim = f"{{\\an2{font_tag}\\fad(30,50)\\fsp-10\\t(0,{duration_ms},\\fsp15)\\b1}}"
             elif anim_style == "active_bold_regular":
                 pro_anim = f"{{\\an2{font_tag}\\fad(30,50)\\b1}}"
             elif anim_style == "active_word_box":
@@ -598,7 +600,6 @@ async def show_oferta(message: Message):
     await message.answer(OFERTA_FULL_TEXT, parse_mode="HTML")
 
 
-# ─── GOZAL VA TARTIBLI BALANS INTERFEYSI ───
 @router.message(F.text == "💳 Balans")
 async def cmd_balans(message: Message):
     credits = get_user_credits(message.from_user.id)
@@ -617,7 +618,6 @@ async def cmd_balans(message: Message):
     await message.answer(text, reply_markup=kb, parse_mode="HTML")
 
 
-# ─── GOZAL VA TARTIBLI TO'LOV / TARIFLAR INTERFEYSI ───
 def get_tariffs_keyboard() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text="💎 10 ta video — 45,000 so'm", callback_data="buy_10")],
@@ -855,7 +855,7 @@ async def on_animation(call: CallbackQuery, bot: Bot) -> None:
     jobs.pop(key, None)
     
     try:
-        await call.message.edit_text("✅ Sozlamalar qabul qilindi. Tanlangan shriftda video tezkor tayyorlanmoqda...")
+        await call.message.edit_text("✅ Sozlamalar qabul qilindi. Tanlangan shrift va animatsiyada video tezkor tayyorlanmoqda...")
     except Exception:
         pass
         
