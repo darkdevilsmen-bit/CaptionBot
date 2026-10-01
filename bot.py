@@ -55,7 +55,7 @@ VIDEO_LANGS = {
     "en": ("🇬🇧 Inglizcha", "en"),
 }
 
-# FAQAT KOMIKA AXIS QOLDIRILDI
+# FAQAT KOMIKA AXIS
 FONTS_LIST = {
     "komika": ("Komika Axis (MrBeast Style)", "KomikaAxis.ttf"),
 }
@@ -241,11 +241,9 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
             word_text = w["word"]
             duration_ms = int((end_sec - start_sec) * 1000)
 
-            # After Effects Smooth Text Tracking va Pop-up animatsiyalari
             if anim_style == "mrbeast_style":
                 pro_anim = f"{{\\an2{font_tag}\\fad(30,50)\\fscx140\\fscy140\\t(0,70,\\fscx100\\fscy100)\\b1}}"
             elif anim_style == "smooth_tracking":
-                # AE Smooth Text Tracking: harflar oralig'i (spacing) silliq ochilib boradi
                 pro_anim = f"{{\\an2{font_tag}\\fad(30,50)\\fsp-10\\t(0,{duration_ms},\\fsp15)\\b1}}"
             elif anim_style == "active_bold_regular":
                 pro_anim = f"{{\\an2{font_tag}\\fad(30,50)\\b1}}"
@@ -592,7 +590,15 @@ async def cmd_auto_subtitr(message: Message, bot: Bot):
 
 @router.message(F.text == "🎨 Subtitr uslublari")
 async def cmd_subtitr_styles(message: Message):
-    await message.answer("🎨 <b>Subtitrlar tanlangan shrift va animatsiya uslubida</b> ishlaydi. Videongizni yuborib sozlab olishingiz mumkin!", parse_mode="HTML")
+    text = (
+        "🎨 <b>PROFESSIONAL SUBTITR USLUBLARI</b>\n\n"
+        "Botimiz yordamida videolaringizga quyidagi zamonaviy effektlarni berishingiz mumkin:\n\n"
+        "• 🟢 <b>Komika Axis Pop-up:</b> MrBeast uslubidagi qalin va e'tiborni tortuvchi harakatli matn.\n"
+        "• ✨ <b>AE Smooth Tracking:</b> After Effects dasturidagi kabi harflarning silliq kengayib chiqish effekti.\n"
+        "• 🔥 <b>Active Bold / Regular:</b> So'zlarning qalinlashib boruvchi dinamik ko'rinishi.\n\n"
+        "<i>Videongizni yuboring va o'zingizga yoqqan uslubni tanlab sozlang!</i>"
+    )
+    await message.answer(text, parse_mode="HTML")
 
 
 @router.message(F.text == "📜 Oferta")
@@ -691,7 +697,13 @@ async def cmd_payment(message: Message):
 
 @router.message(F.text == "👨‍💻 Admin bilan bog'lanish")
 async def cmd_contact_admin(message: Message):
-    await message.answer(f"👨‍💻 Admin bilan bog'lanish:\n• Profil: @{ADMIN_USERNAME}\n• Tel: {ADMIN_PHONE}", parse_mode="HTML")
+    admin_text = (
+        "👨‍💻 <b>ADMIN BILAN BOG'LANISH</b>\n\n"
+        f"• <b>Menejer:</b> @{ADMIN_USERNAME}\n"
+        f"• <b>Telefon raqam:</b> {ADMIN_PHONE}\n\n"
+        "<i>Savollar, takliflar yoki to'lov cheklarini yuborish uchun adminga yozishingiz mumkin.</i>"
+    )
+    await message.answer(admin_text, parse_mode="HTML")
 
 
 @router.message(F.video | (F.document & F.document.mime_type.startswith("video/")))
