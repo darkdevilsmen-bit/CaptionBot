@@ -544,7 +544,7 @@ async def cmd_pro_tariffs(message: Message):
     )
     kb = InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text="💎 PRO sotib olish uchun adminga yozish", url=f"https://t.me/{ADMIN_USERNAME}?text=Salom,%20men%20PRO%20tarif%20sotib%20olmoqchiman.%20ID%20raqamim:%20{user_id}")],
-        [InlineKeyboardButton(text="👨‍💻 Adminga chek yuborish", url=f"https://t.me/{ADMIN_USERNAME}")]
+        [InlineKeyboardButton(text="👨‍‍💻 Adminga chek yuborish", url=f"https://t.me/{ADMIN_USERNAME}")]
     ])
     await message.answer(text, reply_markup=kb, parse_mode="HTML")
 
@@ -638,17 +638,10 @@ async def on_select_lang(call: CallbackQuery) -> None:
     
     job = jobs.get(key)
     if not job:
-        try:
-            await call.message.edit_reply_markup(reply_markup=None)
-        except Exception:
-            pass
+        await call.message.answer("⚠️ Sessiya eskirgan. Iltimos, videoni qaytadan yuboring.")
         return
 
     job["lang"] = code
-    try:
-        await call.message.edit_reply_markup(reply_markup=None)
-    except Exception:
-        pass
 
     kb = InlineKeyboardBuilder()
     for skey, title in ANIMATION_STYLES.items():
@@ -668,17 +661,10 @@ async def on_select_anim(call: CallbackQuery) -> None:
     
     job = jobs.get(key)
     if not job:
-        try:
-            await call.message.edit_reply_markup(reply_markup=None)
-        except Exception:
-            pass
+        await call.message.answer("⚠️ Sessiya eskirgan. Iltimos, videoni qaytadan yuboring.")
         return
 
     job["style"] = skey
-    try:
-        await call.message.edit_reply_markup(reply_markup=None)
-    except Exception:
-        pass
 
     kb = InlineKeyboardBuilder()
     for ckey, (ctitle, _) in TEXT_COLORS.items():
@@ -698,17 +684,10 @@ async def on_select_color(call: CallbackQuery) -> None:
     
     job = jobs.get(key)
     if not job:
-        try:
-            await call.message.edit_reply_markup(reply_markup=None)
-        except Exception:
-            pass
+        await call.message.answer("⚠️ Sessiya eskirgan. Iltimos, videoni qaytadan yuboring.")
         return
 
     job["color"] = ckey
-    try:
-        await call.message.edit_reply_markup(reply_markup=None)
-    except Exception:
-        pass
 
     kb = InlineKeyboardBuilder()
     for fkey, (ftitle, _) in FONT_SIZES.items():
@@ -728,17 +707,10 @@ async def on_select_size(call: CallbackQuery) -> None:
     
     job = jobs.get(key)
     if not job:
-        try:
-            await call.message.edit_reply_markup(reply_markup=None)
-        except Exception:
-            pass
+        await call.message.answer("⚠️ Sessiya eskirgan. Iltimos, videoni qaytadan yuboring.")
         return
 
     job["size"] = fkey
-    try:
-        await call.message.edit_reply_markup(reply_markup=None)
-    except Exception:
-        pass
 
     kb = InlineKeyboardBuilder()
     for qkey, (title, _, _) in VIDEO_QUALITIES.items():
@@ -758,10 +730,7 @@ async def on_select_quality(call: CallbackQuery, bot: Bot) -> None:
     
     job = jobs.get(key)
     if not job:
-        try:
-            await call.message.edit_reply_markup(reply_markup=None)
-        except Exception:
-            pass
+        await call.message.answer("⚠️ Sessiya eskirgan. Iltimos, videoni qaytadan yuboring.")
         return
 
     file_id = job["file_id"]
@@ -793,8 +762,9 @@ async def on_select_quality(call: CallbackQuery, bot: Bot) -> None:
         return
 
     jobs.pop(key, None)
+    
     try:
-        await call.message.edit_reply_markup(reply_markup=None)
+        await call.message.edit_text(f"✅ <b>Qabul qilindi ({quality_title})! Komika Axis shriftida video tayyorlanmoqda...</b>", parse_mode="HTML")
     except Exception:
         pass
 
@@ -802,7 +772,7 @@ async def on_select_quality(call: CallbackQuery, bot: Bot) -> None:
 
 
 async def handle(request):
-    return web.Response(text="Captions Pro Bot is live and running!")
+    return web.Response(text="Captions Pro Data is live and running!")
 
 async def web_server():
     app = web.Application()
