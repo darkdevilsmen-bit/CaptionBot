@@ -69,10 +69,10 @@ TEXT_COLORS = {
 }
 
 FONT_SIZES = {
-    "small": ("🔽 Kichik (65)", 65),
-    "normal": ("📱 Normal (78)", 78),
-    "large": ("📈 Katta (90)", 90),
-    "xlarge": ("🔥 Juda katta (105)", 105)
+    "small": ("🔽 Kichik (70)", 70),
+    "normal": ("📱 Normal (85)", 85),
+    "large": ("📈 Katta (100)", 100),
+    "xlarge": ("🔥 Juda katta (115)", 115)
 }
 
 VIDEO_QUALITIES = {
@@ -300,8 +300,9 @@ async def process_job(bot: Bot, chat_id: int, user_id: int, file_id: str, lang: 
             return
 
         abs_fonts_dir = str(FONTS_DIR.resolve())
-        qw, qh = quality_res.split(":")
-        vf_filter = f"scale={qw}:{qh}:force_original_aspect_ratio=increase,crop={qw}:{qh},ass=subtitles.ass:fontsdir='{abs_fonts_dir}'"
+        
+        # Instagram 9:16 vertikal format (1080x1920 yoki mos ravishda pro) qat'iy saqlanishi uchun to'g'ri filter
+        vf_filter = f"scale=1080:1920:force_original_aspect_ratio=increase,crop=1080:1920,ass=subtitles.ass:fontsdir='{abs_fonts_dir}'"
 
         cmd_render = [
             "ffmpeg", "-y", "-i", "input.mp4",
@@ -699,7 +700,7 @@ async def on_select_color(call: CallbackQuery) -> None:
     if not job:
         try:
             await call.message.edit_reply_markup(reply_markup=None)
-        3except Exception:
+        except Exception:
             pass
         return
 
@@ -823,7 +824,7 @@ async def start_bot_polling():
             await bot.delete_webhook(drop_pending_updates=True)
             log.info("Captions Pro Bot ishga tushdi!")
             await dp.start_polling(bot, handle_as_tasks=True, drop_pending_updates=True)
-        exceptException as e:
+        except Exception as e:
             log.warning(f"Tarmoq xatosi: {e}. Qayta ulanmoqda...")
             await asyncio.sleep(5)
         finally:
