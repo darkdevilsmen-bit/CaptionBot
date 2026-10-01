@@ -61,6 +61,13 @@ ANIMATION_STYLES = {
     "active_word_box": "⬛ Active Word Highlight (Box)"
 }
 
+TEXT_COLORS = {
+    "yellow": ("🟡 Sariq (Yorqin)", "&H0000FFFF"),
+    "white": ("⚪ Oq (Klassik)", "&H00FFFFFF"),
+    "green": ("🟢 Yashil (Neon)", "&H0000FF00"),
+    "cyan": ("🔵 Havorang", "&H00FFFF00")
+}
+
 VIDEO_QUALITIES = {
     "720p": ("📱 Standard HD (720p) [Free]", "1280:720", False),
     "2k": ("💎 PRO 2K Ultra (1440p) [PRO]", "2560:1440", True)
@@ -143,9 +150,8 @@ def format_ass_time(seconds: float) -> str:
     return f"{hours}:{mins:02d}:{secs:02d}.{centis:02d}"
 
 
-def generate_word_by_word_ass(words: List[Any], ass_path: Path, anim_style: str) -> int:
-    color_hex = "&H0000FFFF"  # Sariq rang (BGR)
-    
+def generate_word_by_word_ass(words: List[Any], ass_path: Path, anim_style: str, text_color_hex: str) -> int:
+    # Drop shadow va ingichka hoshiya (Outline=2, Shadow=3) qilib silliq sozlandi
     header = f"""[Script Info]
 ScriptType: v4.00+
 PlayResX: 1080
@@ -155,7 +161,7 @@ WrapStyle: 2
 
 [V4+ Styles]
 Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding
-Style: WordStyle,Komika Axis,75,{color_hex},&H000000FF,&HFF000000,&H80000000,1,0,0,0,100,100,1,0,1,5.5,2.0,2,40,40,420,1
+Style: WordStyle,Komika Axis,78,{text_color_hex},&H000000FF,&HFF000000,&H80000000,1,0,0,0,100,100,1,0,1,2.5,3.0,2,40,40,420,1
 
 [Events]
 Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
@@ -195,15 +201,15 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
             duration_ms = int((end_sec - start_sec) * 1000)
 
             if anim_style == "mrbeast_style":
-                pro_anim = f"{{\\an2\\fad(15,15)\\fscx125\\fscy125\\t(0,60,\\fscx100\\fscy100)\\b1}}"
+                pro_anim = f"{{\\an2\\fad(12,12)\\fscx120\\fscy120\\t(0,50,\\fscx100\\fscy100)\\b1}}"
             elif anim_style == "smooth_tracking":
-                pro_anim = f"{{\\an2\\fad(15,15)\\fsp-4\\t(0,{duration_ms},\\fsp6)\\b1}}"
+                pro_anim = f"{{\\an2\\fad(12,12)\\fsp-3\\t(0,{duration_ms},\\fsp5)\\b1}}"
             elif anim_style == "active_bold_regular":
-                pro_anim = f"{{\\an2\\fad(15,15)\\b1}}"
+                pro_anim = f"{{\\an2\\fad(12,12)\\b1}}"
             elif anim_style == "active_word_box":
-                pro_anim = f"{{\\an2\\fad(15,15)\\bord7\\3c&H000000&\\b1}}"
+                pro_anim = f"{{\\an2\\fad(12,12)\\bord4\\3c&H000000&\\b1}}"
             else:
-                pro_anim = f"{{\\an2\\fad(15,15)\\b1}}"
+                pro_anim = f"{{\\an2\\fad(12,12)\\b1}}"
 
             f.write(f"Dialogue: 0,{start_fmt},{end_fmt},WordStyle,,0,0,0,,{pro_anim}{word_text}\n")
             count += 1
@@ -211,7 +217,7 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
     return count
 
 
-async def process_job(bot: Bot, chat_id: int, user_id: int, file_id: str, lang: str, anim_style: str, quality_res: str) -> None:
+async def process_job(bot: Bot, chat_id: int, user_id: int, file_id: str, lang: str, anim_style: str, text_color: str, quality_res: str) -> None:
     job_key = uuid.uuid4().hex[:8]
     work_dir = WORK_ROOT / job_key
     work_dir.mkdir(parents=True, exist_ok=True)
@@ -281,20 +287,23 @@ async def process_job(bot: Bot, chat_id: int, user_id: int, file_id: str, lang: 
             raise Exception("ElevenLabs javob berish vaqti tugadi (Timeout). Qaytadan urinib ko'ring.")
 
         words = getattr(transcription, "words", []) or []
-        count = generate_word_by_word_ass(words, ass_path, anim_style)
+        color_hex = TEXT_COLORS.get(text_color, TEXT_COLORS["yellow"])[1]
+        count = generate_word_by_word_ass(words, ass_path, anim_style, color_hex)
         if count == 0:
             await status_msg.edit_text("❌ Videoda nutq aniqlanmadi.")
             return
 
         abs_fonts_dir = str(FONTS_DIR.resolve())
-        vf_filter = f"scale={quality_res}:force_original_aspect_ratio=increase,crop={quality_res},ass=subtitles.ass:fontsdir='{abs_fonts_dir}'"
+        # Instagram 9:16 vertikal formatini qat'iy va tiniq saqlash uchun to'g'ri crop/scale filtri
+        qw, qh = quality_res.split(":")
+        vf_filter = f"scale={qw}:{qh}:force_original_aspect_ratio=increase,crop={qw}:{qh},ass=subtitles.ass:fontsdir='{abs_fonts_dir}'"
 
         cmd_render = [
             "ffmpeg", "-y", "-i", "input.mp4",
             "-vf", vf_filter,
             "-c:v", "libx264",
             "-preset", "medium",
-            "-crf", "20",
+            "-crf", "18",
             "-pix_fmt", "yuv420p",
             "-c:a", "copy",
             "output.mp4"
@@ -303,7 +312,7 @@ async def process_job(bot: Bot, chat_id: int, user_id: int, file_id: str, lang: 
         await status_msg.edit_text(
             "⚡ <b>Pro AI Subtitr tayyorlanmoqda...</b>\n\n"
             "▓▓▓▓▓▓▓▓░░ 85%\n\n"
-            "🎬 <i>Komika Axis va silliq animatsiya yozilmoqda...</i>",
+            "🎬 <i>9:16 Instagram formatda video yozilmoqda...</i>",
             parse_mode="HTML"
         )
 
@@ -625,20 +634,24 @@ async def on_select_lang(call: CallbackQuery) -> None:
     
     job = jobs.get(key)
     if not job:
-        await call.message.answer("⚠️ Sessiya eskirgan. Iltimos, videoni qaytadan yuboring.")
+        try:
+            await call.message.edit_reply_markup(reply_markup=None)
+        except Exception:
+            pass
         return
 
     job["lang"] = code
+    try:
+        await call.message.edit_reply_markup(reply_markup=None)
+    except Exception:
+        pass
 
     kb = InlineKeyboardBuilder()
     for skey, title in ANIMATION_STYLES.items():
         kb.button(text=title, callback_data=f"anim:{key}:{skey}")
     kb.adjust(1)
 
-    try:
-        await call.message.edit_text("2️⃣ <b>Subtitr animatsiya uslubini tanlang:</b>\n<i>(Shrift: Komika Axis)</i>", reply_markup=kb.as_markup(), parse_mode="HTML")
-    except Exception:
-        await call.message.answer("2️⃣ <b>Subtitr animatsiya uslubini tanlang:</b>\n<i>(Shrift: Komika Axis)</i>", reply_markup=kb.as_markup(), parse_mode="HTML")
+    await call.message.answer("2️⃣ <b>Subtitr animatsiya uslubini tanlang:</b>\n<i>(Shrift: Komika Axis)</i>", reply_markup=kb.as_markup(), parse_mode="HTML")
 
 
 @router.callback_query(F.data.startswith("anim:"))
@@ -651,20 +664,55 @@ async def on_select_anim(call: CallbackQuery) -> None:
     
     job = jobs.get(key)
     if not job:
-        await call.message.answer("⚠️ Sessiya eskirgan. Iltimos, videoni qaytadan yuboring.")
+        try:
+            await call.message.edit_reply_markup(reply_markup=None)
+        except Exception:
+            pass
         return
 
     job["style"] = skey
+    try:
+        await call.message.edit_reply_markup(reply_markup=None)
+    except Exception:
+        pass
+
+    # Matn rangini tanlash oynasini qo'shamiz
+    kb = InlineKeyboardBuilder()
+    for ckey, (ctitle, _) in TEXT_COLORS.items():
+        kb.button(text=ctitle, callback_data=f"color:{key}:{ckey}")
+    kb.adjust(2)
+
+    await call.message.answer("🎨 <b>Subtitr matn rangini tanlang:</b>", reply_markup=kb.as_markup(), parse_mode="HTML")
+
+
+@router.callback_query(F.data.startswith("color:"))
+async def on_select_color(call: CallbackQuery) -> None:
+    await call.answer()
+    parts = call.data.split(":")
+    if len(parts) < 3:
+        return
+    _, key, ckey = parts
+    
+    job = jobs.get(key)
+    if not job:
+        try:
+            await call.message.edit_reply_markup(reply_markup=None)
+        except Exception:
+            pass
+        return
+
+    job["color"] = ckey
+    try:
+        await call.message.edit_reply_markup(reply_markup=None)
+    except Exception:
+        pass
 
     kb = InlineKeyboardBuilder()
     for qkey, (title, _, _) in VIDEO_QUALITIES.items():
         kb.button(text=title, callback_data=f"qual:{key}:{qkey}")
     kb.adjust(1)
 
-    try:
-        await call.message.edit_text("3️⃣ <b>Video sifatini tanlang:</b>", reply_markup=kb.as_markup(), parse_mode="HTML")
-    except Exception:
-        await call.message.answer("3️⃣ <b>Video sifatini tanlang:</b>", reply_markup=kb.as_markup(), parse_mode="HTML")
+    await call.message.answer("3️⃣ <b>Video sifatini tanlang:</b>", reply_markup=kb.as_markup(), parse_mode="HTML")
 
 
 @router.callback_query(F.data.startswith("qual:"))
@@ -677,7 +725,10 @@ async def on_select_quality(call: CallbackQuery, bot: Bot) -> None:
     
     job = jobs.get(key)
     if not job:
-        await call.message.answer("⚠️ Sessiya eskirgan. Iltimos, videoni qaytadan yuboring.")
+        try:
+            await call.message.edit_reply_markup(reply_markup=None)
+        except Exception:
+            pass
         return
 
     file_id = job["file_id"]
@@ -685,6 +736,7 @@ async def on_select_quality(call: CallbackQuery, bot: Bot) -> None:
     user_id = job["user_id"]
     lang = job.get("lang", "uz")
     anim_style = job.get("style", "mrbeast_style")
+    text_color = job.get("color", "yellow")
 
     q_info = VIDEO_QUALITIES.get(qkey)
     if not q_info:
@@ -706,13 +758,12 @@ async def on_select_quality(call: CallbackQuery, bot: Bot) -> None:
         return
 
     jobs.pop(key, None)
-    
     try:
-        await call.message.edit_text(f"✅ <b>Qabul qilindi ({quality_title})! Komika Axis shriftida video tayyorlanmoqda...</b>", parse_mode="HTML")
+        await call.message.edit_reply_markup(reply_markup=None)
     except Exception:
         pass
 
-    asyncio.create_task(process_job(bot, chat_id, user_id, file_id, lang, anim_style, quality_res))
+    asyncio.create_task(process_job(bot, chat_id, user_id, file_id, lang, anim_style, text_color, quality_res))
 
 
 async def handle(request):
@@ -763,3 +814,4 @@ if __name__ == "__main__":
         asyncio.run(main())
     except (KeyboardInterrupt, SystemExit):
         pass
+    
