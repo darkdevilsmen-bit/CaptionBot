@@ -25,7 +25,6 @@ from aiogram.types import (
 from aiogram.utils.keyboard import InlineKeyboardBuilder
 from aiogram.client.session.aiohttp import AiohttpSession
 from aiogram.fsm.context import FSMContext
-from aiogram.fsm.state import State, StatesGroup
 from aiogram.fsm.storage.memory import MemoryStorage
 from elevenlabs.client import ElevenLabs
 
@@ -68,11 +67,7 @@ VIDEO_QUALITIES = {
     "2k": ("💎 PRO 2K Ultra (1440p)", "2560:1440")
 }
 
-class SubtitleState(StatesGroup):
-    waiting_for_lang = State()
-    waiting_for_anim = State()
-    waiting_for_quality = State()
-
+jobs: Dict[str, Dict[str, Any]] = {}
 router = Router()
 el_client = ElevenLabs(api_key=ELEVENLABS_API_KEY)
 
@@ -82,7 +77,7 @@ def get_main_keyboard() -> ReplyKeyboardMarkup:
         [KeyboardButton(text="⚡ Auto Subtitr qo'yish")],
         [KeyboardButton(text="🎨 Subtitr uslublari"), KeyboardButton(text="💳 Balans")],
         [KeyboardButton(text="💎 PRO Tariflar"), KeyboardButton(text="📜 Oferta")],
-        [KeyboardButton(text="👨‍💻 Admin bilan bog'lanish")]
+        [KeyboardButton(text="👨‍‍💻 Admin bilan bog'lanish")]
     ]
     return ReplyKeyboardMarkup(keyboard=keyboard, resize_keyboard=True)
 
@@ -286,7 +281,6 @@ async def process_job(bot: Bot, chat_id: int, user_id: int, file_id: str, lang: 
             return
 
         abs_fonts_dir = str(FONTS_DIR.resolve())
-        # Sifatni (720p yoki 2k) ffmpeg video filteriga moslaymiz
         vf_filter = f"scale={quality_res}:force_original_aspect_ratio=decrease,pad={quality_res}:(ow-iw)/2:(oh-ih)/2,ass=subtitles.ass:fontsdir='{abs_fonts_dir}'"
 
         cmd_render = [
@@ -418,7 +412,7 @@ async def cmd_subtitr_styles(message: Message):
 @router.message(F.text == "💎 PRO Tariflar")
 async def cmd_pro_tariffs(message: Message):
     text = (
-        "💎 <b>PRO TARIFLAR VA IMkoniyatlar</b>\n\n"
+        "💎 <b>PRO TARIFLAR VA IMKONIYATLAR</b>\n\n"
         "• 📱 <b>Standard HD (720p)</b> — Standart tezkor render va qulay format.\n"
         "• 💎 <b>PRO 2K Ultra (1440p)</b> — Oliy sifatli kristalli tiniq video va ustuvor navbat.\n\n"
         "💳 <b>Kredit paketlari narxlari:</b>\n"
