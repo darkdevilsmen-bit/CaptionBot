@@ -85,6 +85,9 @@ router = Router()
 el_client = ElevenLabs(api_key=ELEVENLABS_API_KEY)
 FFMPEG_PATH = imageio_ffmpeg.get_ffmpeg_exe()
 
+# Foydalanuvchining oxirgi sozlamalari va file_id si xotirada saqlanadi
+USER_SESSIONS: Dict[int, Dict[str, Any]] = {}
+
 
 def get_main_keyboard() -> ReplyKeyboardMarkup:
     keyboard = [
@@ -108,17 +111,6 @@ def init_db():
                 bot_lang TEXT DEFAULT 'uz',
                 terms_accepted INTEGER DEFAULT 0,
                 joined_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-            )
-        """)
-        cursor.execute("""
-            CREATE TABLE IF NOT EXISTS user_jobs (
-                job_key TEXT PRIMARY KEY,
-                user_id INTEGER,
-                file_id TEXT,
-                lang TEXT DEFAULT 'uz',
-                style TEXT DEFAULT 'mrbeast_style',
-                color TEXT DEFAULT 'yellow',
-                size TEXT DEFAULT 'normal'
             )
         """)
         conn.commit()
@@ -439,7 +431,7 @@ async def cmd_make_pro(message: Message, bot: Bot):
         return
     parts = message.text.split()
     if len(parts) < 2:
-        await message.reply("⚠️ Xato format! Ishlatilishi:\n<code>/pro [user_id]</code>", parse_mode="HTML")
+        await message.reply("⚠️️ Xato format! Ishlatilishi:\n<code>/pro [user_id]</code>", parse_mode="HTML")
         return
 
     try:
@@ -626,19 +618,18 @@ async def on_video(message: Message, bot: Bot) -> None:
         await message.answer("❌ Video hajmi 50 MB dan oshmasligi kerak.")
         return
 
-    key = uuid.uuid4().hex[:8]
-    
-    with sqlite3.connect(DB_FILE) as conn:
-        cursor = conn.cursor()
-        cursor.execute(
-            "INSERT OR REPLACE INTO user_jobs (job_key, user_id, file_id) VALUES (?, ?, ?)",
-            (key, user_id, media.file_id)
-        )
-        conn.commit()
+    # Foydalanuvchining sessiyasini xotirada saqlaymiz
+    USER_SESSIONS[user_id] = {
+        "file_id": media.file_id,
+        "lang": "uz",
+        "style": "mrbeast_style",
+        "color": "yellow",
+        "size": "normal"
+    }
 
     kb = InlineKeyboardBuilder()
     for code, title in VIDEO_LANGS.items():
-        kb.button(text=title, callback_data=f"lang:{key}:{code}")
+        kb.button(text=title, callback_data=f"lang:{code}")
     kb.adjust(2)
     await message.reply("1️⃣ <b>Videodagi nutq tilini tanlang:</b>", reply_markup=kb.as_markup(), parse_mode="HTML")
 
@@ -647,19 +638,14 @@ async def on_video(message: Message, bot: Bot) -> None:
 async def on_select_lang(call: CallbackQuery) -> None:
     await call.answer()
     parts = call.data.split(":")
-    if len(parts) < 3:
+    if len(parts) < 2:
         return
-    _, key, code = parts
+    code = parts[1]
+    user_id = call.from_user.id
     
-    with sqlite3.connect(DB_FILE) as conn:
-        cursor = conn.cursor()
-        cursor.execute("SELECT file_id FROM user_jobs WHERE job_key = ?", (key,))
-        row = cursor.fetchone()
-        if not row:
-            cursor.execute("INSERT OR IGNORE INTO user_jobs (job_key, user_id, file_id, lang) VALUES (?, ?, ?, ?)", (key, call.from_user.id, "", code))
-        else:
-            cursor.execute("UPDATE user_jobs SET lang = ? WHERE job_key = ?", (code, key))
-        conn.commit()
+    if user_id not in USER_SESSIONS:
+        USER_SESSIONS[user_id] = {}
+    USER_SESSIONS[user_id]["lang"] = code
 
     try:
         await call.message.edit_reply_markup(reply_markup=None)
@@ -668,7 +654,7 @@ async def on_select_lang(call: CallbackQuery) -> None:
 
     kb = InlineKeyboardBuilder()
     for skey, title in ANIMATION_STYLES.items():
-        kb.button(text=title, callback_data=f"anim:{key}:{skey}")
+        kb.button(text=title, callback_data=f"anim:{skey}")
     kb.adjust(1)
 
     await call.message.answer("2️⃣ <b>Subtitr animatsiya uslubini tanlang:</b>\n<i>(Shrift: Komika Axis)</i>", reply_markup=kb.as_markup(), parse_mode="HTML")
@@ -678,19 +664,14 @@ async def on_select_lang(call: CallbackQuery) -> None:
 async def on_select_anim(call: CallbackQuery) -> None:
     await call.answer()
     parts = call.data.split(":")
-    if len(parts) < 3:
+    if len(parts) < 2:
         return
-    _, key, skey = parts
-    
-    with sqlite3.connect(DB_FILE) as conn:
-        cursor = conn.cursor()
-        cursor.execute("SELECT file_id FROM user_jobs WHERE job_key = ?", (key,))
-        row = cursor.fetchone()
-        if not row:
-            cursor.execute("INSERT OR IGNORE INTO user_jobs (job_key, user_id, file_id, style) VALUES (?, ?, ?, ?)", (key, call.from_user.id, "", skey))
-        else:
-            cursor.execute("UPDATE user_jobs SET style = ? WHERE job_key = ?", (skey, key))
-        conn.commit()
+    skey = parts[1]
+    user_id = call.from_user.id
+
+    if user_id not in USER_SESSIONS:
+        USER_SESSIONS[user_id] = {}
+    USER_SESSIONS[user_id]["style"] = skey
 
     try:
         await call.message.edit_reply_markup(reply_markup=None)
@@ -699,7 +680,7 @@ async def on_select_anim(call: CallbackQuery) -> None:
 
     kb = InlineKeyboardBuilder()
     for ckey, (ctitle, _) in TEXT_COLORS.items():
-        kb.button(text=ctitle, callback_data=f"color:{key}:{ckey}")
+        kb.button(text=ctitle, callback_data=f"color:{ckey}")
     kb.adjust(2)
 
     await call.message.answer("🎨 <b>Subtitr matn rangini tanlang:</b>", reply_markup=kb.as_markup(), parse_mode="HTML")
@@ -709,19 +690,14 @@ async def on_select_anim(call: CallbackQuery) -> None:
 async def on_select_color(call: CallbackQuery) -> None:
     await call.answer()
     parts = call.data.split(":")
-    if len(parts) < 3:
+    if len(parts) < 2:
         return
-    _, key, ckey = parts
-    
-    with sqlite3.connect(DB_FILE) as conn:
-        cursor = conn.cursor()
-        cursor.execute("SELECT file_id FROM user_jobs WHERE job_key = ?", (key,))
-        row = cursor.fetchone()
-        if not row:
-            cursor.execute("INSERT OR IGNORE INTO user_jobs (job_key, user_id, file_id, color) VALUES (?, ?, ?, ?)", (key, call.from_user.id, "", ckey))
-        else:
-            cursor.execute("UPDATE user_jobs SET color = ? WHERE job_key = ?", (ckey, key))
-        conn.commit()
+    ckey = parts[1]
+    user_id = call.from_user.id
+
+    if user_id not in USER_SESSIONS:
+        USER_SESSIONS[user_id] = {}
+    USER_SESSIONS[user_id]["color"] = ckey
 
     try:
         await call.message.edit_reply_markup(reply_markup=None)
@@ -730,7 +706,7 @@ async def on_select_color(call: CallbackQuery) -> None:
 
     kb = InlineKeyboardBuilder()
     for fkey, (ftitle, _) in FONT_SIZES.items():
-        kb.button(text=ftitle, callback_data=f"size:{key}:{fkey}")
+        kb.button(text=ftitle, callback_data=f"size:{fkey}")
     kb.adjust(2)
 
     await call.message.answer("📏 <b>Subtitr matn o'lchamini tanlang:</b>", reply_markup=kb.as_markup(), parse_mode="HTML")
@@ -740,19 +716,14 @@ async def on_select_color(call: CallbackQuery) -> None:
 async def on_select_size(call: CallbackQuery) -> None:
     await call.answer()
     parts = call.data.split(":")
-    if len(parts) < 3:
+    if len(parts) < 2:
         return
-    _, key, fkey = parts
-    
-    with sqlite3.connect(DB_FILE) as conn:
-        cursor = conn.cursor()
-        cursor.execute("SELECT file_id FROM user_jobs WHERE job_key = ?", (key,))
-        row = cursor.fetchone()
-        if not row:
-            cursor.execute("INSERT OR IGNORE INTO user_jobs (job_key, user_id, file_id, size) VALUES (?, ?, ?, ?)", (key, call.from_user.id, "", fkey))
-        else:
-            cursor.execute("UPDATE user_jobs SET size = ? WHERE job_key = ?", (fkey, key))
-        conn.commit()
+    fkey = parts[1]
+    user_id = call.from_user.id
+
+    if user_id not in USER_SESSIONS:
+        USER_SESSIONS[user_id] = {}
+    USER_SESSIONS[user_id]["size"] = fkey
 
     try:
         await call.message.edit_reply_markup(reply_markup=None)
@@ -761,7 +732,7 @@ async def on_select_size(call: CallbackQuery) -> None:
 
     kb = InlineKeyboardBuilder()
     for qkey, (title, _, _) in VIDEO_QUALITIES.items():
-        kb.button(text=title, callback_data=f"qual:{key}:{qkey}")
+        kb.button(text=title, callback_data=f"qual:{qkey}")
     kb.adjust(1)
 
     await call.message.answer("3️⃣ <b>Video sifatini tanlang:</b>", reply_markup=kb.as_markup(), parse_mode="HTML")
@@ -771,34 +742,23 @@ async def on_select_size(call: CallbackQuery) -> None:
 async def on_select_quality(call: CallbackQuery, bot: Bot) -> None:
     await call.answer()
     parts = call.data.split(":")
-    if len(parts) < 3:
+    if len(parts) < 2:
         return
-    _, key, qkey = parts
-    
-    with sqlite3.connect(DB_FILE) as conn:
-        cursor = conn.cursor()
-        cursor.execute("SELECT file_id, lang, style, color, size FROM user_jobs WHERE job_key = ?", (key,))
-        row = cursor.fetchone()
-        
-        if not row or not row[0]:
-            cursor.execute("SELECT file_id, lang, style, color, size FROM user_jobs ORDER BY rowid DESC LIMIT 1")
-            row = cursor.fetchone()
-
-        if not row or not row[0]:
-            file_id = ""
-        else:
-            file_id, lang, anim_style, text_color, font_key = row
-
-        cursor.execute("DELETE FROM user_jobs WHERE job_key = ?", (key,))
-        conn.commit()
-
-    chat_id = call.message.chat.id
+    qkey = parts[1]
     user_id = call.from_user.id
-    
+    chat_id = call.message.chat.id
+
+    session = USER_SESSIONS.get(user_id, {})
+    file_id = session.get("file_id")
+
     if not file_id:
-        await call.message.answer("⚠️ Videoni qaytadan yuboring va davom eting.")
+        await call.message.answer("⚠️ Iltimos, oldin videoni yuboring.")
         return
 
+    lang = session.get("lang", "uz")
+    anim_style = session.get("style", "mrbeast_style")
+    text_color = session.get("color", "yellow")
+    font_key = session.get("size", "normal")
     font_size_val = FONT_SIZES.get(font_key, FONT_SIZES["normal"])[1]
 
     q_info = VIDEO_QUALITIES.get(qkey)
@@ -810,7 +770,7 @@ async def on_select_quality(call: CallbackQuery, bot: Bot) -> None:
     if is_pro_required and not is_user_pro(user_id):
         kb = InlineKeyboardMarkup(inline_keyboard=[
             [InlineKeyboardButton(text="💎 PRO sotib olish uchun adminga yozish", url=f"https://t.me/{ADMIN_USERNAME}?text=Salom,%20men%20PRO%20tarif%20sotib%20olmoqchiman.%20ID%20raqamim:%20{user_id}")],
-            [InlineKeyboardButton(text="📱 Standard HD (720p) bilan davom etish", callback_data=f"qual:{key}:720p")]
+            [InlineKeyboardButton(text="📱 Standard HD (720p) bilan davom etish", callback_data="qual:720p")]
         ])
         await call.message.answer(
             "💎 <b>Bu imkoniyat faqat PRO obunachilar uchun!</b>\n\n"
