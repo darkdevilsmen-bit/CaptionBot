@@ -26,6 +26,7 @@ from aiogram.utils.keyboard import InlineKeyboardBuilder
 from aiogram.client.session.aiohttp import AiohttpSession
 from aiogram.fsm.storage.memory import MemoryStorage
 from elevenlabs.client import ElevenLabs
+import imageio_ffmpeg
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
 log = logging.getLogger(__name__)
@@ -82,6 +83,7 @@ VIDEO_QUALITIES = {
 
 router = Router()
 el_client = ElevenLabs(api_key=ELEVENLABS_API_KEY)
+FFMPEG_PATH = imageio_ffmpeg.get_ffmpeg_exe()
 
 
 def get_main_keyboard() -> ReplyKeyboardMarkup:
@@ -233,37 +235,6 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
     return count
 
 
-async def ensure_ffmpeg():
-    """Agar ffmpeg tizimda topilmasa, uni avtomatik yuklab olib ishlatishni ta'minlaydi"""
-    import shutil as sh
-    if sh.which("ffmpeg"):
-        return "ffmpeg"
-    
-    local_ffmpeg = Path("./ffmpeg_bin/ffmpeg")
-    if local_ffmpeg.exists():
-        return str(local_ffmpeg.resolve())
-    
-    # Agar umuman bo'lmasa, static build yuklab olishga harakat qilamiz
-    try:
-        Path("./ffmpeg_bin").mkdir(exist_ok=True)
-        proc = await asyncio.create_subprocess_exec(
-            "curl", "-L", "https://johnvansickle.com/ffmpeg/releases/ffmpeg-release-amd64-static.tar.xz", "-o", "ffmpeg.tar.xz"
-        )
-        await proc.communicate()
-        proc2 = await asyncio.create_subprocess_exec("tar", "-xf", "ffmpeg.tar.xz")
-        await proc2.communicate()
-        for p in Path(".").glob("ffmpeg-*-static"):
-            sh.move(str(p / "ffmpeg"), "./ffmpeg_bin/ffmpeg")
-            sh.rmtree(p, ignore_errors=True)
-            break
-        if local_ffmpeg.exists():
-            local_ffmpeg.chmod(0o755)
-            return str(local_ffmpeg.resolve())
-    except Exception:
-        pass
-    return "ffmpeg"
-
-
 async def process_job(bot: Bot, chat_id: int, user_id: int, file_id: str, lang: str, anim_style: str, text_color: str, font_size_val: int, quality_res: str) -> None:
     job_key = uuid.uuid4().hex[:8]
     work_dir = WORK_ROOT / job_key
@@ -283,8 +254,6 @@ async def process_job(bot: Bot, chat_id: int, user_id: int, file_id: str, lang: 
     )
 
     try:
-        ffmpeg_bin = await ensure_ffmpeg()
-
         file = await bot.get_file(file_id)
         if not file.file_path:
             raise Exception("Telegram video yo'lini bermadi.")
@@ -299,7 +268,7 @@ async def process_job(bot: Bot, chat_id: int, user_id: int, file_id: str, lang: 
         )
 
         cmd_extract = [
-            ffmpeg_bin, "-y", "-i", "input.mp4",
+            FFMPEG_PATH, "-y", "-i", "input.mp4",
             "-vn", "-acodec", "libmp3lame", "-ar", "24000", "-ac", "1", "-b:a", "192k",
             "audio.mp3"
         ]
@@ -346,7 +315,7 @@ async def process_job(bot: Bot, chat_id: int, user_id: int, file_id: str, lang: 
         vf_filter = f"scale=1080:1920:force_original_aspect_ratio=increase,crop=1080:1920,ass=subtitles.ass:fontsdir='{abs_fonts_dir}'"
 
         cmd_render = [
-            ffmpeg_bin, "-y", "-i", "input.mp4",
+            FFMPEG_PATH, "-y", "-i", "input.mp4",
             "-vf", vf_filter,
             "-c:v", "libx264",
             "-preset", "medium",
@@ -811,13 +780,11 @@ async def on_select_quality(call: CallbackQuery, bot: Bot) -> None:
         cursor.execute("SELECT file_id, lang, style, color, size FROM user_jobs WHERE job_key = ?", (key,))
         row = cursor.fetchone()
         
-        # Agar kalit bo'yicha topilmasa, oxirgi yozuvni olamiz
         if not row or not row[0]:
             cursor.execute("SELECT file_id, lang, style, color, size FROM user_jobs ORDER BY rowid DESC LIMIT 1")
             row = cursor.fetchone()
 
         if not row or not row[0]:
-            # Agar umuman topilmasa ham, oxirgi yuborilgan videoni olishga urinib ko'ramiz
             file_id = ""
         else:
             file_id, lang, anim_style, text_color, font_key = row
@@ -828,7 +795,6 @@ async def on_select_quality(call: CallbackQuery, bot: Bot) -> None:
     chat_id = call.message.chat.id
     user_id = call.from_user.id
     
-    # Agar file_id bazada topilmasa, foydalanuvchiga xato bermasdan xabar qilamiz
     if not file_id:
         await call.message.answer("⚠️ Videoni qaytadan yuboring va davom eting.")
         return
