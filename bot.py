@@ -25,6 +25,7 @@ from aiogram.types import (
 from aiogram.utils.keyboard import InlineKeyboardBuilder
 from aiogram.client.session.aiohttp import AiohttpSession
 from aiogram.fsm.context import FSMContext
+from aiogram.fsm.state import State, StatesGroup
 from aiogram.fsm.storage.memory import MemoryStorage
 from elevenlabs.client import ElevenLabs
 
@@ -62,7 +63,11 @@ ANIMATION_STYLES = {
     "active_word_box": "⬛ Active Word Highlight (Box)"
 }
 
-jobs: Dict[str, Dict[str, Any]] = {}
+# FSM holatlari (Ma'lumotlar o'chib ketishining oldini olish uchun)
+class SubtitleState(StatesGroup):
+    waiting_for_lang = State()
+    waiting_for_anim = State()
+
 router = Router()
 el_client = ElevenLabs(api_key=ELEVENLABS_API_KEY)
 
@@ -93,13 +98,6 @@ def init_db():
         conn.commit()
 
 
-def get_user_data(user_id: int):
-    with sqlite3.connect(DB_FILE) as conn:
-        cursor = conn.cursor()
-        cursor.execute("SELECT credits, bot_lang, terms_accepted FROM users WHERE user_id = ?", (user_id,))
-        return cursor.fetchone()
-
-
 def get_user_credits(user_id: int, username: str = "") -> int:
     with sqlite3.connect(DB_FILE) as conn:
         cursor = conn.cursor()
@@ -125,18 +123,6 @@ def deduct_user_credit(user_id: int) -> bool:
             conn.commit()
             return True
         return False
-
-
-async def check_subscription(bot: Bot, user_id: int) -> bool:
-    if not REQUIRED_CHANNEL or REQUIRED_CHANNEL == "@sizning_kanal":
-        return True
-    try:
-        member = await bot.get_chat_member(chat_id=REQUIRED_CHANNEL, user_id=user_id)
-        if member.status in ["member", "administrator", "creator"]:
-            return True
-    except Exception:
-        return True
-    return False
 
 
 def format_ass_time(seconds: float) -> str:
@@ -219,14 +205,8 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
     return count
 
 
-async def process_job(bot: Bot, job: Dict[str, Any]) -> None:
-    chat_id = job["chat_id"]
-    user_id = job["user_id"]
-    file_id = job["file_id"]
-    lang = job["lang"]
-    anim_style = job["style"]
-    job_key = job["key"]
-
+async def process_job(bot: Bot, chat_id: int, user_id: int, file_id: str, lang: str, anim_style: str) -> None:
+    job_key = uuid.uuid4().hex[:8]
     work_dir = WORK_ROOT / job_key
     work_dir.mkdir(parents=True, exist_ok=True)
 
@@ -396,18 +376,11 @@ async def cmd_add_credits(message: Message, bot: Bot):
 
 
 @router.message(CommandStart())
-async def cmd_start(message: Message, bot: Bot):
+async def cmd_start(message: Message, state: FSMContext):
+    await state.clear()
     user_id = message.from_user.id
-    row = get_user_data(user_id)
-    if row is None:
-        with sqlite3.connect(DB_FILE) as conn:
-            cursor = conn.cursor()
-            cursor.execute(
-                "INSERT OR IGNORE INTO users (user_id, username, credits, bot_lang, terms_accepted) VALUES (?, ?, ?, 'uz', 1)",
-                (user_id, message.from_user.username or "", INITIAL_CREDITS)
-            )
-            conn.commit()
-
+    row = get_user_credits(user_id, message.from_user.username or "")
+    
     await message.answer(
         f"✨ Assalomu alaykum, <b>{message.from_user.first_name}</b>!\n\n"
         f"🎬 Menga videongizni yuboring va darhol professional subtitrga ega bo'ling!",
@@ -505,14 +478,13 @@ async def cmd_payment(message: Message):
     await message.answer(payment_text, reply_markup=get_tariffs_keyboard(), parse_mode="HTML")
 
 
-@router.message(F.text == "👨‍💻 Admin bilan bog'lanish")
+@router.message(F.text == "👨‍‍💻 Admin bilan bog'lanish")
 async def cmd_contact_admin(message: Message):
     await message.answer(f"👨‍💻 Admin: @{ADMIN_USERNAME}\n📞 Tel: {ADMIN_PHONE}", parse_mode="HTML")
 
 
 @router.message(F.video | (F.document & F.document.mime_type.startswith("video/")))
 async def on_video(message: Message, state: FSMContext, bot: Bot) -> None:
-    await state.clear()
     user_id = message.from_user.id
     credits = get_user_credits(user_id, message.from_user.username or "")
     
@@ -528,49 +500,27 @@ async def on_video(message: Message, state: FSMContext, bot: Bot) -> None:
         await message.answer("❌ Video hajmi 50 MB dan oshmasligi kerak.")
         return
 
-    key = uuid.uuid4().hex[:8]
-    jobs[key] = {
-        "key": key,
-        "user_id": user_id,
-        "chat_id": message.chat.id,
-        "file_id": media.file_id,
-        "lang": "uz",
-        "style": "mrbeast_style"
-    }
+    # Ma'lumotlarni FSM xotirasiga saqlaymiz (server qayta ishga tushsa ham yo'qolmaydi)
+    await state.update_data(file_id=media.file_id)
+    await state.set_state(SubtitleState.waiting_for_lang)
 
     kb = InlineKeyboardBuilder()
     for code, title in VIDEO_LANGS.items():
-        kb.button(text=title, callback_data=f"l:{key}:{code}")
+        kb.button(text=title, callback_data=f"l_{code}")
     kb.adjust(2)
     await message.reply("1️⃣ <b>Videodagi nutq tilini tanlang:</b>", reply_markup=kb.as_markup(), parse_mode="HTML")
 
 
-@router.callback_query(F.data.startswith("l:"))
-async def on_select_lang(call: CallbackQuery) -> None:
+@router.callback_query(SubtitleState.waiting_for_lang, F.data.startswith("l_"))
+async def on_select_lang(call: CallbackQuery, state: FSMContext) -> None:
     await call.answer()
-    parts = call.data.split(":")
-    if len(parts) < 3:
-        return
-    _, key, code = parts
-    job = jobs.get(key)
-    if not job:
-        key = uuid.uuid4().hex[:8]
-        jobs[key] = {
-            "key": key,
-            "user_id": call.from_user.id,
-            "chat_id": call.message.chat.id,
-            "file_id": "",
-            "lang": code,
-            "style": "mrbeast_style"
-        }
-
-    job = jobs.get(key)
-    if job:
-        job["lang"] = code
+    code = call.data.split("_")[1]
+    await state.update_data(lang=code)
+    await state.set_state(SubtitleState.waiting_for_anim)
 
     kb = InlineKeyboardBuilder()
     for skey, title in ANIMATION_STYLES.items():
-        kb.button(text=title, callback_data=f"a:{key}:{skey}")
+        kb.button(text=title, callback_data=f"a_{skey}")
     kb.adjust(1)
 
     try:
@@ -579,27 +529,27 @@ async def on_select_lang(call: CallbackQuery) -> None:
         await call.message.answer("2️⃣ <b>Subtitr animatsiya uslubini tanlang:</b>\n<i>(Shrift: Komika Axis)</i>", reply_markup=kb.as_markup(), parse_mode="HTML")
 
 
-@router.callback_query(F.data.startswith("a:"))
-async def on_select_anim(call: CallbackQuery, bot: Bot) -> None:
+@router.callback_query(SubtitleState.waiting_for_anim, F.data.startswith("a_"))
+async def on_select_anim(call: CallbackQuery, state: FSMContext, bot: Bot) -> None:
     await call.answer()
-    parts = call.data.split(":")
-    if len(parts) < 3:
-        return
-    _, key, skey = parts
-    job = jobs.get(key)
-    if not job:
+    skey = call.data.split("_", 1)[1]
+    data = await state.get_data()
+    file_id = data.get("file_id")
+    lang = data.get("lang", "uz")
+
+    if not file_id:
         await call.message.answer("⚠️ Ma'lumot topilmadi. Iltimos, videoni qaytadan yuboring.")
+        await state.clear()
         return
 
-    job["style"] = skey
-    jobs.pop(key, None)
+    await state.clear()
     
     try:
         await call.message.edit_text("✅ <b>Qabul qilindi! Komika Axis shriftida video tayyorlanmoqda...</b>", parse_mode="HTML")
     except Exception:
         pass
 
-    asyncio.create_task(process_job(bot, job))
+    asyncio.create_task(process_job(bot, call.message.chat.id, call.from_user.id, file_id, lang, skey))
 
 
 async def handle(request):
