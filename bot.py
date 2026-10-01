@@ -25,7 +25,6 @@ from aiogram.types import (
 from aiogram.utils.keyboard import InlineKeyboardBuilder
 from aiogram.client.session.aiohttp import AiohttpSession
 from aiogram.fsm.context import FSMContext
-from aiogram.fsm.state import State, StatesGroup
 from aiogram.fsm.storage.memory import MemoryStorage
 from elevenlabs.client import ElevenLabs
 
@@ -63,10 +62,7 @@ ANIMATION_STYLES = {
     "active_word_box": "⬛ Active Word Highlight (Box)"
 }
 
-class SubtitleState(StatesGroup):
-    waiting_for_lang = State()
-    waiting_for_anim = State()
-
+jobs: Dict[str, Dict[str, Any]] = {}
 router = Router()
 el_client = ElevenLabs(api_key=ELEVENLABS_API_KEY)
 
@@ -477,7 +473,7 @@ async def cmd_payment(message: Message):
     await message.answer(payment_text, reply_markup=get_tariffs_keyboard(), parse_mode="HTML")
 
 
-@router.message(F.text == "👨‍‍💻 Admin bilan bog'lanish")
+@router.message(F.text == "👨‍💻 Admin bilan bog'lanish")
 async def cmd_contact_admin(message: Message):
     await message.answer(f"👨‍💻 Admin: @{ADMIN_USERNAME}\n📞 Tel: {ADMIN_PHONE}", parse_mode="HTML")
 
@@ -499,26 +495,38 @@ async def on_video(message: Message, state: FSMContext, bot: Bot) -> None:
         await message.answer("❌ Video hajmi 50 MB dan oshmasligi kerak.")
         return
 
-    await state.update_data(file_id=media.file_id)
-    await state.set_state(SubtitleState.waiting_for_lang)
+    key = uuid.uuid4().hex[:8]
+    jobs[key] = {
+        "file_id": media.file_id,
+        "chat_id": message.chat.id,
+        "user_id": user_id
+    }
 
     kb = InlineKeyboardBuilder()
     for code, title in VIDEO_LANGS.items():
-        kb.button(text=title, callback_data=f"l_{code}")
+        kb.button(text=title, callback_data=f"lang:{key}:{code}")
     kb.adjust(2)
     await message.reply("1️⃣ <b>Videodagi nutq tilini tanlang:</b>", reply_markup=kb.as_markup(), parse_mode="HTML")
 
 
-@router.callback_query(SubtitleState.waiting_for_lang, F.data.startswith("l_"))
-async def on_select_lang(call: CallbackQuery, state: FSMContext) -> None:
+@router.callback_query(F.data.startswith("lang:"))
+async def on_select_lang(call: CallbackQuery) -> None:
     await call.answer()
-    code = call.data.split("_")[1]
-    await state.update_data(lang=code)
-    await state.set_state(SubtitleState.waiting_for_anim)
+    parts = call.data.split(":")
+    if len(parts) < 3:
+        return
+    _, key, code = parts
+    
+    job = jobs.get(key)
+    if not job:
+        await call.message.answer("⚠️ So'rov muddati o'tgan. Iltimos, videoni qaytadan yuboring.")
+        return
+
+    job["lang"] = code
 
     kb = InlineKeyboardBuilder()
     for skey, title in ANIMATION_STYLES.items():
-        kb.button(text=title, callback_data=f"a_{skey}")
+        kb.button(text=title, callback_data=f"anim:{key}:{skey}")
     kb.adjust(1)
 
     try:
@@ -527,30 +535,30 @@ async def on_select_lang(call: CallbackQuery, state: FSMContext) -> None:
         await call.message.answer("2️⃣ <b>Subtitr animatsiya uslubini tanlang:</b>\n<i>(Shrift: Komika Axis)</i>", reply_markup=kb.as_markup(), parse_mode="HTML")
 
 
-@router.callback_query(SubtitleState.waiting_for_anim, F.data.startswith("a_"))
-async def on_select_anim(call: CallbackQuery, state: FSMContext, bot: Bot) -> None:
-    # Мгновенный ответ Telegram, чтобы кнопка не висела
+@router.callback_query(F.data.startswith("anim:"))
+async def on_select_anim(call: CallbackQuery, bot: Bot) -> None:
     await call.answer("Qabul qilindi! Ish boshlandi...")
+    parts = call.data.split(":")
+    if len(parts) < 3:
+        return
+    _, key, skey = parts
     
-    skey = call.data.split("_", 1)[1]
-    data = await state.get_data()
-    file_id = data.get("file_id")
-    lang = data.get("lang", "uz")
-
-    if not file_id:
+    job = jobs.pop(key, None)
+    if not job:
         await call.message.answer("⚠️ Ma'lumot topilmadi. Iltimos, videoni qaytadan yuboring.")
-        await state.clear()
         return
 
-    await state.clear()
+    file_id = job["file_id"]
+    chat_id = job["chat_id"]
+    user_id = job["user_id"]
+    lang = job.get("lang", "uz")
     
     try:
         await call.message.edit_text("✅ <b>Qabul qilindi! Komika Axis shriftida video tayyorlanmoqda...</b>", parse_mode="HTML")
     except Exception:
         pass
 
-    # Фоновый запуск задачи без блокировки хендлера
-    asyncio.create_task(process_job(bot, call.message.chat.id, call.from_user.id, file_id, lang, skey))
+    asyncio.create_task(process_job(bot, chat_id, user_id, file_id, lang, skey))
 
 
 async def handle(request):
