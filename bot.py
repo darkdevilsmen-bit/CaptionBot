@@ -144,17 +144,18 @@ def format_ass_time(seconds: float) -> str:
 
 
 def generate_word_by_word_ass(words: List[Any], ass_path: Path, anim_style: str) -> int:
-    color_hex = "&H0000FFFF"  # Sariq rang (ASS formatida BGR: sariq uchun &H00FFFF&)
+    color_hex = "&H0000FFFF"  # Sariq rang (BGR)
     
     header = f"""[Script Info]
 ScriptType: v4.00+
 PlayResX: 1080
 PlayResY: 1920
 ScaledBorderAndShadow: yes
+WrapStyle: 2
 
 [V4+ Styles]
 Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding
-Style: WordStyle,Komika Axis,85,&H0000FFFF,&H000000FF,&HFF000000,&H80000000,1,0,0,0,100,100,2,0,1,6.0,2.0,2,40,40,450,1
+Style: WordStyle,Komika Axis,75,{color_hex},&H000000FF,&HFF000000,&H80000000,1,0,0,0,100,100,1,0,1,5.5,2.0,2,40,40,420,1
 
 [Events]
 Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
@@ -168,8 +169,8 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
         for ch in [".", ",", "!", "?", ":", ";", '"', "'", "-", "—", "_"]:
             clean = clean.replace(ch, "")
         if clean:
-            if (end - start) < 0.3:
-                end = start + 0.3
+            if (end - start) < 0.25:
+                end = start + 0.25
             cleaned_words.append({"word": clean, "start": start, "end": end})
 
     if not cleaned_words:
@@ -184,7 +185,7 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
                 next_start = cleaned_words[i + 1]["start"]
                 end_sec = min(w["end"], next_start)
                 if end_sec <= start_sec:
-                    end_sec = start_sec + 0.3
+                    end_sec = start_sec + 0.25
             else:
                 end_sec = w["end"]
 
@@ -194,15 +195,15 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
             duration_ms = int((end_sec - start_sec) * 1000)
 
             if anim_style == "mrbeast_style":
-                pro_anim = f"{{\\an2\\fad(30,50)\\fscx140\\fscy140\\t(0,70,\\fscx100\\fscy100)\\b1}}"
+                pro_anim = f"{{\\an2\\fad(15,15)\\fscx125\\fscy125\\t(0,60,\\fscx100\\fscy100)\\b1}}"
             elif anim_style == "smooth_tracking":
-                pro_anim = f"{{\\an2\\fad(30,50)\\fsp-8\\t(0,{duration_ms},\\fsp14)\\b1}}"
+                pro_anim = f"{{\\an2\\fad(15,15)\\fsp-4\\t(0,{duration_ms},\\fsp6)\\b1}}"
             elif anim_style == "active_bold_regular":
-                pro_anim = f"{{\\an2\\fad(30,50)\\b1}}"
+                pro_anim = f"{{\\an2\\fad(15,15)\\b1}}"
             elif anim_style == "active_word_box":
-                pro_anim = f"{{\\an2\\fad(30,50)\\bord8\\3c&H000000&\\b1}}"
+                pro_anim = f"{{\\an2\\fad(15,15)\\bord7\\3c&H000000&\\b1}}"
             else:
-                pro_anim = f"{{\\an2\\fad(30,50)\\b1}}"
+                pro_anim = f"{{\\an2\\fad(15,15)\\b1}}"
 
             f.write(f"Dialogue: 0,{start_fmt},{end_fmt},WordStyle,,0,0,0,,{pro_anim}{word_text}\n")
             count += 1
@@ -286,16 +287,14 @@ async def process_job(bot: Bot, chat_id: int, user_id: int, file_id: str, lang: 
             return
 
         abs_fonts_dir = str(FONTS_DIR.resolve())
-        
-        # 9:16 vertikal formatni mukammal saqlash uchun to'g'ri scale va ass filteri
         vf_filter = f"scale={quality_res}:force_original_aspect_ratio=increase,crop={quality_res},ass=subtitles.ass:fontsdir='{abs_fonts_dir}'"
 
         cmd_render = [
             "ffmpeg", "-y", "-i", "input.mp4",
             "-vf", vf_filter,
             "-c:v", "libx264",
-            "-preset", "ultrafast",
-            "-crf", "22",
+            "-preset", "medium",
+            "-crf", "20",
             "-pix_fmt", "yuv420p",
             "-c:a", "copy",
             "output.mp4"
@@ -304,7 +303,7 @@ async def process_job(bot: Bot, chat_id: int, user_id: int, file_id: str, lang: 
         await status_msg.edit_text(
             "⚡ <b>Pro AI Subtitr tayyorlanmoqda...</b>\n\n"
             "▓▓▓▓▓▓▓▓░░ 85%\n\n"
-            "🎬 <i>Komika Axis shrifti va 9:16 formatda video yozilmoqda...</i>",
+            "🎬 <i>Komika Axis va silliq animatsiya yozilmoqda...</i>",
             parse_mode="HTML"
         )
 
