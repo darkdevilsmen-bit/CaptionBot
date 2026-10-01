@@ -85,7 +85,6 @@ router = Router()
 el_client = ElevenLabs(api_key=ELEVENLABS_API_KEY)
 FFMPEG_PATH = imageio_ffmpeg.get_ffmpeg_exe()
 
-# Foydalanuvchining oxirgi sozlamalari va file_id si xotirada saqlanadi
 USER_SESSIONS: Dict[int, Dict[str, Any]] = {}
 
 
@@ -270,7 +269,9 @@ async def process_job(bot: Bot, chat_id: int, user_id: int, file_id: str, lang: 
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE
         )
-        await proc.communicate()
+        _, stderr_ext = await proc.communicate()
+        if proc.returncode != 0:
+            raise Exception(f"Audio ajratish xatosi: {stderr_ext.decode(errors='ignore')[:200]}")
 
         await status_msg.edit_text(
             "⚡ <b>Pro AI Subtitr tayyorlanmoqda...</b>\n\n"
@@ -329,11 +330,11 @@ async def process_job(bot: Bot, chat_id: int, user_id: int, file_id: str, lang: 
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE
         )
-        _, stderr = await proc_render.communicate()
+        _, stderr_ren = await proc_render.communicate()
 
         if proc_render.returncode != 0:
-            err_msg = stderr.decode(errors="ignore")[:300]
-            raise Exception(f"FFmpeg xatosi: {err_msg}")
+            err_msg = stderr_ren.decode(errors="ignore")[-400:]
+            raise Exception(f"FFmpeg render xatosi: {err_msg}")
 
         deduct_user_credit(user_id)
         current_bal = get_user_credits(user_id)
@@ -431,7 +432,7 @@ async def cmd_make_pro(message: Message, bot: Bot):
         return
     parts = message.text.split()
     if len(parts) < 2:
-        await message.reply("⚠️️ Xato format! Ishlatilishi:\n<code>/pro [user_id]</code>", parse_mode="HTML")
+        await message.reply("⚠️ Xato format! Ishlatilishi:\n<code>/pro [user_id]</code>", parse_mode="HTML")
         return
 
     try:
@@ -474,7 +475,7 @@ async def cmd_remove_pro(message: Message, bot: Bot):
             conn.commit()
 
         await message.reply(f"✅ ID: <code>{target_user_id}</code> foydalanuvchidan PRO obuna olib tashlandi.", parse_mode="HTML")
-        await bot.send_message(target_user_id, "⚠️ Sizning PRO obunangiz muddati tugadi va tarifingiz Standart (Free) rejimiga o'tkazildi.", parse_mode="HTML")
+        await bot.send_message(target_user_id, "⚠️️ Sizning PRO obunangiz muddati tugadi va tarifingiz Standart (Free) rejimiga o'tkazildi.", parse_mode="HTML")
     except Exception as e:
         await message.reply(f"❌ Xatolik: {e}")
 
@@ -618,7 +619,6 @@ async def on_video(message: Message, bot: Bot) -> None:
         await message.answer("❌ Video hajmi 50 MB dan oshmasligi kerak.")
         return
 
-    # Foydalanuvchining sessiyasini xotirada saqlaymiz
     USER_SESSIONS[user_id] = {
         "file_id": media.file_id,
         "lang": "uz",
