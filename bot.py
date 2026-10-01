@@ -7,7 +7,6 @@ import logging
 from pathlib import Path
 from typing import List, Any
 
-from aiohttp import web
 from aiogram import Bot, Dispatcher, F, Router
 from aiogram.filters import CommandStart, Command
 from aiogram.types import (
@@ -17,14 +16,13 @@ from aiogram.types import (
     KeyboardButton,
     InlineKeyboardMarkup,
     InlineKeyboardButton,
-    WebAppInfo
+    CallbackQuery
 )
 from aiogram.client.session.aiohttp import AiohttpSession
 from aiogram.fsm.storage.memory import MemoryStorage
+from aiogram.fsm.state import State, StatesGroup
+from aiogram.fsm.context import FSMContext
 from elevenlabs.client import ElevenLabs
-
-from aiohttp_jinja2 import setup as jinja2_setup, render_template
-import jinja2
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
 log = logging.getLogger(__name__)
@@ -34,7 +32,6 @@ BOT_TOKEN = "8933394511:AAGS2vZzoGop39HMYQTzn5HppFLeqvs-LEg"
 ELEVENLABS_API_KEY = "sk_2645eb8c6ab7457d5661f30bc9935e8107560bec586b14c8"
 ADMIN_ID = 7662888182
 ADMIN_USERNAME = "Captions_Admin"
-WEB_APP_URL = "https://caption-bot-76cn.onrender.com"  # Render havolangiz
 
 WORK_ROOT = Path("temp_processing")
 FONTS_DIR = Path(".")
@@ -43,20 +40,25 @@ DB_FILE = Path("database.db")
 router = Router()
 el_client = ElevenLabs(api_key=ELEVENLABS_API_KEY)
 
-ANIMATION_STYLES = {
-    "mrbeast_style": "🟢 Komika Axis Pop-up Style",
-    "smooth_tracking": "✨ Smooth Text Tracking",
-    "active_bold_regular": "🔥 Active Bold / Regular",
-    "active_word_box": "⬛ Active Word Highlight (Box Style)"
-}
+class CaptionStates(StatesGroup):
+    waiting_for_video = State()
 
 def get_main_keyboard() -> ReplyKeyboardMarkup:
     keyboard = [
-        [KeyboardButton(text="⚡ Mini App orqali Subtitr", web_app=WebAppInfo(url=WEB_APP_URL))],
+        [KeyboardButton(text="⚡ Video Yuborish & Subtitr")],
         [KeyboardButton(text="💎 PRO Tarif"), KeyboardButton(text="💳 Balans & To'lov")],
         [KeyboardButton(text="📜 Oferta"), KeyboardButton(text="👨‍💻 Admin bilan bog'lanish")]
     ]
     return ReplyKeyboardMarkup(keyboard=keyboard, resize_keyboard=True)
+
+def get_styles_keyboard() -> InlineKeyboardMarkup:
+    keyboard = [
+        [InlineKeyboardButton(text="🟢 Komika Axis Pop-up (MrBeast)", callback_data="style_mrbeast")],
+        [InlineKeyboardButton(text="✨ Smooth Text Tracking", callback_data="style_smooth")],
+        [InlineKeyboardButton(text="🔥 Active Bold / Regular", callback_data="style_bold")],
+        [InlineKeyboardButton(text="⬛ Active Word Highlight (Box)", callback_data="style_box")]
+    ]
+    return InlineKeyboardMarkup(inline_keyboard=keyboard)
 
 def init_db():
     with sqlite3.connect(DB_FILE) as conn:
@@ -73,7 +75,8 @@ def init_db():
         conn.commit()
 
 @router.message(CommandStart())
-async def cmd_start(message: Message):
+async def cmd_start(message: Message, state: FSMContext):
+    await state.clear()
     user_id = message.from_user.id
     with sqlite3.connect(DB_FILE) as conn:
         cursor = conn.cursor()
@@ -82,18 +85,40 @@ async def cmd_start(message: Message):
 
     await message.answer(
         f"✨ Assalomu alaykum, <b>{message.from_user.first_name}</b>!\n\n"
-        f"🚀 Komika Axis shrifti va 4 xil professional animatsiyali subtitr yaratish uchun quyidagi **Mini App** tugmasini bosing:",
+        f"🚀 **Komika Axis** shrifti va professional animatsiyali subtitrlar yaratish uchun quyidagi tugmani bosing:",
         reply_markup=get_main_keyboard(),
         parse_mode="HTML"
     )
 
+@router.message(F.text == "⚡ Video Yuborish & Subtitr")
+async def ask_for_video(message: Message, state: FSMContext):
+    await state.set_state(CaptionStates.waiting_for_video)
+    await message.answer("📥 Iltimos, subtitr qo'shilishi kerak bo'lgan **9:16 formatdagi videoni** yuboring:")
+
 @router.message(F.text == "💎 PRO Tarif")
 async def cmd_pro(message: Message):
-    await message.answer("💎 **1 oylik PRO Tarif:** Cheksiz 2K videolar, prioritet navbat, barcha 4 xil animatsiyalar va Komika Axis shrifti — 75,000 so'm.\n\n💳 Karta: `5614 6865 0542 8600` (Toshpulatov Shoxrux)\n👨‍💻 Admin: @Captions_Admin", parse_mode="HTML")
+    await message.answer("💎 **1 oylik PRO Tarif:** Cheksiz 2K videolar, prioritet navbat va Komika Axis shrifti — 75,000 so'm.\n\n💳 Karta: `5614 6865 0542 8600` (Toshpulatov Shoxrux)\n👨‍💻 Admin: @Captions_Admin", parse_mode="HTML")
 
-@router.message(F.text == "👨‍‍💻 Admin bilan bog'lanish")
+@router.message(F.text == "👨‍💻 Admin bilan bog'lanish")
 async def cmd_admin(message: Message):
-    await message.answer(f"👨‍💻 Admin: @{ADMIN_USERNAME}", parse_mode="HTML")
+    await message.answer(f"👨‍‍💻 Admin: @{ADMIN_USERNAME}", parse_mode="HTML")
+
+@router.message(CaptionStates.waiting_for_video, F.video)
+async def process_incoming_video(message: Message, state: FSMContext):
+    file_id = message.video.file_id
+    file_info = await message.bot.get_file(file_id)
+    
+    job_key = uuid.uuid4().hex[:8]
+    work_dir = WORK_ROOT / job_key
+    work_dir.mkdir(parents=True, exist_ok=True)
+    
+    input_video = work_dir / "input.mp4"
+    await message.bot.download_file(file_info.file_path, destination=input_video)
+
+    await state.update_data(input_video=str(input_video), job_key=job_key)
+    await state.set_state(None)
+
+    await message.answer("🎨 Subtitr animatsiya uslubini tanlang:", reply_markup=get_styles_keyboard())
 
 def format_ass_time(seconds: float) -> str:
     hours = int(seconds // 3600)
@@ -108,8 +133,8 @@ def rgb_to_ass(rgb: tuple) -> str:
     r, g, b = rgb
     return f"&H00{b:02X}{g:02X}{r:02X}"
 
-def generate_word_by_word_ass(words: List[Any], ass_path: Path, text_color: tuple, font_size: int, anim_style: str) -> int:
-    color_hex = rgb_to_ass(text_color)
+def generate_word_by_word_ass(words: List[Any], ass_path: Path, anim_style: str) -> int:
+    color_hex = rgb_to_ass((255, 255, 0)) # Sariq rang
     header = f"""[Script Info]
 ScriptType: v4.00+
 PlayResX: 1080
@@ -118,7 +143,7 @@ ScaledBorderAndShadow: yes
 
 [V4+ Styles]
 Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding
-Style: WordStyle,Komika Axis,{font_size},{color_hex},&H000000FF,&HFF000000,&H80000000,0,0,0,0,100,100,2,0,1,6.0,2.0,2,40,40,450,1
+Style: WordStyle,Komika Axis,85,{color_hex},&H000000FF,&HFF000000,&H80000000,0,0,0,0,100,100,2,0,1,6.0,2.0,2,40,40,450,1
 
 [Events]
 Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
@@ -155,72 +180,42 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
             start_fmt = format_ass_time(start_sec)
             end_fmt = format_ass_time(end_sec)
             word_text = w["word"]
-            duration_ms = int((end_sec - start_sec) * 1000)
 
-            if anim_style == "mrbeast_style":
+            if anim_style == "style_mrbeast":
                 pro_anim = "{\\an2\\fad(40,80)\\fscx120\\fscy120\\t(0,60,\\fscx100\\fscy100)\\b0}"
-            elif anim_style == "smooth_tracking":
-                pro_anim = f"{{\\an2\\fad(40,80)\\fsp2\\t(0,{duration_ms},\\fsp12)\\b0}}"
-            elif anim_style == "active_bold_regular":
-                pro_anim = "{\\an2\\fad(40,80)\\b0}"
-            elif anim_style == "active_word_box":
-                pro_anim = "{\\an2\\fad(40,80)\\b0}"
-            else:
-                pro_anim = "{\\an2\\fad(40,80)\\b0}"
+            elif anim_style == "style_smooth":
+                pro_anim = "{\\an2\\fad(150,150)\\b0}"
+            elif anim_style == "style_bold":
+                pro_anim = "{\\an2\\fad(40,80)\\b1}"
+            else: # Box style
+                pro_anim = "{\\an2\\fad(40,80)\\bord8\\3c&H000000&\\b0}"
 
             f.write(f"Dialogue: 0,{start_fmt},{end_fmt},WordStyle,,0,0,0,,{pro_anim}{word_text}\n")
             count += 1
 
     return count
 
-# --- AIOHTTP WEB SERVER & API ---
-async def index_handler(request):
-    return render_template('index.html', request, {})
+@router.callback_query(F.data.startswith("style_"))
+async def handle_style_selection(callback: CallbackQuery, state: FSMContext):
+    anim_style = callback.data
+    data = await state.get_data()
+    input_video_str = data.get("input_video")
+    job_key = data.get("job_key")
 
-async def process_video_api(request):
+    if not input_video_str:
+        await callback.message.answer("⚠️ Xatolik: Video topilmadi. Qaytadan video yuboring.")
+        await callback.answer()
+        return
+
+    await callback.message.edit_text("⏳ **Video tayyorlanmoqda...** Iltimos, biroz kuting.")
+    
+    asyncio.create_task(process_video_background(callback.message, input_video_str, anim_style, job_key))
+    await callback.answer()
+
+async def process_video_background(message: Message, input_video_str: str, anim_style: str, job_key: str):
+    work_dir = WORK_ROOT / job_key
     try:
-        reader = await request.multipart()
-        field = await reader.next()
-        
-        video_data = None
-        lang = "uz"
-        font_size = 85
-        anim_style = "mrbeast_style"
-        user_id = ADMIN_ID
-
-        while field is not None:
-            if field.name == 'video':
-                video_data = await field.read()
-            elif field.name == 'lang':
-                lang = (await field.read()).decode('utf-8')
-            elif field.name == 'size':
-                font_size = int((await field.read()).decode('utf-8'))
-            elif field.name == 'style':
-                anim_style = (await field.read()).decode('utf-8')
-            elif field.name == 'user_id':
-                user_id = int((await field.read()).decode('utf-8'))
-            field = await reader.next()
-
-        if not video_data:
-            return web.json_response({"success": False, "error": "Video topilmadi!"})
-
-        job_key = uuid.uuid4().hex[:8]
-        work_dir = WORK_ROOT / job_key
-        work_dir.mkdir(parents=True, exist_ok=True)
-
-        input_video = work_dir / "input.mp4"
-        with open(input_video, "wb") as f:
-            f.write(video_data)
-
-        asyncio.create_task(background_processing(input_video, lang, font_size, anim_style, user_id, work_dir, job_key))
-
-        return web.json_response({"success": True})
-    except Exception as e:
-        log.error(f"API Xatosi: {e}")
-        return web.json_response({"success": False, "error": str(e)})
-
-async def background_processing(input_video, lang, font_size, anim_style, user_id, work_dir, job_key):
-    try:
+        input_video = Path(input_video_str)
         audio_path = work_dir / "audio.mp3"
         ass_path = work_dir / "subtitles.ass"
         output_video = work_dir / "output.mp4"
@@ -231,12 +226,12 @@ async def background_processing(input_video, lang, font_size, anim_style, user_i
 
         def transcribe():
             with open(audio_path, "rb") as af:
-                return el_client.speech_to_text.convert(file=("audio.mp3", af.read(), "audio/mpeg"), model_id="scribe_v1", language_code=lang)
+                return el_client.speech_to_text.convert(file=("audio.mp3", af.read(), "audio/mpeg"), model_id="scribe_v1", language_code="uz")
 
         transcription = await asyncio.to_thread(transcribe)
         words = getattr(transcription, "words", []) or []
 
-        generate_word_by_word_ass(words, ass_path, (255, 255, 0), font_size, anim_style)
+        generate_word_by_word_ass(words, ass_path, anim_style)
 
         abs_fonts_dir = str(FONTS_DIR.resolve())
         cmd_render = [
@@ -247,42 +242,26 @@ async def background_processing(input_video, lang, font_size, anim_style, user_i
         proc_render = await asyncio.create_subprocess_exec(*cmd_render)
         await proc_render.communicate()
 
-        session = AiohttpSession()
-        bot = Bot(token=BOT_TOKEN, session=session)
-        await bot.send_video(user_id, video=FSInputFile(str(output_video)), caption="🔥 **Subtitr Tayyor! (Komika Axis & Animatsiya)**", parse_mode="MARKDOWN")
-        await bot.session.close()
+        await message.bot.send_video(message.chat.id, video=FSInputFile(str(output_video)), caption="🔥 **Subtitr tayyor! (Komika Axis shrifti bilan)**", parse_mode="MARKDOWN")
 
     except Exception as e:
         log.error(f"Render xatosi: {e}")
+        await message.bot.send_message(message.chat.id, f"❌ Xatolik yuz berdi: {e}")
     finally:
         shutil.rmtree(work_dir, ignore_errors=True)
-
-async def web_server():
-    app = web.Application()
-    jinja2_setup(app, loader=jinja2.FileSystemLoader('templates'))
-    app.router.add_get("/", index_handler)
-    app.router.add_post("/process-video", process_video_api)
-    
-    runner = web.AppRunner(app)
-    await runner.setup()
-    port = int(os.environ.get("PORT", 10000))
-    site = web.TCPSite(runner, "0.0.0.0", port)
-    await site.start()
-
-async def start_bot_polling():
-    session = AiohttpSession()
-    bot = Bot(token=BOT_TOKEN, session=session)
-    dp = Dispatcher(storage=MemoryStorage())
-    dp.include_router(router)
-    await bot.delete_webhook(drop_pending_updates=True)
-    log.info("Telegram Bot Mini App rejimida ishga tushdi!")
-    await dp.start_polling(bot)
 
 async def main():
     init_db()
     WORK_ROOT.mkdir(parents=True, exist_ok=True)
-    asyncio.create_task(web_server())
-    await start_bot_polling()
+    
+    session = AiohttpSession()
+    bot = Bot(token=BOT_TOKEN, session=session)
+    dp = Dispatcher(storage=MemoryStorage())
+    dp.include_router(router)
+    
+    await bot.delete_webhook(drop_pending_updates=True)
+    log.info("Bot klassik rejimda ishga tushdi!")
+    await dp.start_polling(bot)
 
 if __name__ == "__main__":
     asyncio.run(main())
