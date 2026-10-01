@@ -3,3 +3,4 @@ aiohttp
 aiohttp-jinja2
 jinja2
 elevenlabs
+imageio-ffmpeg
