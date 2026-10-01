@@ -76,7 +76,7 @@ def get_main_keyboard() -> ReplyKeyboardMarkup:
         [KeyboardButton(text="⚡ Auto Subtitr qo'yish")],
         [KeyboardButton(text="🎨 Subtitr uslublari"), KeyboardButton(text="💳 Balans")],
         [KeyboardButton(text="💎 PRO Tariflar"), KeyboardButton(text="📜 Oferta")],
-        [KeyboardButton(text="👨‍‍💻 Admin bilan bog'lanish")]
+        [KeyboardButton(text="👨‍💻 Admin bilan bog'lanish")]
     ]
     return ReplyKeyboardMarkup(keyboard=keyboard, resize_keyboard=True)
 
@@ -144,11 +144,8 @@ def format_ass_time(seconds: float) -> str:
 
 
 def generate_word_by_word_ass(words: List[Any], ass_path: Path, anim_style: str) -> int:
-    color_hex = "&H0000FFFF"  # Sariq rang
-    font_file = (FONTS_DIR / "KomikaAxis.ttf").resolve()
-    font_path_str = str(font_file).replace("\\", "/")
-    font_tag = f"\\fn{font_path_str}"
-
+    color_hex = "&H0000FFFF"  # Sariq rang (ASS formatida BGR: sariq uchun &H00FFFF&)
+    
     header = f"""[Script Info]
 ScriptType: v4.00+
 PlayResX: 1080
@@ -157,7 +154,7 @@ ScaledBorderAndShadow: yes
 
 [V4+ Styles]
 Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding
-Style: WordStyle,Arial,85,{color_hex},&H000000FF,&HFF000000,&H80000000,1,0,0,0,100,100,2,0,1,6.0,2.0,2,40,40,450,1
+Style: WordStyle,Komika Axis,85,&H0000FFFF,&H000000FF,&HFF000000,&H80000000,1,0,0,0,100,100,2,0,1,6.0,2.0,2,40,40,450,1
 
 [Events]
 Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
@@ -197,15 +194,15 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
             duration_ms = int((end_sec - start_sec) * 1000)
 
             if anim_style == "mrbeast_style":
-                pro_anim = f"{{\\an2{font_tag}\\fad(30,50)\\fscx140\\fscy140\\t(0,70,\\fscx100\\fscy100)\\b1}}"
+                pro_anim = f"{{\\an2\\fad(30,50)\\fscx140\\fscy140\\t(0,70,\\fscx100\\fscy100)\\b1}}"
             elif anim_style == "smooth_tracking":
-                pro_anim = f"{{\\an2{font_tag}\\fad(30,50)\\fsp-8\\t(0,{duration_ms},\\fsp14)\\b1}}"
+                pro_anim = f"{{\\an2\\fad(30,50)\\fsp-8\\t(0,{duration_ms},\\fsp14)\\b1}}"
             elif anim_style == "active_bold_regular":
-                pro_anim = f"{{\\an2{font_tag}\\fad(30,50)\\b1}}"
+                pro_anim = f"{{\\an2\\fad(30,50)\\b1}}"
             elif anim_style == "active_word_box":
-                pro_anim = f"{{\\an2{font_tag}\\fad(30,50)\\bord8\\3c&H000000&\\b1}}"
+                pro_anim = f"{{\\an2\\fad(30,50)\\bord8\\3c&H000000&\\b1}}"
             else:
-                pro_anim = f"{{\\an2{font_tag}\\fad(30,50)\\b1}}"
+                pro_anim = f"{{\\an2\\fad(30,50)\\b1}}"
 
             f.write(f"Dialogue: 0,{start_fmt},{end_fmt},WordStyle,,0,0,0,,{pro_anim}{word_text}\n")
             count += 1
@@ -289,7 +286,9 @@ async def process_job(bot: Bot, chat_id: int, user_id: int, file_id: str, lang: 
             return
 
         abs_fonts_dir = str(FONTS_DIR.resolve())
-        vf_filter = f"scale={quality_res}:force_original_aspect_ratio=decrease,pad={quality_res}:(ow-iw)/2:(oh-ih)/2,ass=subtitles.ass:fontsdir='{abs_fonts_dir}'"
+        
+        # 9:16 vertikal formatni mukammal saqlash uchun to'g'ri scale va ass filteri
+        vf_filter = f"scale={quality_res}:force_original_aspect_ratio=increase,crop={quality_res},ass=subtitles.ass:fontsdir='{abs_fonts_dir}'"
 
         cmd_render = [
             "ffmpeg", "-y", "-i", "input.mp4",
@@ -305,7 +304,7 @@ async def process_job(bot: Bot, chat_id: int, user_id: int, file_id: str, lang: 
         await status_msg.edit_text(
             "⚡ <b>Pro AI Subtitr tayyorlanmoqda...</b>\n\n"
             "▓▓▓▓▓▓▓▓░░ 85%\n\n"
-            "🎬 <i>Komika Axis subtitr va tanlangan sifat videoga yozilmoqda...</i>",
+            "🎬 <i>Komika Axis shrifti va 9:16 formatda video yozilmoqda...</i>",
             parse_mode="HTML"
         )
 
@@ -575,7 +574,7 @@ async def cmd_payment(message: Message):
         "📸 To'lov qilgach, chekni va ID raqamingizni adminga yuboring!"
     )
     kb = InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="💎 PRO sotib olish uchun yozish", url=f"https://t.me/{ADMIN_USERNAME}?text=Salom,%20men%20PRO%20tarif%20sotib%20olmoqchiman.%20ID%20raqamim:%20{user_id}")],
+        [InlineKeyboardButton(text="💎 PRO sotib olish uchun adminga yozish", url=f"https://t.me/{ADMIN_USERNAME}?text=Salom,%20men%20PRO%20tarif%20sotib%20olmoqchiman.%20ID%20raqamim:%20{user_id}")],
         [InlineKeyboardButton(text="📤 Chekni adminga yuborish", url=f"https://t.me/{ADMIN_USERNAME}")]
     ])
     await message.answer(payment_text, reply_markup=kb, parse_mode="HTML")
