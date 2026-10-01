@@ -158,7 +158,6 @@ def format_ass_time(seconds: float) -> str:
 
 
 def generate_word_by_word_ass(words: List[Any], ass_path: Path, anim_style: str, text_color_hex: str, font_size: int) -> int:
-    # Qalin stroke olib tashlandi, o'rniga zamonaviy drop shadow va ingichka hoshiya qo'yildi
     header = f"""[Script Info]
 ScriptType: v4.00+
 PlayResX: 1080
@@ -588,7 +587,7 @@ async def cmd_payment(message: Message):
         "📸 To'lov qilgach, chekni va ID raqamingizni adminga yuboring!"
     )
     kb = InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="💎 PRO sotib olish uchun adminga yozish", url=f"https://t.me/{ADMIN_USERNAME}?text=Salom,%20men%20PRO%20tarif%20sotib%20olmoqchiman.%20ID%20raqamim:%20{user_id}")],
+        [InlineKeyboardButton(text="💎 PRO sotib olish uchun yozish", url=f"https://t.me/{ADMIN_USERNAME}?text=Salom,%20men%20PRO%20tarif%20sotib%20olmoqchiman.%20ID%20raqamim:%20{user_id}")],
         [InlineKeyboardButton(text="📤 Chekni adminga yuborish", url=f"https://t.me/{ADMIN_USERNAME}")]
     ])
     await message.answer(payment_text, reply_markup=kb, parse_mode="HTML")
@@ -647,17 +646,16 @@ async def on_select_lang(call: CallbackQuery) -> None:
         return
 
     job["lang"] = code
-    try:
-        await call.message.edit_reply_markup(reply_markup=None)
-    except Exception:
-        pass
 
     kb = InlineKeyboardBuilder()
     for skey, title in ANIMATION_STYLES.items():
         kb.button(text=title, callback_data=f"anim:{key}:{skey}")
     kb.adjust(1)
 
-    await call.message.answer("2️⃣ <b>Subtitr animatsiya uslubini tanlang:</b>\n<i>(Shrift: Komika Axis)</i>", reply_markup=kb.as_markup(), parse_mode="HTML")
+    try:
+        await call.message.edit_text("2️⃣ <b>Subtitr animatsiya uslubini tanlang:</b>\n<i>(Shrift: Komika Axis)</i>", reply_markup=kb.as_markup(), parse_mode="HTML")
+    except Exception:
+        await call.message.answer("2️⃣ <b>Subtitr animatsiya uslubini tanlang:</b>\n<i>(Shrift: Komika Axis)</i>", reply_markup=kb.as_markup(), parse_mode="HTML")
 
 
 @router.callback_query(F.data.startswith("anim:"))
@@ -677,17 +675,16 @@ async def on_select_anim(call: CallbackQuery) -> None:
         return
 
     job["style"] = skey
-    try:
-        await call.message.edit_reply_markup(reply_markup=None)
-    except Exception:
-        pass
 
     kb = InlineKeyboardBuilder()
     for ckey, (ctitle, _) in TEXT_COLORS.items():
         kb.button(text=ctitle, callback_data=f"color:{key}:{ckey}")
     kb.adjust(2)
 
-    await call.message.answer("🎨 <b>Subtitr matn rangini tanlang:</b>", reply_markup=kb.as_markup(), parse_mode="HTML")
+    try:
+        await call.message.edit_text("🎨 <b>Subtitr matn rangini tanlang:</b>", reply_markup=kb.as_markup(), parse_mode="HTML")
+    except Exception:
+        await call.message.answer("🎨 <b>Subtitr matn rangini tanlang:</b>", reply_markup=kb.as_markup(), parse_mode="HTML")
 
 
 @router.callback_query(F.data.startswith("color:"))
@@ -702,23 +699,21 @@ async def on_select_color(call: CallbackQuery) -> None:
     if not job:
         try:
             await call.message.edit_reply_markup(reply_markup=None)
-        except Exception:
+        3except Exception:
             pass
         return
 
     job["color"] = ckey
-    try:
-        await call.message.edit_reply_markup(reply_markup=None)
-    except Exception:
-        pass
 
-    # Matn o'lchamini tanlash bosqichini qo'shamiz
     kb = InlineKeyboardBuilder()
     for fkey, (ftitle, _) in FONT_SIZES.items():
         kb.button(text=ftitle, callback_data=f"size:{key}:{fkey}")
     kb.adjust(2)
 
-    await call.message.answer("📏 <b>Subtitr matn o'lchamini tanlang:</b>", reply_markup=kb.as_markup(), parse_mode="HTML")
+    try:
+        await call.message.edit_text("📏 <b>Subtitr matn o'lchamini tanlang:</b>", reply_markup=kb.as_markup(), parse_mode="HTML")
+    except Exception:
+        await call.message.answer("📏 <b>Subtitr matn o'lchamini tanlang:</b>", reply_markup=kb.as_markup(), parse_mode="HTML")
 
 
 @router.callback_query(F.data.startswith("size:"))
@@ -738,17 +733,16 @@ async def on_select_size(call: CallbackQuery) -> None:
         return
 
     job["size"] = fkey
-    try:
-        await call.message.edit_reply_markup(reply_markup=None)
-    except Exception:
-        pass
 
     kb = InlineKeyboardBuilder()
     for qkey, (title, _, _) in VIDEO_QUALITIES.items():
         kb.button(text=title, callback_data=f"qual:{key}:{qkey}")
     kb.adjust(1)
 
-    await call.message.answer("3️⃣ <b>Video sifatini tanlang:</b>", reply_markup=kb.as_markup(), parse_mode="HTML")
+    try:
+        await call.message.edit_text("3️⃣ <b>Video sifatini tanlang:</b>", reply_markup=kb.as_markup(), parse_mode="HTML")
+    except Exception:
+        await call.message.answer("3️⃣ <b>Video sifatini tanlang:</b>", reply_markup=kb.as_markup(), parse_mode="HTML")
 
 
 @router.callback_query(F.data.startswith("qual:"))
@@ -829,7 +823,7 @@ async def start_bot_polling():
             await bot.delete_webhook(drop_pending_updates=True)
             log.info("Captions Pro Bot ishga tushdi!")
             await dp.start_polling(bot, handle_as_tasks=True, drop_pending_updates=True)
-        except Exception as e:
+        exceptException as e:
             log.warning(f"Tarmoq xatosi: {e}. Qayta ulanmoqda...")
             await asyncio.sleep(5)
         finally:
