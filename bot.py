@@ -25,7 +25,6 @@ from aiogram.types import (
 from aiogram.utils.keyboard import InlineKeyboardBuilder
 from aiogram.client.session.aiohttp import AiohttpSession
 from aiogram.fsm.context import FSMContext
-from aiogram.fsm.state import State, StatesGroup
 from aiogram.fsm.storage.memory import MemoryStorage
 from elevenlabs.client import ElevenLabs
 
@@ -68,11 +67,7 @@ VIDEO_QUALITIES = {
     "2k": ("💎 PRO 2K Ultra (1440p) [PRO]", "2560:1440", True)
 }
 
-class SubtitleState(StatesGroup):
-    waiting_for_lang = State()
-    waiting_for_anim = State()
-    waiting_for_quality = State()
-
+jobs: Dict[str, Dict[str, Any]] = {}
 router = Router()
 el_client = ElevenLabs(api_key=ELEVENLABS_API_KEY)
 
@@ -595,7 +590,7 @@ async def cmd_contact_admin(message: Message):
 
 
 @router.message(F.video | (F.document & F.document.mime_type.startswith("video/")))
-async def on_video(message: Message, state: FSMContext, bot: Bot) -> None:
+async def on_video(message: Message, bot: Bot) -> None:
     user_id = message.from_user.id
     credits = get_user_credits(user_id, message.from_user.username or "")
     
@@ -611,27 +606,38 @@ async def on_video(message: Message, state: FSMContext, bot: Bot) -> None:
         await message.answer("❌ Video hajmi 50 MB dan oshmasligi kerak.")
         return
 
-    await state.clear()
-    await state.update_data(file_id=media.file_id, chat_id=message.chat.id, user_id=user_id)
-    await state.set_state(SubtitleState.waiting_for_lang)
+    key = uuid.uuid4().hex[:8]
+    jobs[key] = {
+        "file_id": media.file_id,
+        "chat_id": message.chat.id,
+        "user_id": user_id
+    }
 
     kb = InlineKeyboardBuilder()
     for code, title in VIDEO_LANGS.items():
-        kb.button(text=title, callback_data=f"lang_{code}")
+        kb.button(text=title, callback_data=f"lang:{key}:{code}")
     kb.adjust(2)
     await message.reply("1️⃣ <b>Videodagi nutq tilini tanlang:</b>", reply_markup=kb.as_markup(), parse_mode="HTML")
 
 
-@router.callback_query(SubtitleState.waiting_for_lang, F.data.startswith("lang_"))
-async def on_select_lang(call: CallbackQuery, state: FSMContext) -> None:
+@router.callback_query(F.data.startswith("lang:"))
+async def on_select_lang(call: CallbackQuery) -> None:
     await call.answer()
-    code = call.data.split("_")[1]
-    await state.update_data(lang=code)
-    await state.set_state(SubtitleState.waiting_for_anim)
+    parts = call.data.split(":")
+    if len(parts) < 3:
+        return
+    _, key, code = parts
+    
+    job = jobs.get(key)
+    if not job:
+        await call.message.answer("⚠️ So'rov muddati o'tgan. Iltimos, videoni qaytadan yuboring.")
+        return
+
+    job["lang"] = code
 
     kb = InlineKeyboardBuilder()
     for skey, title in ANIMATION_STYLES.items():
-        kb.button(text=title, callback_data=f"anim_{skey}")
+        kb.button(text=title, callback_data=f"anim:{key}:{skey}")
     kb.adjust(1)
 
     try:
@@ -640,16 +646,24 @@ async def on_select_lang(call: CallbackQuery, state: FSMContext) -> None:
         await call.message.answer("2️⃣ <b>Subtitr animatsiya uslubini tanlang:</b>\n<i>(Shrift: Komika Axis)</i>", reply_markup=kb.as_markup(), parse_mode="HTML")
 
 
-@router.callback_query(SubtitleState.waiting_for_anim, F.data.startswith("anim_"))
-async def on_select_anim(call: CallbackQuery, state: FSMContext) -> None:
+@router.callback_query(F.data.startswith("anim:"))
+async def on_select_anim(call: CallbackQuery) -> None:
     await call.answer()
-    skey = call.data.split("_", 1)[1]
-    await state.update_data(style=skey)
-    await state.set_state(SubtitleState.waiting_for_quality)
+    parts = call.data.split(":")
+    if len(parts) < 3:
+        return
+    _, key, skey = parts
+    
+    job = jobs.get(key)
+    if not job:
+        await call.message.answer("⚠️ So'rov muddati o'tgan. Iltimos, videoni qaytadan yuboring.")
+        return
+
+    job["style"] = skey
 
     kb = InlineKeyboardBuilder()
     for qkey, (title, _, _) in VIDEO_QUALITIES.items():
-        kb.button(text=title, callback_data=f"qual_{qkey}")
+        kb.button(text=title, callback_data=f"qual:{key}:{qkey}")
     kb.adjust(1)
 
     try:
@@ -658,22 +672,24 @@ async def on_select_anim(call: CallbackQuery, state: FSMContext) -> None:
         await call.message.answer("3️⃣ <b>Video sifatini tanlang:</b>", reply_markup=kb.as_markup(), parse_mode="HTML")
 
 
-@router.callback_query(SubtitleState.waiting_for_quality, F.data.startswith("qual_"))
-async def on_select_quality(call: CallbackQuery, state: FSMContext, bot: Bot) -> None:
+@router.callback_query(F.data.startswith("qual:"))
+async def on_select_quality(call: CallbackQuery, bot: Bot) -> None:
     await call.answer()
-    qkey = call.data.split("_")[1]
-    data = await state.get_data()
-    
-    file_id = data.get("file_id")
-    chat_id = data.get("chat_id")
-    user_id = data.get("user_id", call.from_user.id)
-    lang = data.get("lang", "uz")
-    anim_style = data.get("style", "mrbeast_style")
-
-    if not file_id:
-        await call.message.answer("⚠️ Ma'lumot topilmadi. Iltimos, videoni qaytadan yuboring.")
-        await state.clear()
+    parts = call.data.split(":")
+    if len(parts) < 3:
         return
+    _, key, qkey = parts
+    
+    job = jobs.get(key)
+    if not job:
+        await call.message.answer("⚠️ Ma'lumot topilmadi. Iltimos, videoni qaytadan yuboring.")
+        return
+
+    file_id = job["file_id"]
+    chat_id = job["chat_id"]
+    user_id = job["user_id"]
+    lang = job.get("lang", "uz")
+    anim_style = job.get("style", "mrbeast_style")
 
     q_info = VIDEO_QUALITIES.get(qkey)
     if not q_info:
@@ -683,8 +699,8 @@ async def on_select_quality(call: CallbackQuery, state: FSMContext, bot: Bot) ->
 
     if is_pro_required and not is_user_pro(user_id):
         kb = InlineKeyboardMarkup(inline_keyboard=[
-            [InlineKeyboardButton(text="💎 PRO sotib olish uchun yozish", url=f"https://t.me/{ADMIN_USERNAME}?text=Salom,%20men%20PRO%20tarif%20sotib%20olmoqchiman.%20ID%20raqamim:%20{user_id}")],
-            [InlineKeyboardButton(text="📱 Standard HD (720p) bilan davom etish", callback_data="qual_720p")]
+            [InlineKeyboardButton(text="💎 PRO sotib olish uchun adminga yozish", url=f"https://t.me/{ADMIN_USERNAME}?text=Salom,%20men%20PRO%20tarif%20sotib%20olmoqchiman.%20ID%20raqamim:%20{user_id}")],
+            [InlineKeyboardButton(text="📱 Standard HD (720p) bilan davom etish", callback_data=f"qual:{key}:720p")]
         ])
         await call.message.answer(
             "💎 <b>Bu imkoniyat faqat PRO obunachilar uchun!</b>\n\n"
@@ -694,7 +710,7 @@ async def on_select_quality(call: CallbackQuery, state: FSMContext, bot: Bot) ->
         )
         return
 
-    await state.clear()
+    jobs.pop(key, None)
     
     try:
         await call.message.edit_text(f"✅ <b>Qabul qilindi ({quality_title})! Komika Axis shriftida video tayyorlanmoqda...</b>", parse_mode="HTML")
