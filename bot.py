@@ -80,7 +80,6 @@ VIDEO_QUALITIES = {
     "2k": ("💎 PRO 2K Ultra (1440p) [PRO]", "2560:1440", True)
 }
 
-jobs: Dict[str, Dict[str, Any]] = {}
 router = Router()
 el_client = ElevenLabs(api_key=ELEVENLABS_API_KEY)
 
@@ -107,6 +106,17 @@ def init_db():
                 bot_lang TEXT DEFAULT 'uz',
                 terms_accepted INTEGER DEFAULT 0,
                 joined_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+        """)
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS user_jobs (
+                job_key TEXT PRIMARY KEY,
+                user_id INTEGER,
+                file_id TEXT,
+                lang TEXT DEFAULT 'uz',
+                style TEXT DEFAULT 'mrbeast_style',
+                color TEXT DEFAULT 'yellow',
+                size TEXT DEFAULT 'normal'
             )
         """)
         conn.commit()
@@ -615,11 +625,14 @@ async def on_video(message: Message, bot: Bot) -> None:
         return
 
     key = uuid.uuid4().hex[:8]
-    jobs[key] = {
-        "file_id": media.file_id,
-        "chat_id": message.chat.id,
-        "user_id": user_id
-    }
+    
+    with sqlite3.connect(DB_FILE) as conn:
+        cursor = conn.cursor()
+        cursor.execute(
+            "INSERT INTO user_jobs (job_key, user_id, file_id) VALUES (?, ?, ?)",
+            (key, user_id, media.file_id)
+        )
+        conn.commit()
 
     kb = InlineKeyboardBuilder()
     for code, title in VIDEO_LANGS.items():
@@ -636,11 +649,15 @@ async def on_select_lang(call: CallbackQuery) -> None:
         return
     _, key, code = parts
     
-    job = jobs.get(key)
-    if not job:
-        job = jobs[key] = {}
-
-    job["lang"] = code
+    with sqlite3.connect(DB_FILE) as conn:
+        cursor = conn.cursor()
+        cursor.execute("SELECT file_id FROM user_jobs WHERE job_key = ?", (key,))
+        row = cursor.fetchone()
+        if not row:
+            await call.message.answer("⚠️ Sessiya eskirgan. Iltimos, videoni qaytadan yuboring.")
+            return
+        cursor.execute("UPDATE user_jobs SET lang = ? WHERE job_key = ?", (code, key))
+        conn.commit()
 
     try:
         await call.message.edit_reply_markup(reply_markup=None)
@@ -663,11 +680,15 @@ async def on_select_anim(call: CallbackQuery) -> None:
         return
     _, key, skey = parts
     
-    job = jobs.get(key)
-    if not job:
-        job = jobs[key] = {}
-
-    job["style"] = skey
+    with sqlite3.connect(DB_FILE) as conn:
+        cursor = conn.cursor()
+        cursor.execute("SELECT file_id FROM user_jobs WHERE job_key = ?", (key,))
+        row = cursor.fetchone()
+        if not row:
+            await call.message.answer("⚠️ Sessiya eskirgan. Iltimos, videoni qaytadan yuboring.")
+            return
+        cursor.execute("UPDATE user_jobs SET style = ? WHERE job_key = ?", (skey, key))
+        conn.commit()
 
     try:
         await call.message.edit_reply_markup(reply_markup=None)
@@ -690,11 +711,15 @@ async def on_select_color(call: CallbackQuery) -> None:
         return
     _, key, ckey = parts
     
-    job = jobs.get(key)
-    if not job:
-        job = jobs[key] = {}
-
-    job["color"] = ckey
+    with sqlite3.connect(DB_FILE) as conn:
+        cursor = conn.cursor()
+        cursor.execute("SELECT file_id FROM user_jobs WHERE job_key = ?", (key,))
+        row = cursor.fetchone()
+        if not row:
+            await call.message.answer("⚠️ Sessiya eskirgan. Iltimos, videoni qaytadan yuboring.")
+            return
+        cursor.execute("UPDATE user_jobs SET color = ? WHERE job_key = ?", (ckey, key))
+        conn.commit()
 
     try:
         await call.message.edit_reply_markup(reply_markup=None)
@@ -717,11 +742,15 @@ async def on_select_size(call: CallbackQuery) -> None:
         return
     _, key, fkey = parts
     
-    job = jobs.get(key)
-    if not job:
-        job = jobs[key] = {}
-
-    job["size"] = fkey
+    with sqlite3.connect(DB_FILE) as conn:
+        cursor = conn.cursor()
+        cursor.execute("SELECT file_id FROM user_jobs WHERE job_key = ?", (key,))
+        row = cursor.fetchone()
+        if not row:
+            await call.message.answer("⚠️ Sessiya eskirgan. Iltimos, videoni qaytadan yuboring.")
+            return
+        cursor.execute("UPDATE user_jobs SET size = ? WHERE job_key = ?", (fkey, key))
+        conn.commit()
 
     try:
         await call.message.edit_reply_markup(reply_markup=None)
@@ -744,23 +773,20 @@ async def on_select_quality(call: CallbackQuery, bot: Bot) -> None:
         return
     _, key, qkey = parts
     
-    job = jobs.get(key)
-    if not job:
-        await call.message.answer("⚠️ Sessiya eskirgan. Iltimos, videoni qaytadan yuboring.")
-        return
+    with sqlite3.connect(DB_FILE) as conn:
+        cursor = conn.cursor()
+        cursor.execute("SELECT file_id, lang, style, color, size FROM user_jobs WHERE job_key = ?", (key,))
+        row = cursor.fetchone()
+        if not row:
+            await call.message.answer("⚠️ Sessiya eskirgan. Iltimos, videoni qaytadan yuboring.")
+            return
+        file_id, lang, anim_style, text_color, font_key = row
+        cursor.execute("DELETE FROM user_jobs WHERE job_key = ?", (key,))
+        conn.commit()
 
-    file_id = job.get("file_id")
-    chat_id = job.get("chat_id", call.message.chat.id)
-    user_id = job.get("user_id", call.from_user.id)
-    lang = job.get("lang", "uz")
-    anim_style = job.get("style", "mrbeast_style")
-    text_color = job.get("color", "yellow")
-    font_key = job.get("size", "normal")
+    chat_id = call.message.chat.id
+    user_id = call.from_user.id
     font_size_val = FONT_SIZES.get(font_key, FONT_SIZES["normal"])[1]
-
-    if not file_id:
-        await call.message.answer("⚠️ Video ma'lumotlari topilmadi. Iltimos, videoni qaytadan yuboring.")
-        return
 
     q_info = VIDEO_QUALITIES.get(qkey)
     if not q_info:
@@ -781,8 +807,6 @@ async def on_select_quality(call: CallbackQuery, bot: Bot) -> None:
         )
         return
 
-    jobs.pop(key, None)
-    
     try:
         await call.message.edit_reply_markup(reply_markup=None)
     except Exception:
