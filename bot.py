@@ -357,17 +357,120 @@ OFERTA_FULL_TEXT = (
 )
 
 
+# --- CHROYLI ADMIN PANEL VA PRO ULASH ---
 @router.message(Command("panel"))
 async def cmd_admin_panel(message: Message):
     if message.from_user.id != ADMIN_ID:
         return
+    
     with sqlite3.connect(DB_FILE) as conn:
         cursor = conn.cursor()
         cursor.execute("SELECT COUNT(*) FROM users")
         total_users = cursor.fetchone()[0]
+        cursor.execute("SELECT COUNT(*) FROM users WHERE is_pro = 1")
+        total_pro = cursor.fetchone()[0]
 
-    panel_text = f"🛠 <b>ADMIN PANEL</b>\n\n👥 Jami foydalanuvchilar: <b>{total_users} ta</b>\n\nBuyruq: <code>/add [user_id] [soni]</code>"
-    await message.answer(panel_text, parse_mode="HTML")
+    panel_text = (
+        "🛠 <b>ADMIN BOSHQARUV PANELI</b>\n\n"
+        f"👥 Jami foydalanuvchilar: <b>{total_users} ta</b>\n"
+        f"💎 PRO obunachilar: <b>{total_pro} ta</b>\n\n"
+        "📌 <b>Buyruqlar:</b>\n"
+        "• Balans qo'shish: <code>/add [user_id] [kredit_soni]</code>\n"
+        "• PRO ulash: <code>/pro [user_id]</code>\n"
+        "• PRO olish: <code>/unpro [user_id]</code>"
+    )
+
+    kb = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="🔄 Statistikani yangilash", callback_data="refresh_admin_panel")]
+    ])
+    await message.answer(panel_text, reply_markup=kb, parse_mode="HTML")
+
+
+@router.callback_query(F.data == "refresh_admin_panel")
+async def refresh_admin_panel(call: CallbackQuery):
+    if call.from_user.id != ADMIN_ID:
+        await call.answer("Huquqingiz yo'q!", show_alert=True)
+        return
+
+    with sqlite3.connect(DB_FILE) as conn:
+        cursor = conn.cursor()
+        cursor.execute("SELECT COUNT(*) FROM users")
+        total_users = cursor.fetchone()[0]
+        cursor.execute("SELECT COUNT(*) FROM users WHERE is_pro = 1")
+        total_pro = cursor.fetchone()[0]
+
+    panel_text = (
+        "🛠 <b>ADMIN BOSHQARUV PANELI</b>\n\n"
+        f"👥 Jami foydalanuvchilar: <b>{total_users} ta</b>\n"
+        f"💎 PRO obunachilar: <b>{total_pro} ta</b>\n\n"
+        "📌 <b>Buyruqlar:</b>\n"
+        "• Balans qo'shish: <code>/add [user_id] [kredit_soni]</code>\n"
+        "• PRO ulash: <code>/pro [user_id]</code>\n"
+        "• PRO olish: <code>/unpro [user_id]</code>"
+    )
+    kb = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="🔄 Statistikani yangilash", callback_data="refresh_admin_panel")]
+    ])
+    try:
+        await call.message.edit_text(panel_text, reply_markup=kb, parse_mode="HTML")
+    except Exception:
+        pass
+    await call.answer("Panel yangilandi!")
+
+
+@router.message(Command("pro"))
+async def cmd_make_pro(message: Message, bot: Bot):
+    if message.from_user.id != ADMIN_ID:
+        return
+    parts = message.text.split()
+    if len(parts) < 2:
+        await message.reply("⚠️ Xato format! Ishlatilishi:\n<code>/pro [user_id]</code>", parse_mode="HTML")
+        return
+
+    try:
+        target_user_id = int(parts[1])
+        with sqlite3.connect(DB_FILE) as conn:
+            cursor = conn.cursor()
+            cursor.execute("UPDATE users SET is_pro = 1 WHERE user_id = ?", (target_user_id,))
+            conn.commit()
+
+        await message.reply(f"✅ ID: <code>{target_user_id}</code> foydalanuvchiga muvaffaqiyatli <b>PRO obuna</b> ulandi!", parse_mode="HTML")
+
+        # Foydalanuvchiga chiroyli xabar yuborish
+        user_msg = (
+            "🎉 <b>TABRIKLAYMIZ! SIZGA PRO TARIF BERILDI!</b> 🚀💎\n\n"
+            "✨ Hurmatli foydalanuvchi, sizning hisobingiz ma'muriyat tomonidan <b>PRO TARIFGA</b> o'tkazildi!\n\n"
+            "🌟 <b>Sizga ochilgan imkoniyatlar:</b>\n"
+            "• 💎 <b>PRO 2K Ultra (1440p)</b> sifatli videolar chiqarish imkoniyati;\n"
+            "• ⚡ Ustuvor (prioritet) va eng tezkor render navbati;\n"
+            "• 🎬 Cheksiz professional Komika Axis dinamik subtitrlari.\n\n"
+            "🚀 <i>Hozirdayoq videongizni yuboring va natijani sinab ko'ring!</i>"
+        )
+        await bot.send_message(target_user_id, user_msg, parse_mode="HTML", reply_markup=get_main_keyboard())
+    except Exception as e:
+        await message.reply(f"❌ Xatolik yuz berdi: {e}")
+
+
+@router.message(Command("unpro"))
+async def cmd_remove_pro(message: Message, bot: Bot):
+    if message.from_user.id != ADMIN_ID:
+        return
+    parts = message.text.split()
+    if len(parts) < 2:
+        await message.reply("⚠️ Xato format! Ishlatilishi:\n<code>/unpro [user_id]</code>", parse_mode="HTML")
+        return
+
+    try:
+        target_user_id = int(parts[1])
+        with sqlite3.connect(DB_FILE) as conn:
+            cursor = conn.cursor()
+            cursor.execute("UPDATE users SET is_pro = 0 WHERE user_id = ?", (target_user_id,))
+            conn.commit()
+
+        await message.reply(f"✅ ID: <code>{target_user_id}</code> foydalanuvchidan PRO obuna olib tashlandi.", parse_mode="HTML")
+        await bot.send_message(target_user_id, "⚠️ Sizning PRO obunangiz muddati tugadi va tarifingiz Standart (Free) rejimiga o'tkazildi.", parse_mode="HTML")
+    except Exception as e:
+        await message.reply(f"❌ Xatolik: {e}")
 
 
 @router.message(Command("add"))
@@ -376,7 +479,7 @@ async def cmd_add_credits(message: Message, bot: Bot):
         return
     parts = message.text.split()
     if len(parts) < 3:
-        await message.reply("⚠️️ Format: <code>/add [user_id] [kredit_soni]</code>", parse_mode="HTML")
+        await message.reply("⚠️ Format: <code>/add [user_id] [kredit_soni]</code>", parse_mode="HTML")
         return
     try:
         target_user_id = int(parts[1])
@@ -610,7 +713,6 @@ async def on_select_quality(call: CallbackQuery, state: FSMContext, bot: Bot) ->
 
     quality_title, quality_res, is_pro_required = q_info
 
-    # Agar 2K (PRO) tanlansa va foydalanuvchi PRO bo'lmasa
     if is_pro_required and not is_user_pro(user_id):
         kb = InlineKeyboardMarkup(inline_keyboard=[
             [InlineKeyboardButton(text="💎 PRO Tarifni sotib olish", callback_data="show_tariffs")],
