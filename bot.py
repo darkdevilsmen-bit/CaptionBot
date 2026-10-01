@@ -63,7 +63,6 @@ ANIMATION_STYLES = {
     "active_word_box": "⬛ Active Word Highlight (Box)"
 }
 
-# FSM holatlari (Ma'lumotlar o'chib ketishining oldini olish uchun)
 class SubtitleState(StatesGroup):
     waiting_for_lang = State()
     waiting_for_anim = State()
@@ -379,7 +378,7 @@ async def cmd_add_credits(message: Message, bot: Bot):
 async def cmd_start(message: Message, state: FSMContext):
     await state.clear()
     user_id = message.from_user.id
-    row = get_user_credits(user_id, message.from_user.username or "")
+    get_user_credits(user_id, message.from_user.username or "")
     
     await message.answer(
         f"✨ Assalomu alaykum, <b>{message.from_user.first_name}</b>!\n\n"
@@ -500,7 +499,6 @@ async def on_video(message: Message, state: FSMContext, bot: Bot) -> None:
         await message.answer("❌ Video hajmi 50 MB dan oshmasligi kerak.")
         return
 
-    # Ma'lumotlarni FSM xotirasiga saqlaymiz (server qayta ishga tushsa ham yo'qolmaydi)
     await state.update_data(file_id=media.file_id)
     await state.set_state(SubtitleState.waiting_for_lang)
 
@@ -531,7 +529,9 @@ async def on_select_lang(call: CallbackQuery, state: FSMContext) -> None:
 
 @router.callback_query(SubtitleState.waiting_for_anim, F.data.startswith("a_"))
 async def on_select_anim(call: CallbackQuery, state: FSMContext, bot: Bot) -> None:
-    await call.answer()
+    # Мгновенный ответ Telegram, чтобы кнопка не висела
+    await call.answer("Qabul qilindi! Ish boshlandi...")
+    
     skey = call.data.split("_", 1)[1]
     data = await state.get_data()
     file_id = data.get("file_id")
@@ -549,6 +549,7 @@ async def on_select_anim(call: CallbackQuery, state: FSMContext, bot: Bot) -> No
     except Exception:
         pass
 
+    # Фоновый запуск задачи без блокировки хендлера
     asyncio.create_task(process_job(bot, call.message.chat.id, call.from_user.id, file_id, lang, skey))
 
 
