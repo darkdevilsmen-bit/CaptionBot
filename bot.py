@@ -638,16 +638,10 @@ async def on_select_lang(call: CallbackQuery) -> None:
     
     job = jobs.get(key)
     if not job:
-        await call.answer("⚠️ Sessiya eskirgan yoki yakunlangan.", show_alert=True)
-        return
-
-    # Agar allaqachon tanlangan bo'lsa, qayta ishlamaymiz
-    if job.get("lang") == code:
-        return
+        job = jobs[key] = {}
 
     job["lang"] = code
 
-    # Eskа xabardagi tugmalarni olib tashlaymiz
     try:
         await call.message.edit_reply_markup(reply_markup=None)
     except Exception:
@@ -671,11 +665,7 @@ async def on_select_anim(call: CallbackQuery) -> None:
     
     job = jobs.get(key)
     if not job:
-        await call.answer("⚠️ Sessiya eskirgan yoki yakunlangan.", show_alert=True)
-        return
-
-    if job.get("style") == skey:
-        return
+        job = jobs[key] = {}
 
     job["style"] = skey
 
@@ -702,11 +692,7 @@ async def on_select_color(call: CallbackQuery) -> None:
     
     job = jobs.get(key)
     if not job:
-        await call.answer("⚠️ Sessiya eskirgan yoki yakunlangan.", show_alert=True)
-        return
-
-    if job.get("color") == ckey:
-        return
+        job = jobs[key] = {}
 
     job["color"] = ckey
 
@@ -733,11 +719,7 @@ async def on_select_size(call: CallbackQuery) -> None:
     
     job = jobs.get(key)
     if not job:
-        await call.answer("⚠️ Sessiya eskirgan yoki yakunlangan.", show_alert=True)
-        return
-
-    if job.get("size") == fkey:
-        return
+        job = jobs[key] = {}
 
     job["size"] = fkey
 
@@ -764,17 +746,21 @@ async def on_select_quality(call: CallbackQuery, bot: Bot) -> None:
     
     job = jobs.get(key)
     if not job:
-        await call.answer("⚠️ Sessiya eskirgan yoki yakunlangan.", show_alert=True)
+        await call.message.answer("⚠️ Sessiya eskirgan. Iltimos, videoni qaytadan yuboring.")
         return
 
-    file_id = job["file_id"]
-    chat_id = job["chat_id"]
-    user_id = job["user_id"]
+    file_id = job.get("file_id")
+    chat_id = job.get("chat_id", call.message.chat.id)
+    user_id = job.get("user_id", call.from_user.id)
     lang = job.get("lang", "uz")
     anim_style = job.get("style", "mrbeast_style")
     text_color = job.get("color", "yellow")
     font_key = job.get("size", "normal")
     font_size_val = FONT_SIZES.get(font_key, FONT_SIZES["normal"])[1]
+
+    if not file_id:
+        await call.message.answer("⚠️ Video ma'lumotlari topilmadi. Iltimos, videoni qaytadan yuboring.")
+        return
 
     q_info = VIDEO_QUALITIES.get(qkey)
     if not q_info:
@@ -795,7 +781,6 @@ async def on_select_quality(call: CallbackQuery, bot: Bot) -> None:
         )
         return
 
-    # Ishni tugatgandan so'ng xavfsiz o'chiramiz
     jobs.pop(key, None)
     
     try:
