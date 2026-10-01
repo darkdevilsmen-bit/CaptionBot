@@ -68,6 +68,13 @@ TEXT_COLORS = {
     "cyan": ("🔵 Havorang", "&H00FFFF00")
 }
 
+FONT_SIZES = {
+    "small": ("🔽 Kichik (65)", 65),
+    "normal": ("📱 Normal (78)", 78),
+    "large": ("📈 Katta (90)", 90),
+    "xlarge": ("🔥 Juda katta (105)", 105)
+}
+
 VIDEO_QUALITIES = {
     "720p": ("📱 Standard HD (720p) [Free]", "1280:720", False),
     "2k": ("💎 PRO 2K Ultra (1440p) [PRO]", "2560:1440", True)
@@ -150,8 +157,8 @@ def format_ass_time(seconds: float) -> str:
     return f"{hours}:{mins:02d}:{secs:02d}.{centis:02d}"
 
 
-def generate_word_by_word_ass(words: List[Any], ass_path: Path, anim_style: str, text_color_hex: str) -> int:
-    # Drop shadow va ingichka hoshiya (Outline=2, Shadow=3) qilib silliq sozlandi
+def generate_word_by_word_ass(words: List[Any], ass_path: Path, anim_style: str, text_color_hex: str, font_size: int) -> int:
+    # Qalin stroke olib tashlandi, o'rniga zamonaviy drop shadow va ingichka hoshiya qo'yildi
     header = f"""[Script Info]
 ScriptType: v4.00+
 PlayResX: 1080
@@ -161,7 +168,7 @@ WrapStyle: 2
 
 [V4+ Styles]
 Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding
-Style: WordStyle,Komika Axis,78,{text_color_hex},&H000000FF,&HFF000000,&H80000000,1,0,0,0,100,100,1,0,1,2.5,3.0,2,40,40,420,1
+Style: WordStyle,Komika Axis,{font_size},{text_color_hex},&H000000FF,&HFF000000,&H80000000,1,0,0,0,100,100,1,0,1,1.5,4.0,2,40,40,420,1
 
 [Events]
 Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
@@ -207,7 +214,7 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
             elif anim_style == "active_bold_regular":
                 pro_anim = f"{{\\an2\\fad(12,12)\\b1}}"
             elif anim_style == "active_word_box":
-                pro_anim = f"{{\\an2\\fad(12,12)\\bord4\\3c&H000000&\\b1}}"
+                pro_anim = f"{{\\an2\\fad(12,12)\\bord3\\3c&H000000&\\b1}}"
             else:
                 pro_anim = f"{{\\an2\\fad(12,12)\\b1}}"
 
@@ -217,7 +224,7 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
     return count
 
 
-async def process_job(bot: Bot, chat_id: int, user_id: int, file_id: str, lang: str, anim_style: str, text_color: str, quality_res: str) -> None:
+async def process_job(bot: Bot, chat_id: int, user_id: int, file_id: str, lang: str, anim_style: str, text_color: str, font_size_val: int, quality_res: str) -> None:
     job_key = uuid.uuid4().hex[:8]
     work_dir = WORK_ROOT / job_key
     work_dir.mkdir(parents=True, exist_ok=True)
@@ -288,13 +295,12 @@ async def process_job(bot: Bot, chat_id: int, user_id: int, file_id: str, lang: 
 
         words = getattr(transcription, "words", []) or []
         color_hex = TEXT_COLORS.get(text_color, TEXT_COLORS["yellow"])[1]
-        count = generate_word_by_word_ass(words, ass_path, anim_style, color_hex)
+        count = generate_word_by_word_ass(words, ass_path, anim_style, color_hex, font_size_val)
         if count == 0:
             await status_msg.edit_text("❌ Videoda nutq aniqlanmadi.")
             return
 
         abs_fonts_dir = str(FONTS_DIR.resolve())
-        # Instagram 9:16 vertikal formatini qat'iy va tiniq saqlash uchun to'g'ri crop/scale filtri
         qw, qh = quality_res.split(":")
         vf_filter = f"scale={qw}:{qh}:force_original_aspect_ratio=increase,crop={qw}:{qh},ass=subtitles.ass:fontsdir='{abs_fonts_dir}'"
 
@@ -676,7 +682,6 @@ async def on_select_anim(call: CallbackQuery) -> None:
     except Exception:
         pass
 
-    # Matn rangini tanlash oynasini qo'shamiz
     kb = InlineKeyboardBuilder()
     for ckey, (ctitle, _) in TEXT_COLORS.items():
         kb.button(text=ctitle, callback_data=f"color:{key}:{ckey}")
@@ -702,6 +707,37 @@ async def on_select_color(call: CallbackQuery) -> None:
         return
 
     job["color"] = ckey
+    try:
+        await call.message.edit_reply_markup(reply_markup=None)
+    except Exception:
+        pass
+
+    # Matn o'lchamini tanlash bosqichini qo'shamiz
+    kb = InlineKeyboardBuilder()
+    for fkey, (ftitle, _) in FONT_SIZES.items():
+        kb.button(text=ftitle, callback_data=f"size:{key}:{fkey}")
+    kb.adjust(2)
+
+    await call.message.answer("📏 <b>Subtitr matn o'lchamini tanlang:</b>", reply_markup=kb.as_markup(), parse_mode="HTML")
+
+
+@router.callback_query(F.data.startswith("size:"))
+async def on_select_size(call: CallbackQuery) -> None:
+    await call.answer()
+    parts = call.data.split(":")
+    if len(parts) < 3:
+        return
+    _, key, fkey = parts
+    
+    job = jobs.get(key)
+    if not job:
+        try:
+            await call.message.edit_reply_markup(reply_markup=None)
+        except Exception:
+            pass
+        return
+
+    job["size"] = fkey
     try:
         await call.message.edit_reply_markup(reply_markup=None)
     except Exception:
@@ -737,6 +773,8 @@ async def on_select_quality(call: CallbackQuery, bot: Bot) -> None:
     lang = job.get("lang", "uz")
     anim_style = job.get("style", "mrbeast_style")
     text_color = job.get("color", "yellow")
+    font_key = job.get("size", "normal")
+    font_size_val = FONT_SIZES.get(font_key, FONT_SIZES["normal"])[1]
 
     q_info = VIDEO_QUALITIES.get(qkey)
     if not q_info:
@@ -763,7 +801,7 @@ async def on_select_quality(call: CallbackQuery, bot: Bot) -> None:
     except Exception:
         pass
 
-    asyncio.create_task(process_job(bot, chat_id, user_id, file_id, lang, anim_style, text_color, quality_res))
+    asyncio.create_task(process_job(bot, chat_id, user_id, file_id, lang, anim_style, text_color, font_size_val, quality_res))
 
 
 async def handle(request):
@@ -814,4 +852,3 @@ if __name__ == "__main__":
         asyncio.run(main())
     except (KeyboardInterrupt, SystemExit):
         pass
-    
