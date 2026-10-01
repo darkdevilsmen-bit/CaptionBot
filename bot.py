@@ -233,6 +233,37 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
     return count
 
 
+async def ensure_ffmpeg():
+    """Agar ffmpeg tizimda topilmasa, uni avtomatik yuklab olib ishlatishni ta'minlaydi"""
+    import shutil as sh
+    if sh.which("ffmpeg"):
+        return "ffmpeg"
+    
+    local_ffmpeg = Path("./ffmpeg_bin/ffmpeg")
+    if local_ffmpeg.exists():
+        return str(local_ffmpeg.resolve())
+    
+    # Agar umuman bo'lmasa, static build yuklab olishga harakat qilamiz
+    try:
+        Path("./ffmpeg_bin").mkdir(exist_ok=True)
+        proc = await asyncio.create_subprocess_exec(
+            "curl", "-L", "https://johnvansickle.com/ffmpeg/releases/ffmpeg-release-amd64-static.tar.xz", "-o", "ffmpeg.tar.xz"
+        )
+        await proc.communicate()
+        proc2 = await asyncio.create_subprocess_exec("tar", "-xf", "ffmpeg.tar.xz")
+        await proc2.communicate()
+        for p in Path(".").glob("ffmpeg-*-static"):
+            sh.move(str(p / "ffmpeg"), "./ffmpeg_bin/ffmpeg")
+            sh.rmtree(p, ignore_errors=True)
+            break
+        if local_ffmpeg.exists():
+            local_ffmpeg.chmod(0o755)
+            return str(local_ffmpeg.resolve())
+    except Exception:
+        pass
+    return "ffmpeg"
+
+
 async def process_job(bot: Bot, chat_id: int, user_id: int, file_id: str, lang: str, anim_style: str, text_color: str, font_size_val: int, quality_res: str) -> None:
     job_key = uuid.uuid4().hex[:8]
     work_dir = WORK_ROOT / job_key
@@ -252,6 +283,8 @@ async def process_job(bot: Bot, chat_id: int, user_id: int, file_id: str, lang: 
     )
 
     try:
+        ffmpeg_bin = await ensure_ffmpeg()
+
         file = await bot.get_file(file_id)
         if not file.file_path:
             raise Exception("Telegram video yo'lini bermadi.")
@@ -266,7 +299,7 @@ async def process_job(bot: Bot, chat_id: int, user_id: int, file_id: str, lang: 
         )
 
         cmd_extract = [
-            "ffmpeg", "-y", "-i", "input.mp4",
+            ffmpeg_bin, "-y", "-i", "input.mp4",
             "-vn", "-acodec", "libmp3lame", "-ar", "24000", "-ac", "1", "-b:a", "192k",
             "audio.mp3"
         ]
@@ -313,7 +346,7 @@ async def process_job(bot: Bot, chat_id: int, user_id: int, file_id: str, lang: 
         vf_filter = f"scale=1080:1920:force_original_aspect_ratio=increase,crop=1080:1920,ass=subtitles.ass:fontsdir='{abs_fonts_dir}'"
 
         cmd_render = [
-            "ffmpeg", "-y", "-i", "input.mp4",
+            ffmpeg_bin, "-y", "-i", "input.mp4",
             "-vf", vf_filter,
             "-c:v", "libx264",
             "-preset", "medium",
@@ -491,7 +524,7 @@ async def cmd_add_credits(message: Message, bot: Bot):
         return
     parts = message.text.split()
     if len(parts) < 3:
-        await message.reply("⚠️️ Format: <code>/add [user_id] [kredit_soni]</code>", parse_mode="HTML")
+        await message.reply("⚠️ Format: <code>/add [user_id] [kredit_soni]</code>", parse_mode="HTML")
         return
     try:
         target_user_id = int(parts[1])
@@ -604,7 +637,7 @@ async def cmd_payment(message: Message):
 
 @router.message(F.text == "👨‍💻 Admin bilan bog'lanish")
 async def cmd_contact_admin(message: Message):
-    await message.answer(f"👨‍‍💻 Admin: @{ADMIN_USERNAME}\n📞 Tel: {ADMIN_PHONE}", parse_mode="HTML")
+    await message.answer(f"👨‍💻 Admin: @{ADMIN_USERNAME}\n📞 Tel: {ADMIN_PHONE}", parse_mode="HTML")
 
 
 @router.message(F.video | (F.document & F.document.mime_type.startswith("video/")))
@@ -654,8 +687,7 @@ async def on_select_lang(call: CallbackQuery) -> None:
         cursor.execute("SELECT file_id FROM user_jobs WHERE job_key = ?", (key,))
         row = cursor.fetchone()
         if not row:
-            # Agar sessiya topilmasa, xato chiqarmasdan bazaga avtomatik yangi yozuv qo'shamiz (1 tilda ishlashi uchun)
-            cursor.execute("INSERT OR IGNORE INTO user_jobs (job_key, user_id, file_id, lang) VALUES (?, ?, ?, ?)", (key, call.from_user.id, call.message.reply_to_message.video.file_id if call.message.reply_to_message and call.message.reply_to_message.video else "", code))
+            cursor.execute("INSERT OR IGNORE INTO user_jobs (job_key, user_id, file_id, lang) VALUES (?, ?, ?, ?)", (key, call.from_user.id, "", code))
         else:
             cursor.execute("UPDATE user_jobs SET lang = ? WHERE job_key = ?", (code, key))
         conn.commit()
@@ -779,21 +811,28 @@ async def on_select_quality(call: CallbackQuery, bot: Bot) -> None:
         cursor.execute("SELECT file_id, lang, style, color, size FROM user_jobs WHERE job_key = ?", (key,))
         row = cursor.fetchone()
         
-        # Agar bazada to'liq topilmasa ham, oxirgi yuborilgan videoni olib ketish uchun xavfsiz zaxira yaratamiz
+        # Agar kalit bo'yicha topilmasa, oxirgi yozuvni olamiz
         if not row or not row[0]:
             cursor.execute("SELECT file_id, lang, style, color, size FROM user_jobs ORDER BY rowid DESC LIMIT 1")
             row = cursor.fetchone()
 
         if not row or not row[0]:
-            await call.message.answer("⚠️ Iltimos, videoni qaytadan yuboring va davom eting.")
-            return
+            # Agar umuman topilmasa ham, oxirgi yuborilgan videoni olishga urinib ko'ramiz
+            file_id = ""
+        else:
+            file_id, lang, anim_style, text_color, font_key = row
 
-        file_id, lang, anim_style, text_color, font_key = row
         cursor.execute("DELETE FROM user_jobs WHERE job_key = ?", (key,))
         conn.commit()
 
     chat_id = call.message.chat.id
     user_id = call.from_user.id
+    
+    # Agar file_id bazada topilmasa, foydalanuvchiga xato bermasdan xabar qilamiz
+    if not file_id:
+        await call.message.answer("⚠️ Videoni qaytadan yuboring va davom eting.")
+        return
+
     font_size_val = FONT_SIZES.get(font_key, FONT_SIZES["normal"])[1]
 
     q_info = VIDEO_QUALITIES.get(qkey)
@@ -846,7 +885,7 @@ async def start_bot_polling():
             dp.include_router(router)
             
             await bot.delete_webhook(drop_pending_updates=True)
-            log.info("Captions Pro Tanlov ishga tushdi!")
+            log.info("Captions Pro Bot ishga tushdi!")
             await dp.start_polling(bot, handle_as_tasks=True, drop_pending_updates=True)
         except Exception as e:
             log.warning(f"Tarmoq xatosi: {e}. Qayta ulanmoqda...")
