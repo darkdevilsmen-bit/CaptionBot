@@ -169,11 +169,7 @@ ScaledBorderAndShadow: yes
 WrapStyle: 2
 
 [V4+ Styles]
-Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, ShadowXatolik sababi aniqlandi: FFmpeg subtitrlarni chizish jarayonida `Komika Axis` shriftini qidirmoqda, lekin ASS fayl ichidagi shrift nomi bilan papkadagi shrift faylining ichki font family nomi mos tushmayapti yoki uni topa olmayapti. 
-
-Buni to'g'rilash uchun ASS faylidagi shrift nomini shunchaki **`KomikaAxis`** deb o'zgartiramiz (chunki papkangizdagi fayl `KomikaAxis.ttf` deb nomlangan). 
-
-Mana shu oxirgi va mukammal kodni to'g'ridan-to'g'ri `bot.py` faylingizga qo'ying:
+Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, ShadowAlbatta! Mana 1-animatsiyaga siz so'ragan **70 -> 120 -> 100** sakrab chiquvchi pop-up effekti to'liq qo'shilgan va barcha xatolari hal qilingan to'liq `bot.py` kodi:
 
 ```python
 import os
@@ -255,4 +251,60 @@ FONT_SIZES = {
 }
 
 VIDEO_QUALITIES = {
-    "720p": ("📱 Standard HD (720p) [Free]", "1280
+    "720p": ("📱 Standard HD (720p) [Free]", "1280:720", False),
+    "2k": ("💎 PRO 2K Ultra (1440p) [PRO]", "2560:1440", True)
+}
+
+router = Router()
+el_client = ElevenLabs(api_key=ELEVENLABS_API_KEY)
+FFMPEG_PATH = imageio_ffmpeg.get_ffmpeg_exe()
+
+USER_SESSIONS: Dict[int, Dict[str, Any]] = {}
+
+
+def get_main_keyboard() -> ReplyKeyboardMarkup:
+    keyboard = [
+        [KeyboardButton(text="⚡ Auto Subtitr qo'yish")],
+        [KeyboardButton(text="🎨 Subtitr uslublari"), KeyboardButton(text="💳 Balans")],
+        [KeyboardButton(text="💎 PRO Tariflar"), KeyboardButton(text="📜 Oferta")],
+        [KeyboardButton(text="👨‍💻 Admin bilan bog'lanish")]
+    ]
+    return ReplyKeyboardMarkup(keyboard=keyboard, resize_keyboard=True)
+
+
+def init_db():
+    with sqlite3.connect(DB_FILE) as conn:
+        cursor = conn.cursor()
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS users (
+                user_id INTEGER PRIMARY KEY,
+                username TEXT,
+                credits INTEGER DEFAULT 3,
+                is_pro INTEGER DEFAULT 0,
+                bot_lang TEXT DEFAULT 'uz',
+                terms_accepted INTEGER DEFAULT 0,
+                joined_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+        """)
+        conn.commit()
+
+
+def get_user_credits(user_id: int, username: str = "") -> int:
+    with sqlite3.connect(DB_FILE) as conn:
+        cursor = conn.cursor()
+        cursor.execute("SELECT credits FROM users WHERE user_id = ?", (user_id,))
+        row = cursor.fetchone()
+        if row is None:
+            cursor.execute(
+                "INSERT OR IGNORE INTO users (user_id, username, credits, is_pro, bot_lang, terms_accepted) VALUES (?, ?, ?, 0, 'uz', 0)",
+                (user_id, username, INITIAL_CREDITS)
+            )
+            conn.commit()
+            return INITIAL_CREDITS
+        return row[0]
+
+
+def is_user_pro(user_id: int) -> bool:
+    with sqlite3.connect(DB_FILE) as conn:
+        cursor = conn.cursor()
+        cursor.execute("SELECT is_pro FROM users WHERE user_id = ?", (
