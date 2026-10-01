@@ -56,8 +56,10 @@ VIDEO_LANGS = {
 }
 
 ANIMATION_STYLES = {
-    "mrbeast_style": "🟢 Komika Axis Pop-up Style (⭐)",
-    "smooth_tracking": "✨ After Effects Smooth Text Tracking",
+    "mrbeast_style": "🟢 Komika Axis Pop-up (MrBeast)",
+    "smooth_tracking": "✨ Smooth Text Tracking",
+    "active_bold_regular": "🔥 Active Bold / Regular",
+    "active_word_box": "⬛ Active Word Highlight (Box)"
 }
 
 jobs: Dict[str, Dict[str, Any]] = {}
@@ -202,8 +204,14 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
 
             if anim_style == "mrbeast_style":
                 pro_anim = f"{{\\an2{font_tag}\\fad(30,50)\\fscx140\\fscy140\\t(0,70,\\fscx100\\fscy100)\\b1}}"
-            else:
+            elif anim_style == "smooth_tracking":
                 pro_anim = f"{{\\an2{font_tag}\\fad(30,50)\\fsp-8\\t(0,{duration_ms},\\fsp14)\\b1}}"
+            elif anim_style == "active_bold_regular":
+                pro_anim = f"{{\\an2{font_tag}\\fad(30,50)\\b1}}"
+            elif anim_style == "active_word_box":
+                pro_anim = f"{{\\an2{font_tag}\\fad(30,50)\\bord8\\3c&H000000&\\b1}}"
+            else:
+                pro_anim = f"{{\\an2{font_tag}\\fad(30,50)\\b1}}"
 
             f.write(f"Dialogue: 0,{start_fmt},{end_fmt},WordStyle,,0,0,0,,{pro_anim}{word_text}\n")
             count += 1
@@ -418,8 +426,10 @@ async def cmd_subtitr_styles(message: Message):
     text = (
         "🎨 <b>SUBTITR USLUBLARI</b>\n\n"
         "• 🟢 <b>Komika Axis Pop-up:</b> MrBeast uslubidagi sakrab chiquvchi qalin shrift.\n"
-        "• ✨ <b>AE Smooth Tracking:</b> After Effects uslubidagi harflarning silliq kengayish effekti.\n\n"
-        "<i>Videongizni yuboring va uslubni tanlang!</i>"
+        "• ✨ <b>Smooth Text Tracking:</b> Harflarning silliq kengayish effekti.\n"
+        "• 🔥 <b>Active Bold / Regular:</b> So'zlarning qalinlashib boruvchi dinamik ko'rinishi.\n"
+        "• ⬛ <b>Active Word Highlight:</b> So'z orqasida qora fonli blok.\n\n"
+        "<i>Videongizni yuboring va istalgan uslubni tanlang!</i>"
     )
     await message.answer(text, parse_mode="HTML")
 
@@ -454,7 +464,7 @@ def get_tariffs_keyboard() -> InlineKeyboardMarkup:
 
 @router.callback_query(F.data == "show_tariffs")
 async def on_show_tariffs(call: CallbackQuery):
-    await call.answer()  # Qotib qolmasligi uchun zudlik bilan javob beriladi
+    await call.answer()
     payment_text = (
         "💳 <b>TARIFLAR:</b>\n\n"
         "• 10 ta video — 45,000 so'm\n"
@@ -537,17 +547,26 @@ async def on_video(message: Message, state: FSMContext, bot: Bot) -> None:
 
 @router.callback_query(F.data.startswith("l:"))
 async def on_select_lang(call: CallbackQuery) -> None:
-    await call.answer()  # Tugma aylanishini darhol to'xtatish
+    await call.answer()
     parts = call.data.split(":")
     if len(parts) < 3:
         return
     _, key, code = parts
     job = jobs.get(key)
     if not job:
-        await call.message.answer("⚠️ So'rov muddati o'tgan. Iltimos, videoni qaytadan yuboring.")
-        return
+        key = uuid.uuid4().hex[:8]
+        jobs[key] = {
+            "key": key,
+            "user_id": call.from_user.id,
+            "chat_id": call.message.chat.id,
+            "file_id": "",
+            "lang": code,
+            "style": "mrbeast_style"
+        }
 
-    job["lang"] = code
+    job = jobs.get(key)
+    if job:
+        job["lang"] = code
 
     kb = InlineKeyboardBuilder()
     for skey, title in ANIMATION_STYLES.items():
@@ -562,14 +581,14 @@ async def on_select_lang(call: CallbackQuery) -> None:
 
 @router.callback_query(F.data.startswith("a:"))
 async def on_select_anim(call: CallbackQuery, bot: Bot) -> None:
-    await call.answer()  # Tugma aylanishini darhol to'xtatish
+    await call.answer()
     parts = call.data.split(":")
     if len(parts) < 3:
         return
     _, key, skey = parts
     job = jobs.get(key)
     if not job:
-        await call.message.answer("⚠️ So'rov muddati o'tgan. Iltimos, videoni qaytadan yuboring.")
+        await call.message.answer("⚠️ Ma'lumot topilmadi. Iltimos, videoni qaytadan yuboring.")
         return
 
     job["style"] = skey
