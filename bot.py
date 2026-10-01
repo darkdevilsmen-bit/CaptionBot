@@ -241,12 +241,9 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
             word_text = w["word"]
             duration_ms = int((end_sec - start_sec) * 1000)
 
-            # AE Tracker & Komika Pop-up animatsiya uslublari
             if anim_style == "mrbeast_style":
-                # Pop-up effect: tez kattalashib o'z o'rniga kelish
                 pro_anim = f"{{\\an2{font_tag}\\fad(30,50)\\fscx140\\fscy140\\t(0,70,\\fscx100\\fscy100)\\b1}}"
             elif anim_style == "smooth_tracking":
-                # After Effects tracking/expansion effect
                 pro_anim = f"{{\\an2{font_tag}\\fad(30,50)\\fsp-5\\t(0,{duration_ms},\\fsp10)\\b1}}"
             elif anim_style == "active_bold_regular":
                 pro_anim = f"{{\\an2{font_tag}\\fad(30,50)\\b1}}"
@@ -320,7 +317,7 @@ async def process_job(bot: Bot, job: Dict[str, Any]) -> None:
         await status_msg.edit_text(
             "⚡ <b>Pro AI Subtitr ishga tushdi!</b>\n\n"
             "▓▓▓▓▓▓░░░░ 70%\n\n"
-            "✨ <i>ElevenLabs orqali matnga o'girilmoqda (bu bir oz vaqt olishi mumkin)...</i>",
+            "✨ <i>ElevenLabs orqali matnga o'girilmoqda...</i>",
             parse_mode="HTML"
         )
 
@@ -335,7 +332,6 @@ async def process_job(bot: Bot, job: Dict[str, Any]) -> None:
 
         log.info(f"[{job_key}] ElevenLabs API ga so'rov yuborildi...")
         try:
-            # Qotib qolmasligi uchun timeout vaqtini kengaytirib, asinxron bajaramiz
             transcription = await asyncio.wait_for(
                 asyncio.to_thread(transcribe_audio), 
                 timeout=180.0
@@ -602,25 +598,18 @@ async def show_oferta(message: Message):
     await message.answer(OFERTA_FULL_TEXT, parse_mode="HTML")
 
 
+# ─── GOZAL VA TARTIBLI BALANS INTERFEYSI ───
 @router.message(F.text == "💳 Balans")
 async def cmd_balans(message: Message):
     credits = get_user_credits(message.from_user.id)
     
-    if credits <= 0:
-        text = (
-            f"📊 <b>Sizning profilingiz va balansingiz:</b>\n\n"
-            f"🆔 ID: <code>{message.from_user.id}</code>\n"
-            f"💎 Qolgan urinishlar: <b>0 ta video</b>\n\n"
-            f"⚠️ <i>Sizda bepul foydalanish limiti tugadi!</i>\n"
-            f"🚀 Videolarga professional subtitr qo'shishni davom ettirish uchun quyidagi tariflardan birini tanlang va balansingizni to'ldiring:"
-        )
-    else:
-        text = (
-            f"📊 <b>Sizning profilingiz va balansingiz:</b>\n\n"
-            f"🆔 ID: <code>{message.from_user.id}</code>\n"
-            f"💎 Qolgan urinishlar: <b>{credits} ta video</b>\n\n"
-            f"📌 <i>Har bir video uchun 1 ta kredit sarflanadi.</i>"
-        )
+    text = (
+        "💎 <b>SHAXSIY KABINET & BALANS</b>\n\n"
+        f"🆔 <b>Foydalanuvchi ID:</b> <code>{message.from_user.id}</code>\n"
+        f"🔋 <b>Qolgan urinishlar:</b> <b>{credits} ta video</b>\n\n"
+        "━━━━━━━━━━━━━━━━━━━━\n"
+        "💡 <i>Har bir video uchun 1 ta urinish sarflanadi. Limitingiz tugasa, pastdagi tugma orqali tariflarni tanlab to'ldirishingiz mumkin.</i>"
+    )
     
     kb = InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text="💎 Tariflarni ko'rish va to'ldirish", callback_data="show_tariffs")]
@@ -628,42 +617,81 @@ async def cmd_balans(message: Message):
     await message.answer(text, reply_markup=kb, parse_mode="HTML")
 
 
+# ─── GOZAL VA TARTIBLI TO'LOV / TARIFLAR INTERFEYSI ───
+def get_tariffs_keyboard() -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="💎 10 ta video — 45,000 so'm", callback_data="buy_10")],
+        [InlineKeyboardButton(text="💎 25 ta video — 95,000 so'm", callback_data="buy_25")],
+        [InlineKeyboardButton(text="💎 50 ta video — 175,000 so'm", callback_data="buy_50")],
+        [InlineKeyboardButton(text="👨‍💻 Adminga to'lov chekini yuborish", url=f"https://t.me/{ADMIN_USERNAME}")]
+    ])
+
+
 @router.callback_query(F.data == "show_tariffs")
 async def on_show_tariffs(call: CallbackQuery):
     payment_text = (
-        "💰 <b>Kreditlarni to'ldirish tariflari:</b>\n\n"
-        "💎 <b>10 ta video</b> — 45,000 so'm\n"
-        "💎 <b>25 ta video</b> — 95,000 so'm\n"
-        "💎 <b>50 ta video</b> — 175,000 so'm\n\n"
-        "💳 <b>To'lov uchun karta raqami:</b>\n"
-        f"<code>{CARD_NUMBER}</code>\n"
-        f"👤 <b>Karta egasi:</b> {CARD_HOLDER}\n\n"
-        f"📸 Pulni o'tkazgandan so'ng, to'lov chekini quyidagi adminga yuboring:\n"
-        f"👨‍💻 <b>Admin:</b> @{ADMIN_USERNAME}"
+        "💳 <b>BALANSNI TO'LDIRISH TARIFLARI</b>\n\n"
+        "Quyidagi qulay paketlardan birini tanlang va to'lovni amalga oshiring:\n\n"
+        "• <b>10 ta video</b> — 45,000 so'm\n"
+        "• <b>25 ta video</b> — 95,000 so'm\n"
+        "• <b>50 ta video</b> — 175,000 so'm\n\n"
+        "🏦 <b>To'lov uchun karta ma'lumotlari:</b>\n"
+        f"• Karta: <code>{CARD_NUMBER}</code>\n"
+        f"• Egasi: <b>{CARD_HOLDER}</b>\n\n"
+        "📸 <i>Pulni o'tkazgandan so'ng, chekni adminga yuboring va darhol balansingizga qo'shib beriladi!</i>"
     )
-    await call.message.edit_text(payment_text, parse_mode="HTML")
+    try:
+        await call.message.edit_text(payment_text, reply_markup=get_tariffs_keyboard(), parse_mode="HTML")
+    except Exception:
+        await call.message.answer(payment_text, reply_markup=get_tariffs_keyboard(), parse_mode="HTML")
+    await call.answer()
+
+
+@router.callback_query(F.data.in_({"buy_10", "buy_25", "buy_50"}))
+async def on_buy_package(call: CallbackQuery):
+    packages = {
+        "buy_10": ("10 ta video", "45,000 so'm"),
+        "buy_25": ("25 ta video", "95,000 so'm"),
+        "buy_50": ("50 ta video", "175,000 so'm"),
+    }
+    pkg_name, pkg_price = packages.get(call.data, ("Paket", ""))
+    
+    text = (
+        f"✅ Siz <b>{pkg_name}</b> ({pkg_price}) paketini tanladingiz!\n\n"
+        f"💳 <b>Karta raqami:</b> <code>{CARD_NUMBER}</code>\n"
+        f"👤 <b>Karta egasi:</b> {CARD_HOLDER}\n\n"
+        f"📲 To'lovni amalga oshirgach, chekni quyidagi tugma orqali adminga yuboring:"
+    )
+    kb = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="📤 Chekni adminga yuborish", url=f"https://t.me/{ADMIN_USERNAME}")],
+        [InlineKeyboardButton(text="◀️ Orqaga qaytish", callback_data="show_tariffs")]
+    ])
+    try:
+        await call.message.edit_text(text, reply_markup=kb, parse_mode="HTML")
+    except Exception:
+        await call.message.answer(text, reply_markup=kb, parse_mode="HTML")
     await call.answer()
 
 
 @router.message(F.text == "💰 To'lov qilish")
 async def cmd_payment(message: Message):
     payment_text = (
-        "💰 <b>Kreditlarni to'ldirish tariflari:</b>\n\n"
-        "💎 <b>10 ta video</b> — 45,000 so'm\n"
-        "💎 <b>25 ta video</b> — 95,000 so'm\n"
-        "💎 <b>50 ta video</b> — 175,000 so'm\n\n"
-        "💳 <b>To'lov uchun karta raqami:</b>\n"
-        f"<code>{CARD_NUMBER}</code>\n"
-        f"👤 <b>Karta egasi:</b> {CARD_HOLDER}\n\n"
-        f"📸 Pulni o'tkazgandan so'ng, to'lov chekini quyidagi adminga yuboring:\n"
-        f"👨‍💻 <b>Admin:</b> @{ADMIN_USERNAME}"
+        "💳 <b>BALANSNI TO'LDIRISH TARIFLARI</b>\n\n"
+        "Quyidagi qulay paketlardan birini tanlang va to'lovni amalga oshiring:\n\n"
+        "• <b>10 ta video</b> — 45,000 so'm\n"
+        "• <b>25 ta video</b> — 95,000 so'm\n"
+        "• <b>50 ta video</b> — 175,000 so'm\n\n"
+        "🏦 <b>To'lov uchun karta ma'lumotlari:</b>\n"
+        f"• Karta: <code>{CARD_NUMBER}</code>\n"
+        f"• Egasi: <b>{CARD_HOLDER}</b>\n\n"
+        "📸 <i>Pulni o'tkazgandan so'ng, chekni adminga yuboring va darhol balansingizga qo'shib beriladi!</i>"
     )
-    await message.answer(payment_text, parse_mode="HTML")
+    await message.answer(payment_text, reply_markup=get_tariffs_keyboard(), parse_mode="HTML")
 
 
 @router.message(F.text == "👨‍💻 Admin bilan bog'lanish")
 async def cmd_contact_admin(message: Message):
-    await message.answer(f"👨‍💻 Admin: @{ADMIN_USERNAME}\n📞 Tel: {ADMIN_PHONE}", parse_mode="HTML")
+    await message.answer(f"👨‍💻 Admin bilan bog'lanish:\n• Profil: @{ADMIN_USERNAME}\n• Tel: {ADMIN_PHONE}", parse_mode="HTML")
 
 
 @router.message(F.video | (F.document & F.document.mime_type.startswith("video/")))
@@ -726,7 +754,11 @@ async def on_lang(call: CallbackQuery) -> None:
     for fkey, (title, _) in FONTS_LIST.items():
         kb.button(text=title, callback_data=f"font:{key}:{fkey}")
     kb.adjust(1)
-    await call.message.edit_text("2️⃣ Shrift turini tanlang:", reply_markup=kb.as_markup())
+    
+    try:
+        await call.message.edit_text("2️⃣ Shrift turini tanlang:", reply_markup=kb.as_markup())
+    except Exception:
+        await call.message.answer("2️⃣ Shrift turini tanlang:", reply_markup=kb.as_markup())
     await call.answer()
 
 
@@ -747,7 +779,11 @@ async def on_font(call: CallbackQuery) -> None:
     for skey, (title, _) in SIZES.items():
         kb.button(text=title, callback_data=f"size:{key}:{skey}")
     kb.adjust(1)
-    await call.message.edit_text("3️⃣ Subtitr o'lchamini tanlang:", reply_markup=kb.as_markup())
+    
+    try:
+        await call.message.edit_text("3️⃣ Subtitr o'lchamini tanlang:", reply_markup=kb.as_markup())
+    except Exception:
+        await call.message.answer("3️⃣ Subtitr o'lchamini tanlang:", reply_markup=kb.as_markup())
     await call.answer()
 
 
@@ -768,7 +804,11 @@ async def on_size(call: CallbackQuery) -> None:
     for cname, (title, _) in COLORS.items():
         kb.button(text=title, callback_data=f"col:{key}:{cname}")
     kb.adjust(2)
-    await call.message.edit_text("4️⃣ Subtitr rangini tanlang:", reply_markup=kb.as_markup())
+    
+    try:
+        await call.message.edit_text("4️⃣ Subtitr rangini tanlang:", reply_markup=kb.as_markup())
+    except Exception:
+        await call.message.answer("4️⃣ Subtitr rangini tanlang:", reply_markup=kb.as_markup())
     await call.answer()
 
 
@@ -789,7 +829,11 @@ async def on_color(call: CallbackQuery) -> None:
     for skey, sinfo in ANIMATION_STYLES.items():
         kb.button(text=sinfo["title"], callback_data=f"anim:{key}:{skey}")
     kb.adjust(1)
-    await call.message.edit_text("5️⃣ Animatsiya uslubini tanlang:", reply_markup=kb.as_markup())
+    
+    try:
+        await call.message.edit_text("5️⃣ Animatsiya uslubini tanlang:", reply_markup=kb.as_markup())
+    except Exception:
+        await call.message.answer("5️⃣ Animatsiya uslubini tanlang:", reply_markup=kb.as_markup())
     await call.answer()
 
 
@@ -809,7 +853,12 @@ async def on_animation(call: CallbackQuery, bot: Bot) -> None:
 
     job["style"] = skey
     jobs.pop(key, None)
-    await call.message.edit_text("✅ Sozlamalar qabul qilindi. Tanlangan shriftda video tezkor tayyorlanmoqda...")
+    
+    try:
+        await call.message.edit_text("✅ Sozlamalar qabul qilindi. Tanlangan shriftda video tezkor tayyorlanmoqda...")
+    except Exception:
+        pass
+        
     asyncio.create_task(process_job(bot, job))
 
 
