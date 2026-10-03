@@ -150,6 +150,16 @@ def deduct_user_credit(user_id: int) -> bool:
         return False
 
 
+async def check_subscription(bot: Bot, user_id: int) -> bool:
+    try:
+        member = await bot.get_chat_member(chat_id=REQUIRED_CHANNEL, user_id=user_id)
+        if member.status in ["member", "administrator", "creator"]:
+            return True
+    except Exception as e:
+        log.error(f"Obunani tekshirishda xatolik: {e}")
+    return False
+
+
 def format_ass_time(seconds: float) -> str:
     hours = int(seconds // 3600)
     mins = int((seconds % 3600) // 60)
@@ -234,15 +244,40 @@ async def burn_subtitles_to_video(input_video: Path, ass_path: Path, output_vide
 
 
 @router.message(CommandStart())
-async def cmd_start(message: Message):
+async def cmd_start(message: Message, bot: Bot):
     user_id = message.from_user.id
     username = message.from_user.username or ""
     get_user_credits(user_id, username)
+    
+    # Majburiy obunani tekshirish
+    if REQUIRED_CHANNEL and not await check_subscription(bot, user_id):
+        builder = InlineKeyboardBuilder()
+        builder.row(InlineKeyboardButton(text="📢 Kanalga obuna bo'lish", url=f"https://t.me/{REQUIRED_CHANNEL.replace('@', '')}"))
+        builder.row(InlineKeyboardButton(text="✅ Obunani tekshirish", callback_data="check_sub"))
+        await message.answer(
+            f"⚠️ Botdan foydalanish uchun avval quyidagi kanalga obuna bo'ling:\n{REQUIRED_CHANNEL}",
+            reply_markup=builder.as_markup()
+        )
+        return
+
     await message.answer(
         "👋 Assalomu alaykum! Auto Subtitles botiga xush kelibsiz.\n"
         "Videongizga professional darajada avtomatik subtitrlar qo'shib beraman.",
         reply_markup=get_main_keyboard()
     )
+
+
+@router.callback_query(F.data == "check_sub")
+async def callback_check_sub(callback: CallbackQuery, bot: Bot):
+    user_id = callback.from_user.id
+    if await check_subscription(bot, user_id):
+        await callback.message.delete()
+        await callback.message.answer(
+            "✅ Obunangiz tasdiqlandi! Botdan foydalanishingiz mumkin.",
+            reply_markup=get_main_keyboard()
+        )
+    else:
+        await callback.answer("❌ Siz hali kanalga obuna bo'lmadingiz!", show_alert=True)
 
 
 @router.message(F.text == "💳 Balans")
