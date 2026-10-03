@@ -191,12 +191,12 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
         chunk = words[i:i + chunk_size]
         if not chunk:
             continue
-        start_t = chunk[0].get('start', 0.0)
-        end_t = chunk[-1].get('end', start_t + 1.0)
+        start_t = chunk[0].get('start', 0.0) if isinstance(chunk[0], dict) else getattr(chunk[0], 'start', 0.0)
+        end_t = chunk[-1].get('end', start_t + 1.0) if isinstance(chunk[-1], dict) else getattr(chunk[-1], 'end', start_t + 1.0)
 
         line_parts = []
         for j, w in enumerate(chunk):
-            w_text = w.get('word', '').strip()
+            w_text = w.get('word', '').strip() if isinstance(w, dict) else getattr(w, 'word', '').strip()
             if not w_text:
                 continue
             
@@ -397,11 +397,79 @@ async def callback_choose_style(callback: CallbackQuery, bot: Bot):
     user_id = callback.from_user.id
     style_key = callback.data.replace("style_", "")
     
-    if user_id in USER_SESSIONS:
-        USER_SESSIONS[user_id]["style"] = style_key
+    if user_id not in USER_SESSIONS:
+        await callback.message.edit_text("❌ Xatolik: Sessiya topilmadi. Iltimos, videoni qaytadan yuboring.")
+        return
+        
+    session = USER_SESSIONS[user_id]
+    session["style"] = style_key
 
-    await callback.message.edit_text("⏳ Videongizga subtitr tayyorlanmoqda. Iltimos, biroz kuting...")
-    await callback.message.answer("✅ Video sozlamalari saqlandi! (To'liq ishlov berish bosqichi)", reply_markup=get_main_keyboard())
+    await callback.message.edit_text("⏳ Videongiz yuklab olinmoqda va sun'iy intellekt orqali subtitr yozilmoqda. Iltimos, kuting...")
+
+    input_video = None
+    output_video = None
+    ass_path = None
+
+    try:
+        file_info = await bot.get_file(session["file_id"])
+        unique_name = str(uuid.uuid4())
+        input_video = WORK_ROOT / f"{unique_name}_input.mp4"
+        output_video = WORK_ROOT / f"{unique_name}_output.mp4"
+        ass_path = WORK_ROOT / f"{unique_name}.ass"
+
+        await bot.download_file(file_info.file_path, destination=input_video)
+
+        with open(input_video, "rb") as audio_file:
+            transcript = el_client.speech_to_text.convert(
+                file=audio_file,
+                model_id="scribe_v2",
+                language_code=session["lang"]
+            )
+
+        words = []
+        if hasattr(transcript, "words") and transcript.words:
+            words = transcript.words
+        elif isinstance(transcript, dict) and "words" in transcript:
+            words = transcript["words"]
+
+        if not words:
+            await callback.message.edit_text("❌ Videodan so'zlar aniqlanmadi yoki ovoz juda past.")
+            return
+
+        generate_word_by_word_ass(
+            words=words,
+            ass_path=ass_path,
+            anim_style=session["style"],
+            text_color_hex="&H0000FFFF",
+            font_size=85
+        )
+
+        await burn_subtitles_to_video(input_video, ass_path, output_video)
+
+        video_input = FSInputFile(str(output_video))
+        await callback.message.answer_video(
+            video=video_input,
+            caption="✅ Mana, subtitr qo'yilgan video tayyor! Bizning botdan foydalanganingiz uchun rahmat."
+        )
+        
+        if not is_user_pro(user_id):
+            deduct_user_credit(user_id)
+
+        await callback.message.delete()
+
+    except Exception as e:
+        log.error(f"Videoga ishlov berishda xatolik: {e}")
+        await callback.message.edit_text(f"❌ Xatolik yuz berdi: {str(e)}")
+    
+    finally:
+        for p in [input_video, output_video, ass_path]:
+            if p and p.exists():
+                try:
+                    p.unlink()
+                except:
+                    pass
+        if user_id in USER_SESSIONS:
+            del USER_SESSIONS[user_id]
 
 
 @router.message(F.text == "🎨 Subtitr uslublari")
