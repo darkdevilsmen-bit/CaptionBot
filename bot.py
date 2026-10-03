@@ -122,17 +122,15 @@ def format_ass_time(seconds: float) -> str:
 
 
 def generate_word_by_word_ass(words: List[Any], ass_path: Path):
-    # Animatsiya muammosini hal qilish uchun soddalashtirilgan va aniq ishlaydigan ASS shabloni
+    # PlayRes o'lchami olib tashlandi, shunda video o'lchami o'zgarib ketmaydi
     header = """[Script Info]
 ScriptType: v4.00+
-PlayResX: 1080
-PlayResY: 1920
 ScaledBorderAndShadow: yes
 WrapStyle: 2
 
 [V4+ Styles]
 Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding
-Style: Default,Arial,95,&H0000FFFF,&H000000FF,&H00000000,&H80000000,-1,0,0,0,100,100,0,0,1,6,0,2,20,20,350,1
+Style: Default,Arial,75,&H0000FFFF,&H000000FF,&H00000000,&H80000000,-1,0,0,0,100,100,0,0,1,4,0,2,20,20,150,1
 
 [Events]
 Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
@@ -151,8 +149,9 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
             w_text = w.get('word', '').strip() if isinstance(w, dict) else getattr(w, 'word', '').strip()
             if not w_text:
                 continue
-            # Matn ochilib kelish effekti uchun qulay teglardan foydalanamiz
-            line_parts.append(f"{{\\alpha&H00&}}{w_text}")
+            # MrBeast pop-up animatsiyasi va aniq chiqishi
+            animated_word = f"{{\\t(0,60,\\fscx120\\fscy120)\\t(60,120,\\fscx100\\fscy100)}}{w_text}"
+            line_parts.append(animated_word)
 
         text_content = " ".join(line_parts)
         if text_content:
@@ -166,11 +165,13 @@ async def burn_subtitles_to_video(input_video: Path, ass_path: Path, output_vide
     escaped_path = str(ass_path).replace("\\", "/").replace(":", "\\:")
     vf_filter = f"ass='{escaped_path}'"
     
+    # Ovoz saqlanishi va sifat buzilmasligi uchun to'g'rilangan FFmpeg buyrug'i
     cmd = [
         FFMPEG_PATH, "-y", "-i", str(input_video),
-        "-vf", vf_filter, "-c:v", "libx264",
-        "-preset", "ultrafast", "-crf", "23",
-        "-c:a", "copy", str(output_video)
+        "-vf", vf_filter,
+        "-c:v", "libx264", "-preset", "ultrafast", "-crf", "23",
+        "-c:a", "aac", "-b:a", "192k",  # Ovozni aniq va sifatli kodlash
+        str(output_video)
     ]
     process = await asyncio.create_subprocess_exec(*cmd, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE)
     _, stderr = await process.communicate()
@@ -190,7 +191,7 @@ async def cmd_start(message: Message, bot: Bot):
         await message.answer(f"Botdan foydalanish uchun kanalimizga obuna bo'ling:\n{REQUIRED_CHANNEL}", reply_markup=builder.as_markup())
         return
 
-    await message.answer("Assalomu alaykum! Videongizni yuboring, darhol subtitr qo'shib beraman.", reply_markup=get_main_keyboard())
+    await message.answer("Assalomu alaykum! Videongizni yuboring, ovozi va asl o'lchami saqlangan holda animatsiyali subtitr qo'shib beraman.", reply_markup=get_main_keyboard())
 
 
 @router.message(Command("pro"))
@@ -238,7 +239,7 @@ async def handle_video(message: Message, bot: Bot):
         await message.answer("Video hajmi 50 MB dan oshmasligi kerak.")
         return
 
-    status_msg = await message.answer("⏳ Video qabul qilindi. Subtitr yozilmoqda...")
+    status_msg = await message.answer("⏳ Video qabul qilindi. Ovoz va animatsiya tayyorlanmoqda...")
 
     input_video = None
     output_video = None
@@ -273,7 +274,7 @@ async def handle_video(message: Message, bot: Bot):
         generate_word_by_word_ass(words, ass_path)
         await burn_subtitles_to_video(input_video, ass_path, output_video)
 
-        await message.answer_video(video=FSInputFile(str(output_video)), caption="✅ Subtitr tayyor!")
+        await message.answer_video(video=FSInputFile(str(output_video)), caption="✅ Tayyor! Ovoz va asl o'lcham saqlandi.")
         
         if not is_user_pro(user_id):
             deduct_user_credit(user_id)
