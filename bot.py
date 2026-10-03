@@ -65,8 +65,6 @@ router = Router()
 el_client = ElevenLabs(api_key=ELEVENLABS_API_KEY)
 FFMPEG_PATH = imageio_ffmpeg.get_ffmpeg_exe()
 
-USER_SESSIONS: Dict[int, Dict[str, Any]] = {}
-
 
 def get_main_keyboard() -> ReplyKeyboardMarkup:
     keyboard = [
@@ -90,6 +88,15 @@ def init_db():
                 bot_lang TEXT DEFAULT 'uz',
                 terms_accepted INTEGER DEFAULT 0,
                 joined_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+        """)
+        # Sessiyalarni bazada saqlash uchun jadval
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS user_sessions (
+                user_id INTEGER PRIMARY KEY,
+                file_id TEXT,
+                lang TEXT DEFAULT 'uz',
+                style TEXT DEFAULT 'mrbeast_style'
             )
         """)
         conn.commit()
@@ -151,7 +158,6 @@ def format_ass_time(seconds: float) -> str:
 
 
 def generate_word_by_word_ass(words: List[Any], ass_path: Path, anim_style: str) -> int:
-    # MrBeast va pop-up effektlari to'g'ri ishlashi uchun kengaytirilgan ASS sarlavhasi
     header = """[Script Info]
 ScriptType: v4.00+
 PlayResX: 1080
@@ -167,7 +173,7 @@ Style: Default,Arial,80,&H0000FFFF,&H000000FF,&H00000000,&H80000000,-1,0,0,0,100
 Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
 """
     dialogues = []
-    chunk_size = 4  # Bir qatorda 4 tadan so'z chiqishi uchun
+    chunk_size = 4
     
     for i in range(0, len(words), chunk_size):
         chunk = words[i:i + chunk_size]
@@ -182,7 +188,6 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
             if not w_text:
                 continue
             
-            # Har bir so'z chiqayotganda kattalashib kichiklashish animatsiyasi (MrBeast Pop-up)
             if anim_style == "mrbeast_style":
                 animated_word = f"{{\\t(0,80,\\fscx130\\fscy130)\\t(80,160,\\fscx100\\fscy100)}}{w_text}"
             else:
@@ -200,7 +205,6 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
 
 
 async def burn_subtitles_to_video(input_video: Path, ass_path: Path, output_video: Path):
-    # Videoning o'lchamini o'zgartirmasdan, ASS animatsiyalarini to'g'ri render qilish
     escaped_path = str(ass_path).replace("\\", "/").replace(":", "\\:")
     vf_filter = f"ass='{escaped_path}'"
     
@@ -335,11 +339,14 @@ async def handle_video_upload(message: Message, bot: Bot):
         await message.answer("Kechirasiz, video hajmi 50 MB dan oshmasligi kerak.")
         return
 
-    USER_SESSIONS[user_id] = {
-        "file_id": video.file_id,
-        "lang": "uz",
-        "style": "mrbeast_style"
-    }
+    # Sessiyani bazaga yozib qo'yamiz (xotiradan o'chib ketmaydi)
+    with sqlite3.connect(DB_FILE) as conn:
+        cursor = conn.cursor()
+        cursor.execute(
+            "INSERT OR REPLACE INTO user_sessions (user_id, file_id, lang, style) VALUES (?, ?, 'uz', 'mrbeast_style')",
+            (user_id, video.file_id)
+        )
+        conn.commit()
 
     builder = InlineKeyboardBuilder()
     for code, name in VIDEO_LANGS.items():
@@ -358,8 +365,10 @@ async def callback_choose_language(callback: CallbackQuery):
     user_id = callback.from_user.id
     lang = callback.data.split("_")[1]
     
-    if user_id in USER_SESSIONS:
-        USER_SESSIONS[user_id]["lang"] = lang
+    with sqlite3.connect(DB_FILE) as conn:
+        cursor = conn.cursor()
+        cursor.execute("UPDATE user_sessions SET lang = ? WHERE user_id = ?", (lang, user_id))
+        conn.commit()
 
     builder = InlineKeyboardBuilder()
     for s_key, s_name in ANIMATION_STYLES.items():
@@ -377,12 +386,16 @@ async def callback_choose_style(callback: CallbackQuery, bot: Bot):
     user_id = callback.from_user.id
     style_key = callback.data.replace("style_", "")
     
-    if user_id not in USER_SESSIONS:
+    with sqlite3.connect(DB_FILE) as conn:
+        cursor = conn.cursor()
+        cursor.execute("SELECT file_id, lang FROM user_sessions WHERE user_id = ?", (user_id,))
+        row = cursor.fetchone()
+
+    if not row:
         await callback.message.edit_text("❌ Xatolik: Sessiya topilmadi. Iltimos, videoni qaytadan yuboring.")
         return
         
-    session = USER_SESSIONS[user_id]
-    session["style"] = style_key
+    file_id, lang = row
 
     await callback.message.edit_text("⏳ Videongiz yuklab olinmoqda va sun'iy intellekt orqali animatsiyali subtitr yozilmoqda...")
 
@@ -391,7 +404,7 @@ async def callback_choose_style(callback: CallbackQuery, bot: Bot):
     ass_path = None
 
     try:
-        file_info = await bot.get_file(session["file_id"])
+        file_info = await bot.get_file(file_id)
         unique_name = str(uuid.uuid4())
         input_video = WORK_ROOT / f"{unique_name}_input.mp4"
         output_video = WORK_ROOT / f"{unique_name}_output.mp4"
@@ -403,7 +416,7 @@ async def callback_choose_style(callback: CallbackQuery, bot: Bot):
             transcript = el_client.speech_to_text.convert(
                 file=audio_file,
                 model_id="scribe_v2",
-                language_code=session["lang"]
+                language_code=lang
             )
 
         words = []
@@ -419,7 +432,7 @@ async def callback_choose_style(callback: CallbackQuery, bot: Bot):
         generate_word_by_word_ass(
             words=words,
             ass_path=ass_path,
-            anim_style=session["style"]
+            anim_style=style_key
         )
 
         await burn_subtitles_to_video(input_video, ass_path, output_video)
@@ -446,8 +459,10 @@ async def callback_choose_style(callback: CallbackQuery, bot: Bot):
                     p.unlink()
                 except:
                     pass
-        if user_id in USER_SESSIONS:
-            del USER_SESSIONS[user_id]
+        with sqlite3.connect(DB_FILE) as conn:
+            cursor = conn.cursor()
+            cursor.execute("DELETE FROM user_sessions WHERE user_id = ?", (user_id,))
+            conn.commit()
 
 
 @router.message(F.text == "🎨 Subtitr uslublari")
