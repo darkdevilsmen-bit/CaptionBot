@@ -167,7 +167,6 @@ def format_ass_time(seconds: float) -> str:
 
 
 def generate_word_by_word_ass(words: List[Any], ass_path: Path, anim_style: str, text_color_hex: str, font_size: int) -> int:
-    # PlayResX va PlayResY olib tashlandi, shunda videoning o'lchamiga mutlaqo ta'sir qilmaydi
     header = f"""[Script Info]
 ScriptType: v4.00+
 ScaledBorderAndShadow: yes
@@ -213,7 +212,6 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
 
 
 async def burn_subtitles_to_video(input_video: Path, ass_path: Path, output_video: Path):
-    # Videoning resolution/o'lchamiga umuman teginmasdan faqat subtitr yopishtirish
     vf_filter = "subtitles=" + str(ass_path).replace("\\", "/")
     cmd = [
         FFMPEG_PATH,
@@ -389,9 +387,9 @@ async def main():
     dp = Dispatcher(storage=MemoryStorage())
     dp.include_router(router)
     
-    # Bot menyu tugmasini (Start buyrug'ini) sozlash
+    # Bot menyu tugmasi ("Qaytadan ishga tushirish") qilib yangilandi
     await bot.set_my_commands([
-        BotCommand(command="start", description="Botni ishga tushirish / Asosiy menyu")
+        BotCommand(command="start", description="Qaytadan ishga tushirish / Asosiy menyu")
     ])
     
     log.info("Bot ishga tushdi...")
