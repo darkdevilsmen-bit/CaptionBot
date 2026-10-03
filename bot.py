@@ -277,6 +277,26 @@ async def callback_check_sub(callback: CallbackQuery, bot: Bot):
         await callback.answer("❌ Siz hali kanalga obuna bo'lmadingiz!", show_alert=True)
 
 
+@router.message(F.text == "⚡ Auto Subtitr qo'yish")
+async def cmd_auto_subtitles(message: Message):
+    user_id = message.from_user.id
+    credits = get_user_credits(user_id, message.from_user.username or "")
+    
+    if credits <= 0 and not is_user_pro(user_id):
+        await message.answer(
+            "❌ Balansingizda video yaratish uchun urinishlar qolmadi.\n\n"
+            "Ko'proq video yaratish uchun PRO tarifga o'ting 💎",
+            reply_markup=get_main_keyboard()
+        )
+        return
+        
+    await message.answer(
+        "🎬 Marhamat, subtitr qo'shilishi kerak bo'lgan **videoni yuboring**.\n\n"
+        "*(Video formati MP4, hajmi 50 MB dan oshmasligi kerak)*",
+        reply_markup=get_main_keyboard()
+    )
+
+
 @router.message(F.text == "💳 Balans")
 async def cmd_balance(message: Message):
     user_id = message.from_user.id
