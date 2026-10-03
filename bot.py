@@ -47,7 +47,7 @@ MAX_VIDEO_BYTES = 50 * 1024 * 1024
 WORK_ROOT = Path("temp_processing")
 FONTS_DIR = Path(".")
 DB_FILE = Path("database.db")
-INITIAL_CREDITS = 1  # 1 ta tekin foydalanish
+INITIAL_CREDITS = 1
 
 VIDEO_LANGS = {
     "uz": "🇺🇿 O'zbekcha",
@@ -297,6 +297,20 @@ async def cmd_auto_subtitles(message: Message):
     )
 
 
+@router.message(F.text == "🎨 Subtitr uslublari")
+async def cmd_sub_styles(message: Message):
+    styles_text = (
+        "Subtitr uslublarini tanlash:\n\n"
+        "Hozirda quyidagi animatsiya uslublari mavjud:\n"
+        "1. Komika Axis Pop-up (MrBeast uslubi)\n"
+        "2. Smooth Text Tracking (Fade)\n"
+        "3. Active Bold / Regular\n"
+        "4. Active Word Highlight (Box)\n\n"
+        "Video yuborganingizdan so'ng uslubni tanlashingiz mumkin."
+    )
+    await message.answer(styles_text, reply_markup=get_main_keyboard())
+
+
 @router.message(F.text == "💳 Balans")
 async def cmd_balance(message: Message):
     user_id = message.from_user.id
@@ -321,7 +335,7 @@ async def cmd_pro_tariffs(message: Message):
         "• Barcha turdagi premium animatsiyalar\n\n"
         "1 Oylik PRO: 49,000 so'm\n"
         "VIP Umrbod (Lifetime): 149,000 so'm\n\n"
-        f"To'lov uchun karta:\n`{CARD_NUMBER}`\n"
+        f"To'lov uchun karta (bosib nusxalash mumkin):\n`{CARD_NUMBER}`\n"
         f"Karta egasi: {CARD_HOLDER}\n\n"
         f"To'lovni amalga oshirgach, chekni darhol adminga yuboring: @{ADMIN_USERNAME}"
     )
