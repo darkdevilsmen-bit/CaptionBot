@@ -258,6 +258,42 @@ async def cmd_balance(message: Message):
     )
 
 
+@router.message(F.text == "💎 PRO Tariflar")
+async def cmd_pro_tariffs(message: Message):
+    await message.answer(
+        "💎 **PRO Tarif imkoniyatlari:**\n\n"
+        "• Cheksiz videolar\n"
+        "• 2K Ultra sifatda eksport\n"
+        "• Premium subtitr uslublari\n\n"
+        f"💳 Karta raqami: `{CARD_NUMBER}`\n"
+        f"👤 Karta egasi: {CARD_HOLDER}\n\n"
+        "To'lov qilgandan so'ng chekni adminga yuboring: "
+        f"@{ADMIN_USERNAME}",
+        reply_markup=get_main_keyboard()
+    )
+
+
+@router.message(F.text == "📜 Oferta")
+async def cmd_terms(message: Message):
+    await message.answer(
+        "📜 **Foydalanish shartlari (Oferta):**\n\n"
+        "1. Bot xizmatlaridan foydalanish orqali siz qoidalarga rozilik bildirasiz.\n"
+        "2. To'lovlar qaytarilmaydi.\n"
+        "3. Bot orqali yuklangan videolarning mas'uliyati foydalanuvchining o'zida.",
+        reply_markup=get_main_keyboard()
+    )
+
+
+@router.message(F.text == "👨‍💻 Admin bilan bog'lanish")
+async def cmd_contact_admin(message: Message):
+    await message.answer(
+        f"👨‍💻 **Admin bilan bog'lanish:**\n\n"
+        f"Murojaat uchun: @{ADMIN_USERNAME}\n"
+        f"Telefon: {ADMIN_PHONE}",
+        reply_markup=get_main_keyboard()
+    )
+
+
 async def main():
     if not WORK_ROOT.exists():
         WORK_ROOT.mkdir(parents=True)
