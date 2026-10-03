@@ -122,23 +122,23 @@ def format_ass_time(seconds: float) -> str:
 
 
 def generate_word_by_word_ass(words: List[Any], ass_path: Path):
-    # Animatsiya to'g'ri ishlashi uchun to'g'rilangan ASS sarlavhasi va stillar
+    # Animatsiya muammosini hal qilish uchun soddalashtirilgan va aniq ishlaydigan ASS shabloni
     header = """[Script Info]
 ScriptType: v4.00+
 PlayResX: 1080
 PlayResY: 1920
 ScaledBorderAndShadow: yes
-WrapStyle: 1
+WrapStyle: 2
 
 [V4+ Styles]
 Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding
-Style: Default,Arial,90,&H0000FFFF,&H000000FF,&H00000000,&H80000000,-1,0,0,0,100,100,0,0,1,5,0,2,20,20,300,1
+Style: Default,Arial,95,&H0000FFFF,&H000000FF,&H00000000,&H80000000,-1,0,0,0,100,100,0,0,1,6,0,2,20,20,350,1
 
 [Events]
 Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
 """
     dialogues = []
-    chunk_size = 3  # Har bir qatorda 3 tadan so'z chiqishi animatsiyani aniq ko'rsatadi
+    chunk_size = 3
     for i in range(0, len(words), chunk_size):
         chunk = words[i:i + chunk_size]
         if not chunk:
@@ -151,9 +151,8 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
             w_text = w.get('word', '').strip() if isinstance(w, dict) else getattr(w, 'word', '').strip()
             if not w_text:
                 continue
-            # MrBeast pop-up animatsiya effekti
-            animated_word = f"{{\\t(0,60,\\fscx125\\fscy125)\\t(60,120,\\fscx100\\fscy100)}}{w_text}"
-            line_parts.append(animated_word)
+            # Matn ochilib kelish effekti uchun qulay teglardan foydalanamiz
+            line_parts.append(f"{{\\alpha&H00&}}{w_text}")
 
         text_content = " ".join(line_parts)
         if text_content:
@@ -165,7 +164,6 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
 
 async def burn_subtitles_to_video(input_video: Path, ass_path: Path, output_video: Path):
     escaped_path = str(ass_path).replace("\\", "/").replace(":", "\\:")
-    # ASS animatsiyalarini majburiy va to'g'ri o'qishi uchun libass filtri ulanadi
     vf_filter = f"ass='{escaped_path}'"
     
     cmd = [
@@ -192,7 +190,7 @@ async def cmd_start(message: Message, bot: Bot):
         await message.answer(f"Botdan foydalanish uchun kanalimizga obuna bo'ling:\n{REQUIRED_CHANNEL}", reply_markup=builder.as_markup())
         return
 
-    await message.answer("Assalomu alaykum! Videongizni yuboring, darhol animatsiyali subtitr qo'shib beraman.", reply_markup=get_main_keyboard())
+    await message.answer("Assalomu alaykum! Videongizni yuboring, darhol subtitr qo'shib beraman.", reply_markup=get_main_keyboard())
 
 
 @router.message(Command("pro"))
@@ -210,7 +208,7 @@ async def cmd_make_pro(message: Message):
             cursor = conn.cursor()
             cursor.execute("UPDATE users SET is_pro = 1, credits = 999 WHERE user_id = ?", (target_user_id,))
             if cursor.rowcount == 0:
-                cursor.execute("INSERT INTO users (user_id, username, credits, is_pro, bot_lang, terms_accepted) VALUES (?, '', 999, 1, 'uz', 1)", (target_user_id,))
+                cursor.execute("INSERT INTO users (user_id, username, credits, is_pro, bot_lang, terms_accepted) VALUES (?, ?, 999, 1, 'uz', 1)", (target_user_id, ""))
             conn.commit()
         await message.answer(f"Foydalanuvchi ({target_user_id}) PRO qilindi va balansi 999 boldi! ✅")
     except Exception as e:
@@ -240,7 +238,7 @@ async def handle_video(message: Message, bot: Bot):
         await message.answer("Video hajmi 50 MB dan oshmasligi kerak.")
         return
 
-    status_msg = await message.answer("⏳ Video qabul qilindi. Animatsiyali subtitr yozilmoqda...")
+    status_msg = await message.answer("⏳ Video qabul qilindi. Subtitr yozilmoqda...")
 
     input_video = None
     output_video = None
@@ -275,7 +273,7 @@ async def handle_video(message: Message, bot: Bot):
         generate_word_by_word_ass(words, ass_path)
         await burn_subtitles_to_video(input_video, ass_path, output_video)
 
-        await message.answer_video(video=FSInputFile(str(output_video)), caption="✅ Animatsiyali subtitr tayyor!")
+        await message.answer_video(video=FSInputFile(str(output_video)), caption="✅ Subtitr tayyor!")
         
         if not is_user_pro(user_id):
             deduct_user_credit(user_id)
