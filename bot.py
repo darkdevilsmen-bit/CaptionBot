@@ -66,8 +66,7 @@ TEXT_COLORS = {
     "yellow": ("🟡 Sariq (Yorqin)", "&H0000FFFF"),
     "white": ("⚪ Oq (Klassik)", "&H00FFFFFF"),
     "green": ("🟢 Yashil (Neon)", "&H0000FF00"),
-    "cyan": ("🔵 Havorang", "&H00FFFF00"),
-    "pure_white": ("✨ Sof Oq va Yorqin", "&H00FFFFFF")
+    "cyan": ("🔵 Havorang", "&H00FFFF00")
 }
 
 FONT_SIZES = {
@@ -191,7 +190,7 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
             if not w_text:
                 continue
             
-            # Matn oralarida oq rang effektini qo'shish va pop-up amallari
+            # Matn oralarida oq rang effektini qo'shish
             colored_word = f"{{\\c&H00FFFFFF&}}{w_text}{{\\c{text_color_hex}&}}" if j % 2 == 0 else w_text
             
             if anim_style == "mrbeast_style":
@@ -242,6 +241,19 @@ async def cmd_start(message: Message):
     await message.answer(
         "👋 Assalomu alaykum! Auto Subtitles botiga xush kelibsiz.\n"
         "Videongizga professional darajada avtomatik subtitrlar qo'shib beraman.",
+        reply_markup=get_main_keyboard()
+    )
+
+
+@router.message(F.text == "💳 Balans")
+async def cmd_balance(message: Message):
+    user_id = message.from_user.id
+    credits = get_user_credits(user_id, message.from_user.username or "")
+    pro_status = "💎 PRO Tarif (Cheksiz)" if is_user_pro(user_id) else "Standard (Bepul)"
+    await message.answer(
+        f"📊 **Sizning balansingiz:**\n\n"
+        f"💳 Qolgan urinishlar: {credits} ta video\n"
+        f"✨ Status: {pro_status}",
         reply_markup=get_main_keyboard()
     )
 
