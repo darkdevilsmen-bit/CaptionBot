@@ -111,18 +111,38 @@ async def check_subscription(bot: Bot, user_id: int) -> bool:
     return False
 
 
-async def burn_subtitles_with_drawtext(input_video: Path, words: List[Any], output_video: Path):
-    # FFmpeg drawtext filtrlari orqali har bir so'zni o'z vaqtida ekranning o'rtasiga chiqarish
-    filter_parts = []
-    
-    # Matn vaqtlari bo'yicha filterlarni yig'amiz
+def format_ass_time(seconds: float) -> str:
+    hours = int(seconds // 3600)
+    mins = int((seconds % 3600) // 60)
+    secs = int(seconds % 60)
+    centis = int(round((seconds - int(seconds)) * 100))
+    if centis >= 100:
+        centis = 99
+    return f"{hours}:{mins:02d}:{secs:02d}.{centis:02d}"
+
+
+def generate_simple_ass(words: List[Any], ass_path: Path):
+    # O'lchamni buzmaydigan va aniq ishlaydigan oddiy ASS shabloni
+    header = """[Script Info]
+ScriptType: v4.00+
+ScaledBorderAndShadow: yes
+WrapStyle: 2
+
+[V4+ Styles]
+Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding
+Style: Default,Arial,70,&H0000FFFF,&H000000FF,&H00000000,&H80000000,-1,0,0,0,100,100,0,0,1,3,0,2,20,20,100,1
+
+[Events]
+Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
+"""
+    dialogues = []
     chunk_size = 3
     for i in range(0, len(words), chunk_size):
         chunk = words[i:i + chunk_size]
         if not chunk:
             continue
         start_t = chunk[0].get('start', 0.0) if isinstance(chunk[0], dict) else getattr(chunk[0], 'start', 0.0)
-        end_t = chunk[-1].get('end', start_t + 1.5) if isinstance(chunk[-1], dict) else getattr(chunk[-1], 'end', start_t + 1.5)
+        end_t = chunk[-1].get('end', start_t + 1.2) if isinstance(chunk[-1], dict) else getattr(chunk[-1], 'end', start_t + 1.2)
 
         text_words = []
         for w in chunk:
@@ -130,28 +150,26 @@ async def burn_subtitles_with_drawtext(input_video: Path, words: List[Any], outp
             if w_text:
                 text_words.append(w_text)
         
-        line_text = " ".join(text_words).replace("'", "").replace(":", "")
-        if not line_text:
-            continue
+        line_content = " ".join(text_words)
+        if line_content:
+            dialogues.append(f"Dialogue: 0,{format_ass_time(start_t)},{format_ass_time(end_t)},Default,,0,0,0,,{line_content}")
 
-        # drawtext parametrlari: rang sariq, shrift o'lchami 70, pastki qism markazida
-        draw = (
-            f"drawtext=text='{line_text}':fontcolor=yellow:fontsize=70:"
-            f"x=(w-text_w)/2:y=h-300:"
-            f"enable='between(t,{start_t},{end_t})'"
-        )
-        filter_parts.append(draw)
+    with open(ass_path, "w", encoding="utf-8") as f:
+        f.write(header + "\n".join(dialogues) + "\n")
 
-    vf_filter = ",".join(filter_parts) if filter_parts else "null"
 
+async def burn_subtitles_safe(input_video: Path, ass_path: Path, output_video: Path):
+    escaped_path = str(ass_path).replace("\\", "/").replace(":", "\\:")
+    vf_filter = f"ass='{escaped_path}'"
+    
+    # Asl video o'lchami va ovoziga zarar bermaydigan buyruq
     cmd = [
         FFMPEG_PATH, "-y", "-i", str(input_video),
         "-vf", vf_filter,
         "-c:v", "libx264", "-preset", "ultrafast", "-crf", "23",
-        "-c:a", "copy",  # Asl ovozni o'zgartirmasdan to'g'ridan-to'g'ri ko'chiradi
+        "-c:a", "copy",  # Ovozni o'zgartirmasdan to'g'ridan-to'g'ri ko'chiradi
         str(output_video)
     ]
-    
     process = await asyncio.create_subprocess_exec(*cmd, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE)
     _, stderr = await process.communicate()
     if process.returncode != 0:
@@ -171,7 +189,7 @@ async def cmd_start(message: Message, bot: Bot):
         await message.answer(f"Botdan foydalanish uchun kanalimizga obuna bo'ling:\n{REQUIRED_CHANNEL}", reply_markup=builder.as_markup())
         return
 
-    await message.answer("Assalomu alaykum! Videongizni yuboring, ovozi va asl o'lchami mutlaqo o'zgarmagan holda subtitr qo'shib beraman.", reply_markup=get_main_keyboard())
+    await message.answer("Assalomu alaykum! Videongizni yuboring, ovozi va o'lchami saqlangan holda subtitr qo'shib beraman.", reply_markup=get_main_keyboard())
 
 
 @router.message(Command("pro"))
@@ -223,12 +241,14 @@ async def handle_video(message: Message, bot: Bot):
 
     input_video = None
     output_video = None
+    ass_path = None
 
     try:
         file_info = await bot.get_file(video.file_id)
         uid = str(uuid.uuid4())
         input_video = WORK_ROOT / f"{uid}_in.mp4"
         output_video = WORK_ROOT / f"{uid}_out.mp4"
+        ass_path = WORK_ROOT / f"{uid}.ass"
 
         await bot.download_file(file_info.file_path, destination=input_video)
 
@@ -249,9 +269,10 @@ async def handle_video(message: Message, bot: Bot):
             await status_msg.edit_text("❌ Videodan so'zlar aniqlanmadi.")
             return
 
-        await burn_subtitles_with_drawtext(input_video, words, output_video)
+        generate_simple_ass(words, ass_path)
+        await burn_subtitles_safe(input_video, ass_path, output_video)
 
-        await message.answer_video(video=FSInputFile(str(output_video)), caption="✅ Tayyor! Ovoz va asl o'lcham saqlandi.")
+        await message.answer_video(video=FSInputFile(str(output_video)), caption="✅ Tayyor!")
         
         if not is_user_pro(user_id):
             deduct_user_credit(user_id)
@@ -262,7 +283,7 @@ async def handle_video(message: Message, bot: Bot):
         log.error(f"Xato: {e}")
         await status_msg.edit_text(f"❌ Xatolik yuz berdi: {str(e)}")
     finally:
-        for p in [input_video, output_video]:
+        for p in [input_video, output_video, ass_path]:
             if p and p.exists():
                 try:
                     p.unlink()
