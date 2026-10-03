@@ -150,9 +150,9 @@ def format_ass_time(seconds: float) -> str:
     return f"{hours}:{mins:02d}:{secs:02d}.{centis:02d}"
 
 
-def generate_word_by_word_ass(words: List[Any], ass_path: Path, anim_style: str, text_color_hex: str, font_size: int) -> int:
-    # PlayResX va PlayResY videoning asl nisbatini saqlab qolishi uchun moslashtirildi
-    header = f"""[Script Info]
+def generate_word_by_word_ass(words: List[Any], ass_path: Path, anim_style: str) -> int:
+    # MrBeast va pop-up effektlari to'g'ri ishlashi uchun kengaytirilgan ASS sarlavhasi
+    header = """[Script Info]
 ScriptType: v4.00+
 PlayResX: 1080
 PlayResY: 1920
@@ -161,19 +161,20 @@ WrapStyle: 2
 
 [V4+ Styles]
 Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding
-Style: Default,Arial,{font_size},{text_color_hex},&H000000FF,&H00000000,&H80000000,-1,0,0,0,100,100,0,0,1,3,0,2,10,10,150,1
+Style: Default,Arial,80,&H0000FFFF,&H000000FF,&H00000000,&H80000000,-1,0,0,0,100,100,0,0,1,4,0,2,20,20,250,1
 
 [Events]
 Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
 """
     dialogues = []
-    chunk_size = 5
+    chunk_size = 4  # Bir qatorda 4 tadan so'z chiqishi uchun
+    
     for i in range(0, len(words), chunk_size):
         chunk = words[i:i + chunk_size]
         if not chunk:
             continue
         start_t = chunk[0].get('start', 0.0) if isinstance(chunk[0], dict) else getattr(chunk[0], 'start', 0.0)
-        end_t = chunk[-1].get('end', start_t + 1.0) if isinstance(chunk[-1], dict) else getattr(chunk[-1], 'end', start_t + 1.0)
+        end_t = chunk[-1].get('end', start_t + 1.2) if isinstance(chunk[-1], dict) else getattr(chunk[-1], 'end', start_t + 1.2)
 
         line_parts = []
         for j, w in enumerate(chunk):
@@ -181,12 +182,12 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
             if not w_text:
                 continue
             
-            colored_word = f"{{\\c&H00FFFFFF&}}{w_text}{{\\c{text_color_hex}&}}" if j % 2 == 0 else w_text
-            
+            # Har bir so'z chiqayotganda kattalashib kichiklashish animatsiyasi (MrBeast Pop-up)
             if anim_style == "mrbeast_style":
-                animated_word = f"{{\\t(0,100,\\fscx120\\fscy120)\\t(100,200,\\fscx100\\fscy100)}}{colored_word}"
+                animated_word = f"{{\\t(0,80,\\fscx130\\fscy130)\\t(80,160,\\fscx100\\fscy100)}}{w_text}"
             else:
-                animated_word = colored_word
+                animated_word = w_text
+                
             line_parts.append(animated_word)
 
         text_content = " ".join(line_parts)
@@ -199,9 +200,9 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
 
 
 async def burn_subtitles_to_video(input_video: Path, ass_path: Path, output_video: Path):
-    # Videoning o'lchamini (resolution) o'zgartirmasdan, asl holatida subtitrni yopishtirish uchun filter
+    # Videoning o'lchamini o'zgartirmasdan, ASS animatsiyalarini to'g'ri render qilish
     escaped_path = str(ass_path).replace("\\", "/").replace(":", "\\:")
-    vf_filter = f"subtitles='{escaped_path}'"
+    vf_filter = f"ass='{escaped_path}'"
     
     cmd = [
         FFMPEG_PATH,
@@ -209,7 +210,7 @@ async def burn_subtitles_to_video(input_video: Path, ass_path: Path, output_vide
         "-i", str(input_video),
         "-vf", vf_filter,
         "-c:v", "libx264",
-        "-preset", "ultrafast", # Laglarni oldini olish uchun tezkor rejim
+        "-preset", "ultrafast",
         "-crf", "23",
         "-c:a", "copy",
         str(output_video)
@@ -383,7 +384,7 @@ async def callback_choose_style(callback: CallbackQuery, bot: Bot):
     session = USER_SESSIONS[user_id]
     session["style"] = style_key
 
-    await callback.message.edit_text("⏳ Videongiz yuklab olinmoqda va sun'iy intellekt orqali subtitr yozilmoqda. Iltimos, kuting...")
+    await callback.message.edit_text("⏳ Videongiz yuklab olinmoqda va sun'iy intellekt orqali animatsiyali subtitr yozilmoqda...")
 
     input_video = None
     output_video = None
@@ -418,9 +419,7 @@ async def callback_choose_style(callback: CallbackQuery, bot: Bot):
         generate_word_by_word_ass(
             words=words,
             ass_path=ass_path,
-            anim_style=session["style"],
-            text_color_hex="&H0000FFFF",
-            font_size=85
+            anim_style=session["style"]
         )
 
         await burn_subtitles_to_video(input_video, ass_path, output_video)
@@ -428,7 +427,7 @@ async def callback_choose_style(callback: CallbackQuery, bot: Bot):
         video_input = FSInputFile(str(output_video))
         await callback.message.answer_video(
             video=video_input,
-            caption="✅ Mana, subtitr qo'yilgan video tayyor! Asl o'lcham va sifat saqlandi."
+            caption="✅ Mana, animatsiyali subtitr qo'yilgan video tayyor!"
         )
         
         if not is_user_pro(user_id):
