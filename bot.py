@@ -78,7 +78,7 @@ def get_user_credits(user_id: int, username: str = "") -> int:
         row = cursor.fetchone()
         if row is None:
             cursor.execute(
-                "INSERT OR IGNORE INTO users (user_id, username, credits, is_pro, bot_lang, terms_accepted) VALUES (?, ?, ?, 0, 'uz', 0)",
+                "INSERT INTO users (user_id, username, credits, is_pro, bot_lang, terms_accepted) VALUES (?, ?, ?, 0, 'uz', 0)",
                 (user_id, username, INITIAL_CREDITS)
             )
             conn.commit()
@@ -122,22 +122,23 @@ def format_ass_time(seconds: float) -> str:
 
 
 def generate_word_by_word_ass(words: List[Any], ass_path: Path):
+    # Animatsiya to'g'ri ishlashi uchun to'g'rilangan ASS sarlavhasi va stillar
     header = """[Script Info]
 ScriptType: v4.00+
 PlayResX: 1080
 PlayResY: 1920
 ScaledBorderAndShadow: yes
-WrapStyle: 2
+WrapStyle: 1
 
 [V4+ Styles]
 Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding
-Style: Default,Arial,80,&H0000FFFF,&H000000FF,&H00000000,&H80000000,-1,0,0,0,100,100,0,0,1,4,0,2,20,20,250,1
+Style: Default,Arial,90,&H0000FFFF,&H000000FF,&H00000000,&H80000000,-1,0,0,0,100,100,0,0,1,5,0,2,20,20,300,1
 
 [Events]
 Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
 """
     dialogues = []
-    chunk_size = 4
+    chunk_size = 3  # Har bir qatorda 3 tadan so'z chiqishi animatsiyani aniq ko'rsatadi
     for i in range(0, len(words), chunk_size):
         chunk = words[i:i + chunk_size]
         if not chunk:
@@ -150,7 +151,8 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
             w_text = w.get('word', '').strip() if isinstance(w, dict) else getattr(w, 'word', '').strip()
             if not w_text:
                 continue
-            animated_word = f"{{\\t(0,80,\\fscx130\\fscy130)\\t(80,160,\\fscx100\\fscy100)}}{w_text}"
+            # MrBeast pop-up animatsiya effekti
+            animated_word = f"{{\\t(0,60,\\fscx125\\fscy125)\\t(60,120,\\fscx100\\fscy100)}}{w_text}"
             line_parts.append(animated_word)
 
         text_content = " ".join(line_parts)
@@ -163,6 +165,7 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
 
 async def burn_subtitles_to_video(input_video: Path, ass_path: Path, output_video: Path):
     escaped_path = str(ass_path).replace("\\", "/").replace(":", "\\:")
+    # ASS animatsiyalarini majburiy va to'g'ri o'qishi uchun libass filtri ulanadi
     vf_filter = f"ass='{escaped_path}'"
     
     cmd = [
@@ -195,18 +198,23 @@ async def cmd_start(message: Message, bot: Bot):
 @router.message(Command("pro"))
 async def cmd_make_pro(message: Message):
     if message.from_user.id != ADMIN_ID:
+        await message.answer("Bu buyruq faqat admin uchun!")
         return
     args = message.text.split()
     if len(args) < 2:
+        await message.answer("Ishlatish uchun: `/pro USER_ID`", parse_mode="Markdown")
         return
     try:
         target_user_id = int(args[1])
         with sqlite3.connect(DB_FILE) as conn:
-            conn.cursor().execute("UPDATE users SET is_pro = 1, credits = 999 WHERE user_id = ?", (target_user_id,))
+            cursor = conn.cursor()
+            cursor.execute("UPDATE users SET is_pro = 1, credits = 999 WHERE user_id = ?", (target_user_id,))
+            if cursor.rowcount == 0:
+                cursor.execute("INSERT INTO users (user_id, username, credits, is_pro, bot_lang, terms_accepted) VALUES (?, '', 999, 1, 'uz', 1)", (target_user_id,))
             conn.commit()
-        await message.answer(f"Foydalanuvchi ({target_user_id}) PRO qilindi va balansi 999 boldi!")
-    except Exception:
-        pass
+        await message.answer(f"Foydalanuvchi ({target_user_id}) PRO qilindi va balansi 999 boldi! ✅")
+    except Exception as e:
+        await message.answer(f"Xatolik: {e}")
 
 
 @router.message(F.text == "⚡ Auto Subtitr qo'yish")
@@ -232,7 +240,7 @@ async def handle_video(message: Message, bot: Bot):
         await message.answer("Video hajmi 50 MB dan oshmasligi kerak.")
         return
 
-    status_msg = await message.answer("⏳ Video qabul qilindi. Subtitr yozilmoqda...")
+    status_msg = await message.answer("⏳ Video qabul qilindi. Animatsiyali subtitr yozilmoqda...")
 
     input_video = None
     output_video = None
@@ -267,7 +275,7 @@ async def handle_video(message: Message, bot: Bot):
         generate_word_by_word_ass(words, ass_path)
         await burn_subtitles_to_video(input_video, ass_path, output_video)
 
-        await message.answer_video(video=FSInputFile(str(output_video)), caption="✅ Tayyor!")
+        await message.answer_video(video=FSInputFile(str(output_video)), caption="✅ Animatsiyali subtitr tayyor!")
         
         if not is_user_pro(user_id):
             deduct_user_credit(user_id)
@@ -288,9 +296,10 @@ async def handle_video(message: Message, bot: Bot):
 
 @router.message(F.text == "💳 Balans")
 async def cmd_balance(message: Message):
-    credits = get_user_credits(message.from_user.id, message.from_user.username or "")
-    pro = "Ha (Cheksiz)" if is_user_pro(message.from_user.id) else "Yo'q"
-    await message.answer(f"ID: {message.from_user.id}\nQolgan urinishlar: {credits} ta\nPRO status: {pro}")
+    user_id = message.from_user.id
+    credits = get_user_credits(user_id, message.from_user.username or "")
+    pro = "Ha (Cheksiz)" if is_user_pro(user_id) else "Yo'q"
+    await message.answer(f"ID: {user_id}\nQolgan urinishlar: {credits} ta\nPRO status: {pro}")
 
 
 @router.message(F.text == "💎 PRO Tariflar")
