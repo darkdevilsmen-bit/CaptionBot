@@ -200,7 +200,7 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
             if not w_text:
                 continue
             
-            # Headlight (faol so'z boshqacha yorqin rangda chiqishi uchun, masalan sariq yoki oq rang almashinuvi)
+            # Headlight / Highlight so'z uchun yorqin rang (sariq rang: &H0000FFFF)
             highlighted_word = f"{{\\c&H0000FFFF&}}{w_text}{{\\c{text_color_hex}&}}"
             
             if anim_style == "mrbeast_style":
@@ -219,7 +219,7 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
 
 
 async def burn_subtitles_to_video(input_video: Path, ass_path: Path, output_video: Path):
-    # Videoning original o'lchamiga umuman tegmasdan, faqat subtitrni yopishtirish
+    # Videoning o'lchamiga umuman tegmasdan, aynan qanday tashlangan bo'lsa o'sha holatda qoldirib subtitr qo'yish
     vf_filter = "subtitles=" + str(ass_path).replace("\\", "/")
     cmd = [
         FFMPEG_PATH,
