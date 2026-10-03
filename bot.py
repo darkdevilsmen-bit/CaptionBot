@@ -121,7 +121,7 @@ def format_ass_time(seconds: float) -> str:
     return f"{hours}:{mins:02d}:{secs:02d}.{centis:02d}"
 
 
-def generate_clean_ass(words: List[Any], ass_path: Path):
+def generate_grouped_ass(words: List[Any], ass_path: Path):
     header = """[Script Info]
 ScriptType: v4.00+
 ScaledBorderAndShadow: yes
@@ -129,7 +129,7 @@ WrapStyle: 2
 
 [V4+ Styles]
 Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding
-Style: Default,Arial,65,&H0000FFFF,&H000000FF,&H00000000,&H80000000,-1,0,0,0,100,100,0,0,1,3,0,2,20,20,80,1
+Style: Default,Arial,65,&H0000FFFF,&H000000FF,&H00000000,&H80000000,-1,0,0,0,100,100,0,0,1,3,0,2,20,20,100,1
 
 [Events]
 Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
@@ -143,23 +143,25 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
         start_t = chunk[0].get('start', 0.0) if isinstance(chunk[0], dict) else getattr(chunk[0], 'start', 0.0)
         end_t = chunk[-1].get('end', start_t + 1.2) if isinstance(chunk[-1], dict) else getattr(chunk[-1], 'end', start_t + 1.2)
 
-        text_words = []
+        line_parts = []
         for w in chunk:
             w_text = w.get('word', '').strip() if isinstance(w, dict) else getattr(w, 'word', '').strip()
-            if w_text:
-                text_words.append(w_text)
-        
-        line_content = " ".join(text_words)
-        if line_content:
-            dialogues.append(f"Dialogue: 0,{format_ass_time(start_t)},{format_ass_time(end_t)},Default,,0,0,0,,{line_content}")
+            if not w_text:
+                continue
+            animated_word = f"{{\\t(0,50,\\fscx115\\fscy115)\\t(50,100,\\fscx100\\fscy100)}}{w_text}"
+            line_parts.append(animated_word)
+
+        text_content = " ".join(line_parts)
+        if text_content:
+            dialogues.append(f"Dialogue: 0,{format_ass_time(start_t)},{format_ass_time(end_t)},Default,,0,0,0,,{text_content}")
 
     with open(ass_path, "w", encoding="utf-8") as f:
         f.write(header + "\n".join(dialogues) + "\n")
 
 
-async def process_video_pure(input_video: Path, ass_path: Path, output_video: Path):
+async def burn_subtitles_exact_size(input_video: Path, ass_path: Path, output_video: Path):
     escaped_path = str(ass_path).replace("\\", "/").replace(":", "\\:")
-    # Videoning o'lchamini o'zgartirmasdan, faqat libass orqali matnni yozish
+    # Videoning o'lchamini o'zgartirmasdan saqlash uchun to'g'ridan-to'g'ri ass filtri qo'llaniladi
     vf_filter = f"ass='{escaped_path}'"
     
     cmd = [
@@ -173,7 +175,7 @@ async def process_video_pure(input_video: Path, ass_path: Path, output_video: Pa
     _, stderr = await process.communicate()
     if process.returncode != 0:
         log.error(f"FFmpeg error: {stderr.decode('utf-8', errors='ignore')}")
-        raise RuntimeError("Videoga ishlov berishda xatolik.")
+        raise RuntimeError("Videoga subtitr yopishtirishda xatolik yuz berdi.")
 
 
 @router.message(CommandStart())
@@ -188,7 +190,7 @@ async def cmd_start(message: Message, bot: Bot):
         await message.answer(f"Botdan foydalanish uchun kanalimizga obuna bo'ling:\n{REQUIRED_CHANNEL}", reply_markup=builder.as_markup())
         return
 
-    await message.answer("Assalomu alaykum! Videongizni yuboring.", reply_markup=get_main_keyboard())
+    await message.answer("Assalomu alaykum! Videongizni yuboring, ovozi va asl o'lchami saqlangan holda animatsiyali subtitr qo'shib beraman.", reply_markup=get_main_keyboard())
 
 
 @router.message(Command("pro"))
@@ -236,7 +238,7 @@ async def handle_video(message: Message, bot: Bot):
         await message.answer("Video hajmi 50 MB dan oshmasligi kerak.")
         return
 
-    status_msg = await message.answer("⏳ Video qabul qilindi. Ishlov berilmoqda...")
+    status_msg = await message.answer("⏳ Video qabul qilindi. Ovoz va guruhlangan animatsiya tayyorlanmoqda...")
 
     input_video = None
     output_video = None
@@ -268,10 +270,10 @@ async def handle_video(message: Message, bot: Bot):
             await status_msg.edit_text("❌ Videodan so'zlar aniqlanmadi.")
             return
 
-        generate_clean_ass(words, ass_path)
-        await process_video_pure(input_video, ass_path, output_video)
+        generate_grouped_ass(words, ass_path)
+        await burn_subtitles_exact_size(input_video, ass_path, output_video)
 
-        await message.answer_video(video=FSInputFile(str(output_video)), caption="✅ Tayyor!")
+        await message.answer_video(video=FSInputFile(str(output_video)), caption="✅ Tayyor! Ovoz, asl o'lcham va guruhlangan animatsiya saqlandi.")
         
         if not is_user_pro(user_id):
             deduct_user_credit(user_id)
