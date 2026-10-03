@@ -200,7 +200,7 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
             if not w_text:
                 continue
             
-            # Headlight / Highlight so'z uchun yorqin rang (sariq rang: &H0000FFFF)
+            # Faol so'zni yorqin rangda (highlight) ko'rsatish
             highlighted_word = f"{{\\c&H0000FFFF&}}{w_text}{{\\c{text_color_hex}&}}"
             
             if anim_style == "mrbeast_style":
@@ -219,7 +219,7 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
 
 
 async def burn_subtitles_to_video(input_video: Path, ass_path: Path, output_video: Path):
-    # Videoning o'lchamiga umuman tegmasdan, aynan qanday tashlangan bo'lsa o'sha holatda qoldirib subtitr qo'yish
+    # Videoning o'lchamiga umuman tegmasdan, asl holatida qoldirib subtitr qo'shish
     vf_filter = "subtitles=" + str(ass_path).replace("\\", "/")
     cmd = [
         FFMPEG_PATH,
@@ -359,7 +359,7 @@ async def cmd_terms(message: Message):
         "5. Maxfiylik:\n"
         "Foydalanuvchining shaxsiy ma'lumotlari xavfsiz saqlanadi va uchinchi shaxslarga berilmaydi."
     )
-    await message.answer(terms_text, reply_markup=get_main_keyboard())
+    await message.answer(terms_terms, reply_markup=get_main_keyboard())
 
 
 @router.message(F.text == "👨‍💻 Admin bilan bog'lanish")
