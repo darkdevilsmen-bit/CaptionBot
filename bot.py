@@ -40,7 +40,7 @@ ADMIN_PHONE = "+998 (93) 495-10-89"
 
 REQUIRED_CHANNEL = "@Auto_Captions" 
 
-CARD_NUMBER = "5614 6865 0542 8600"
+CARD_NUMBER = "5614686505428600"
 CARD_HOLDER = "Toshpulatov Shoxrux"
 
 MAX_VIDEO_BYTES = 50 * 1024 * 1024
@@ -252,13 +252,13 @@ async def cmd_start(message: Message, bot: Bot):
         builder.row(InlineKeyboardButton(text="📢 Kanalga obuna bo'lish", url=f"https://t.me/{REQUIRED_CHANNEL.replace('@', '')}"))
         builder.row(InlineKeyboardButton(text="✅ Obunani tekshirish", callback_data="check_sub"))
         await message.answer(
-            f"⚠️ Botimizdan to'liq foydalanish uchun avval rasmiy kanalimizga obuna bo'ling:\n{REQUIRED_CHANNEL}",
+            f"Botimizdan to'liq foydalanish uchun avval rasmiy kanalimizga obuna bo'ling:\n{REQUIRED_CHANNEL}",
             reply_markup=builder.as_markup()
         )
         return
 
     await message.answer(
-        "👋 Assalomu alaykum! Auto Subtitles botiga xush kelibsiz.\n"
+        "Assalomu alaykum! Auto Subtitles botiga xush kelibsiz.\n"
         "Videongizga professional darajada avtomatik subtitrlar qo'shib beraman.",
         reply_markup=get_main_keyboard()
     )
@@ -270,11 +270,11 @@ async def callback_check_sub(callback: CallbackQuery, bot: Bot):
     if await check_subscription(bot, user_id):
         await callback.message.delete()
         await callback.message.answer(
-            "✅ Obunangiz tasdiqlandi! Xush kelibsiz.",
+            "Obunangiz tasdiqlandi! Xush kelibsiz.",
             reply_markup=get_main_keyboard()
         )
     else:
-        await callback.answer("❌ Siz hali kanalga obuna bo'lmadingiz!", show_alert=True)
+        await callback.answer("Siz hali kanalga obuna bo'lmadingiz!", show_alert=True)
 
 
 @router.message(F.text == "⚡ Auto Subtitr qo'yish")
@@ -284,15 +284,15 @@ async def cmd_auto_subtitles(message: Message):
     
     if credits <= 0 and not is_user_pro(user_id):
         await message.answer(
-            "❌ Balansingizda video yaratish uchun urinishlar qolmadi.\n\n"
-            "Ko'proq video yaratish uchun PRO tarifga o'ting 💎",
+            "Balansingizda video yaratish uchun urinishlar qolmadi.\n\n"
+            "Ko'proq video yaratish uchun PRO tarifga o'ting",
             reply_markup=get_main_keyboard()
         )
         return
         
     await message.answer(
-        "🎬 Marhamat, subtitr qo'shilishi kerak bo'lgan **videoni yuboring**.\n\n"
-        "*(Video formati MP4, hajmi 50 MB dan oshmasligi kerak)*",
+        "Marhamat, subtitr qo'shilishi kerak bo'lgan videoni yuboring.\n\n"
+        "(Video formati MP4, hajmi 50 MB dan oshmasligi kerak)",
         reply_markup=get_main_keyboard()
     )
 
@@ -301,12 +301,12 @@ async def cmd_auto_subtitles(message: Message):
 async def cmd_balance(message: Message):
     user_id = message.from_user.id
     credits = get_user_credits(user_id, message.from_user.username or "")
-    pro_status = "💎 PRO Tarif (Cheksiz)" if is_user_pro(user_id) else "Standard (Bepul)"
+    pro_status = "PRO Tarif (Cheksiz)" if is_user_pro(user_id) else "Standard (Bepul)"
     await message.answer(
-        f"📊 **Sizning balansingiz:**\n\n"
-        f"🆔 **ID:** `{user_id}`\n"
-        f"💳 **Qolgan urinishlar:** {credits} ta video\n"
-        f"✨ **Status:** {pro_status}",
+        f"Sizning balansingiz:\n\n"
+        f"ID: {user_id}\n"
+        f"Qolgan urinishlar: {credits} ta video\n"
+        f"Status: {pro_status}",
         reply_markup=get_main_keyboard()
     )
 
@@ -314,35 +314,42 @@ async def cmd_balance(message: Message):
 @router.message(F.text == "💎 PRO Tariflar")
 async def cmd_pro_tariffs(message: Message):
     text = (
-        "💎 **AVTO SUBTITR — PRO TARIFLAR** 💎\n\n"
-        "✨ *Nima uchun PRO ga o'tish kerak?*\n"
+        "AVTO SUBTITR — PRO TARIFLAR\n\n"
+        "Nima uchun PRO ga o'tish kerak?\n"
         "• Cheklovsiz videolar va tezkor ishlov berish\n"
         "• 2K Ultra HD sifat va mukammal shriftlar\n"
         "• Barcha turdagi premium animatsiyalar\n\n"
-        "🚀 **1 Oylik PRO:** `49,000 so'm`\n"
-        "👑 **VIP Umrbod (Lifetime):** `149,000 so'm`\n\n"
-        f"💳 **To'lov uchun karta:** `{CARD_NUMBER}`\n"
-        f"👤 **Karta egasi:** {CARD_HOLDER}\n\n"
-        f"📲 To'lovni amalga oshirgach, chekni darhol adminga yuboring: @{ADMIN_USERNAME}"
+        "1 Oylik PRO: 49,000 so'm\n"
+        "VIP Umrbod (Lifetime): 149,000 so'm\n\n"
+        f"To'lov uchun karta:\n`{CARD_NUMBER}`\n"
+        f"Karta egasi: {CARD_HOLDER}\n\n"
+        f"To'lovni amalga oshirgach, chekni darhol adminga yuboring: @{ADMIN_USERNAME}"
     )
-    await message.answer(text, reply_markup=get_main_keyboard())
+    await message.answer(text, reply_markup=get_main_keyboard(), parse_mode="Markdown")
 
 
 @router.message(F.text == "📜 Oferta")
 async def cmd_terms(message: Message):
-    await message.answer(
-        "📜 **Foydalanish shartlari va Ommaviy Oferta:**\n\n"
-        "1. **Umumiy qoidalar:** Ushbu bot foydalanuvchilarga videolarga avtomatik tarzda subtitr qo'shish imkoniyatini beradi.\n"
-        "2. **To'lovlar va qaytarish:** Xizmat raqamli bo'lgani sababli to'langan mablag'lar qaytarilmaydi.\n"
-        "3. **Mas'uliyat:** Yuklangan kontent qonunlarga zid bo'lmasligi shart.",
-        reply_markup=get_main_keyboard()
+    terms_text = (
+        "Foydalanish shartlari va Ommaviy Oferta:\n\n"
+        "1. Umumiy qoidalar:\n"
+        "Ushbu shartnoma Auto Subtitles boti orqali taqdim etiladigan xizmatlardan foydalanish qoidalarini belgilaydi. Botdan foydalanishni boshlagan har bir shaxs ushbu shartlarga to'liq rozilik bildirgan hisoblanadi.\n\n"
+        "2. Xizmatlar mazmuni:\n"
+        "Bot foydalanuvchilar tomonidan yuborilgan videolarga sun'iy intellekt yordamida avtomatik subtitrlar (taglavhalar) qo'shib berish xizmatini ko'rsatadi.\n\n"
+        "3. To'lovlar va tariflar:\n"
+        "Xizmatlar pullik va bepul asosda taqdim etiladi. PRO tariflar uchun qilingan to'lovlar raqamli xizmat ko'rsatilganligi sababli qaytarilmaydi.\n\n"
+        "4. Foydalanuvchi mas'uliyati:\n"
+        "Foydalanuvchi yuklayotgan videolari O'zbekiston Respublikasi qonunchiligiga zid kelmasligini, mualliflik huquqlarini buzmasligini va boshqalarning huquqlarini poymol qilmasligini kafolatlaydi.\n\n"
+        "5. Maxfiylik:\n"
+        "Foydalanuvchining shaxsiy ma'lumotlari xavfsiz saqlanadi va uchinchi shaxslarga berilmaydi."
     )
+    await message.answer(terms_text, reply_markup=get_main_keyboard())
 
 
 @router.message(F.text == "👨‍💻 Admin bilan bog'lanish")
 async def cmd_contact_admin(message: Message):
     await message.answer(
-        f"👨‍💻 **Texnik yordam va Admin:**\n\n"
+        f"Texnik yordam va Admin:\n\n"
         f"Murojaat uchun: @{ADMIN_USERNAME}\n"
         f"Telefon raqam: {ADMIN_PHONE}",
         reply_markup=get_main_keyboard()
