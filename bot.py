@@ -45,7 +45,6 @@ CARD_HOLDER = "Toshpulatov Shoxrux"
 
 MAX_VIDEO_BYTES = 50 * 1024 * 1024
 WORK_ROOT = Path("temp_processing")
-FONTS_DIR = Path(".")
 DB_FILE = Path("database.db")
 INITIAL_CREDITS = 1
 
@@ -60,25 +59,6 @@ ANIMATION_STYLES = {
     "smooth_tracking": "✨ Smooth Text Tracking (Fade)",
     "active_bold_regular": "🔥 Active Bold / Regular",
     "active_word_box": "⬛ Active Word Highlight (Box)"
-}
-
-TEXT_COLORS = {
-    "yellow": ("🟡 Sariq (Yorqin)", "&H0000FFFF"),
-    "white": ("⚪ Oq (Klassik)", "&H00FFFFFF"),
-    "green": ("🟢 Yashil (Neon)", "&H0000FF00"),
-    "cyan": ("🔵 Havorang", "&H00FFFF00")
-}
-
-FONT_SIZES = {
-    "small": ("🔽 Kichik (70)", 70),
-    "normal": ("📱 Normal (85)", 85),
-    "large": ("📈 Katta (100)", 100),
-    "xlarge": ("🔥 Juda katta (115)", 115)
-}
-
-VIDEO_QUALITIES = {
-    "720p": ("📱 Standard HD (720p) [Free]", "1280:720", False),
-    "2k": ("💎 PRO 2K Ultra (1440p) [PRO]", "2560:1440", True)
 }
 
 router = Router()
@@ -171,6 +151,7 @@ def format_ass_time(seconds: float) -> str:
 
 
 def generate_word_by_word_ass(words: List[Any], ass_path: Path, anim_style: str, text_color_hex: str, font_size: int) -> int:
+    # PlayResX va PlayResY videoning asl nisbatini saqlab qolishi uchun moslashtirildi
     header = f"""[Script Info]
 ScriptType: v4.00+
 PlayResX: 1080
@@ -218,14 +199,17 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
 
 
 async def burn_subtitles_to_video(input_video: Path, ass_path: Path, output_video: Path):
-    vf_filter = "subtitles=" + str(ass_path).replace("\\", "/")
+    # Videoning o'lchamini (resolution) o'zgartirmasdan, asl holatida subtitrni yopishtirish uchun filter
+    escaped_path = str(ass_path).replace("\\", "/").replace(":", "\\:")
+    vf_filter = f"subtitles='{escaped_path}'"
+    
     cmd = [
         FFMPEG_PATH,
         "-y",
         "-i", str(input_video),
         "-vf", vf_filter,
         "-c:v", "libx264",
-        "-preset", "fast",
+        "-preset", "ultrafast", # Laglarni oldini olish uchun tezkor rejim
         "-crf", "23",
         "-c:a", "copy",
         str(output_video)
@@ -264,7 +248,6 @@ async def cmd_start(message: Message, bot: Bot):
     )
 
 
-# --- ADMIN PRO BUYRUG'I ---
 @router.message(Command("pro"))
 async def cmd_make_pro(message: Message):
     if message.from_user.id != ADMIN_ID:
@@ -333,7 +316,6 @@ async def cmd_auto_subtitles(message: Message):
     )
 
 
-# --- VIDEO VA HUJJATLARNI QABUL QILISH ---
 @router.message(F.video | F.document)
 async def handle_video_upload(message: Message, bot: Bot):
     user_id = message.from_user.id
@@ -355,10 +337,7 @@ async def handle_video_upload(message: Message, bot: Bot):
     USER_SESSIONS[user_id] = {
         "file_id": video.file_id,
         "lang": "uz",
-        "style": "mrbeast_style",
-        "color": "yellow",
-        "size": "normal",
-        "quality": "720p"
+        "style": "mrbeast_style"
     }
 
     builder = InlineKeyboardBuilder()
@@ -449,7 +428,7 @@ async def callback_choose_style(callback: CallbackQuery, bot: Bot):
         video_input = FSInputFile(str(output_video))
         await callback.message.answer_video(
             video=video_input,
-            caption="✅ Mana, subtitr qo'yilgan video tayyor! Bizning botdan foydalanganingiz uchun rahmat."
+            caption="✅ Mana, subtitr qo'yilgan video tayyor! Asl o'lcham va sifat saqlandi."
         )
         
         if not is_user_pro(user_id):
@@ -506,7 +485,7 @@ async def cmd_pro_tariffs(message: Message):
         "AVTO SUBTITR — PRO TARIFLAR\n\n"
         "Nima uchun PRO ga o'tish kerak?\n"
         "• Cheklovsiz videolar va tezkor ishlov berish\n"
-        "• 2K Ultra HD sifat va mukammal shriftlar\n"
+        "• Asl sifat va o'lchamni to'liq saqlash\n"
         "• Barcha turdagi premium animatsiyalar\n\n"
         "1 Oylik PRO: 49,000 so'm\n"
         "VIP Umrbod (Lifetime): 149,000 so'm\n\n"
@@ -524,7 +503,7 @@ async def cmd_terms(message: Message):
         "1. Umumiy qoidalar:\n"
         "Ushbu shartnoma Auto Subtitles boti orqali taqdim etiladigan xizmatlardan foydalanish qoidalarini belgilaydi. Botdan foydalanishni boshlagan har bir shaxs ushbu shartlarga to'liq rozilik bildirgan hisoblanadi.\n\n"
         "2. Xizmatlar mazmuni:\n"
-        "Bot foydalanuvchilar tomonidan yuborilgan videolarga sun'iy intellekt yordamida avtomatik subtitrlar (taglavhalar) qo'shib berish xizmatini ko'rsatadi.\n\n"
+        "Bot foydalanuvchilar tomonidan yuborilgan videolarga sun'iy intellekt yordamida avtomatik subtitrlar qo'shib berish xizmatini ko'rsatadi.\n\n"
         "3. To'lovlar va tariflar:\n"
         "Xizmatlar pullik va bepul asosda taqdim etiladi. PRO tariflar uchun qilingan to'lovlar raqamli xizmat ko'rsatilganligi sababli qaytarilmaydi.\n\n"
         "4. Foydalanuvchi mas'uliyati:\n"
