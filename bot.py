@@ -20,7 +20,8 @@ from aiogram.types import (
     ReplyKeyboardMarkup,
     KeyboardButton,
     InlineKeyboardMarkup,
-    InlineKeyboardButton
+    InlineKeyboardButton,
+    BotCommand
 )
 from aiogram.utils.keyboard import InlineKeyboardBuilder
 from aiogram.client.session.aiohttp import AiohttpSession
@@ -76,11 +77,6 @@ FONT_SIZES = {
     "xlarge": ("🔥 Juda katta (115)", 115)
 }
 
-VIDEO_QUALITIES = {
-    "720p": ("📱 Standard HD (720p) [Free]", "1280:720", False),
-    "2k": ("💎 PRO 2K Ultra (1440p) [PRO]", "2560:1440", True)
-}
-
 router = Router()
 el_client = ElevenLabs(api_key=ELEVENLABS_API_KEY)
 FFMPEG_PATH = imageio_ffmpeg.get_ffmpeg_exe()
@@ -92,8 +88,8 @@ def get_main_keyboard() -> ReplyKeyboardMarkup:
     keyboard = [
         [KeyboardButton(text="⚡ Auto Subtitr qo'yish")],
         [KeyboardButton(text="🎨 Subtitr uslublari"), KeyboardButton(text="💳 Balans")],
-        [KeyboardButton(text="💎 PRO Tariflar"), KeyboardButton(text="📜 Oferta")],
-        [KeyboardButton(text="👨‍💻 Admin bilan bog'lanish")]
+        [KeyboardButton(text="💎 PRO Tariflar"), KeyboardButton(text="☕ Donat")],
+        [KeyboardButton(text="📜 Oferta"), KeyboardButton(text="👨‍💻 Admin bilan bog'lanish")]
     ]
     return ReplyKeyboardMarkup(keyboard=keyboard, resize_keyboard=True)
 
@@ -171,16 +167,15 @@ def format_ass_time(seconds: float) -> str:
 
 
 def generate_word_by_word_ass(words: List[Any], ass_path: Path, anim_style: str, text_color_hex: str, font_size: int) -> int:
+    # PlayResX va PlayResY olib tashlandi, shunda videoning o'lchamiga mutlaqo ta'sir qilmaydi
     header = f"""[Script Info]
 ScriptType: v4.00+
-PlayResX: 1080
-PlayResY: 1920
 ScaledBorderAndShadow: yes
 WrapStyle: 2
 
 [V4+ Styles]
 Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding
-Style: Default,Arial,{font_size},{text_color_hex},&H000000FF,&H00000000,&H80000000,-1,0,0,0,100,100,0,0,1,3,0,2,10,10,150,1
+Style: Default,Arial,{font_size},{text_color_hex},&H000000FF,&H00000000,&H80000000,-1,0,0,0,100,100,0,0,1,3,0,2,10,10,50,1
 
 [Events]
 Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
@@ -200,7 +195,6 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
             if not w_text:
                 continue
             
-            # Faol so'zni yorqin rangda (highlight) ko'rsatish
             highlighted_word = f"{{\\c&H0000FFFF&}}{w_text}{{\\c{text_color_hex}&}}"
             
             if anim_style == "mrbeast_style":
@@ -219,7 +213,7 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
 
 
 async def burn_subtitles_to_video(input_video: Path, ass_path: Path, output_video: Path):
-    # Videoning o'lchamiga umuman tegmasdan, asl holatida qoldirib subtitr qo'shish
+    # Videoning resolution/o'lchamiga umuman teginmasdan faqat subtitr yopishtirish
     vf_filter = "subtitles=" + str(ass_path).replace("\\", "/")
     cmd = [
         FFMPEG_PATH,
@@ -344,6 +338,19 @@ async def cmd_pro_tariffs(message: Message):
     await message.answer(text, reply_markup=get_main_keyboard(), parse_mode="Markdown")
 
 
+@router.message(F.text == "☕ Donat")
+async def cmd_donate(message: Message):
+    text = (
+        "☕ **Loyihani qo'llab-quvvatlash (Donat):**\n\n"
+        "Agar botimiz sizga foydali bo'lgan bo'lsa va uni yanada rivojlantirishimizga o'z hissangizni qo'shmoqchi bo'lsangiz, istalgan miqdorda donat qilishingiz mumkin!\n\n"
+        f"💳 **Karta raqami (bosib nusxalash):**\n`{CARD_NUMBER}`\n"
+        f"👤 **Karta egasi:** {CARD_HOLDER}\n\n"
+        f"📲 Qilingan o'tkazma chekini adminga yuborishingiz mumkin: @{ADMIN_USERNAME}\n\n"
+        "Yordamingiz uchun katta rahmat! 🙏"
+    )
+    await message.answer(text, reply_markup=get_main_keyboard(), parse_mode="Markdown")
+
+
 @router.message(F.text == "📜 Oferta")
 async def cmd_terms(message: Message):
     terms_text = (
@@ -359,7 +366,7 @@ async def cmd_terms(message: Message):
         "5. Maxfiylik:\n"
         "Foydalanuvchining shaxsiy ma'lumotlari xavfsiz saqlanadi va uchinchi shaxslarga berilmaydi."
     )
-    await message.answer(terms_terms, reply_markup=get_main_keyboard())
+    await message.answer(terms_text, reply_markup=get_main_keyboard())
 
 
 @router.message(F.text == "👨‍💻 Admin bilan bog'lanish")
@@ -381,6 +388,11 @@ async def main():
     bot = Bot(token=BOT_TOKEN, session=session)
     dp = Dispatcher(storage=MemoryStorage())
     dp.include_router(router)
+    
+    # Bot menyu tugmasini (Start buyrug'ini) sozlash
+    await bot.set_my_commands([
+        BotCommand(command="start", description="Botni ishga tushirish / Asosiy menyu")
+    ])
     
     log.info("Bot ishga tushdi...")
     await bot.delete_webhook(drop_pending_updates=True)
