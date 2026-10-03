@@ -264,6 +264,42 @@ async def cmd_start(message: Message, bot: Bot):
     )
 
 
+# --- ADMIN PRO BUYRUG'I ---
+@router.message(Command("pro"))
+async def cmd_make_pro(message: Message):
+    if message.from_user.id != ADMIN_ID:
+        await message.answer("Bu buyruq faqat admin uchun!")
+        return
+        
+    args = message.text.split()
+    if len(args) < 2:
+        await message.answer("Ishlatish uchun: `/pro USER_ID` (Masalan: `/pro 123456789`)", parse_mode="Markdown")
+        return
+        
+    try:
+        target_user_id = int(args[1])
+    except ValueError:
+        await message.answer("Foydalanuvchi ID raqami noto'g'ri formatda!")
+        return
+
+    with sqlite3.connect(DB_FILE) as conn:
+        cursor = conn.cursor()
+        cursor.execute(
+            "UPDATE users SET is_pro = 1, credits = 999 WHERE user_id = ?",
+            (target_user_id,)
+        )
+        conn.commit()
+        
+        if cursor.rowcount == 0:
+            cursor.execute(
+                "INSERT OR REPLACE INTO users (user_id, username, credits, is_pro, bot_lang, terms_accepted) VALUES (?, '', 999, 1, 'uz', 1)",
+                (target_user_id,)
+            )
+            conn.commit()
+
+    await message.answer(f"Foydalanuvchi (`{target_user_id}`) muvaffaqiyatli **PRO** qilindi va balansi **999** taga yetkazildi! ✅", parse_mode="Markdown")
+
+
 @router.callback_query(F.data == "check_sub")
 async def callback_check_sub(callback: CallbackQuery, bot: Bot):
     user_id = callback.from_user.id
@@ -295,6 +331,77 @@ async def cmd_auto_subtitles(message: Message):
         "(Video formati MP4, hajmi 50 MB dan oshmasligi kerak)",
         reply_markup=get_main_keyboard()
     )
+
+
+# --- VIDEO VA HUJJATLARNI QABUL QILISH ---
+@router.message(F.video | F.document)
+async def handle_video_upload(message: Message, bot: Bot):
+    user_id = message.from_user.id
+    credits = get_user_credits(user_id, message.from_user.username or "")
+    
+    if credits <= 0 and not is_user_pro(user_id):
+        await message.answer("Balansingizda video yaratish uchun urinishlar qolmadi. PRO tarifga o'ting!", reply_markup=get_main_keyboard())
+        return
+
+    video = message.video or message.document
+    if message.document and not message.document.mime_type.startswith('video/'):
+        await message.answer("Iltimos, haqiqiy video formatidagi fayl yuboring!")
+        return
+
+    if video.file_size > MAX_VIDEO_BYTES:
+        await message.answer("Kechirasiz, video hajmi 50 MB dan oshmasligi kerak.")
+        return
+
+    USER_SESSIONS[user_id] = {
+        "file_id": video.file_id,
+        "lang": "uz",
+        "style": "mrbeast_style",
+        "color": "yellow",
+        "size": "normal",
+        "quality": "720p"
+    }
+
+    builder = InlineKeyboardBuilder()
+    for code, name in VIDEO_LANGS.items():
+        builder.button(text=name, callback_data=f"lang_{code}")
+    builder.adjust(2)
+
+    await message.answer(
+        "Video muvaffaqiyatli qabul qilindi! 🎬\n\n"
+        "Endi video tilini tanlang:",
+        reply_markup=builder.as_markup()
+    )
+
+
+@router.callback_query(F.data.startswith("lang_"))
+async def callback_choose_language(callback: CallbackQuery):
+    user_id = callback.from_user.id
+    lang = callback.data.split("_")[1]
+    
+    if user_id in USER_SESSIONS:
+        USER_SESSIONS[user_id]["lang"] = lang
+
+    builder = InlineKeyboardBuilder()
+    for s_key, s_name in ANIMATION_STYLES.items():
+        builder.button(text=s_name, callback_data=f"style_{s_key}")
+    builder.adjust(1)
+
+    await callback.message.edit_text(
+        "Subtitr animatsiya uslubini tanlang:",
+        reply_markup=builder.as_markup()
+    )
+
+
+@router.callback_query(F.data.startswith("style_"))
+async def callback_choose_style(callback: CallbackQuery, bot: Bot):
+    user_id = callback.from_user.id
+    style_key = callback.data.replace("style_", "")
+    
+    if user_id in USER_SESSIONS:
+        USER_SESSIONS[user_id]["style"] = style_key
+
+    await callback.message.edit_text("⏳ Videongizga subtitr tayyorlanmoqda. Iltimos, biroz kuting...")
+    await callback.message.answer("✅ Video sozlamalari saqlandi! (To'liq ishlov berish bosqichi)", reply_markup=get_main_keyboard())
 
 
 @router.message(F.text == "🎨 Subtitr uslublari")
