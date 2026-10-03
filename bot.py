@@ -311,7 +311,6 @@ async def cmd_balance(message: Message):
     credits = get_user_credits(user_id, message.from_user.username or "")
     pro_status = "PRO Tarif (Cheksiz)" if is_user_pro(user_id) else "Standard (Bepul)"
     
-    # Balans oynasiga PRO olish inline tugmasini qo'shamiz
     builder = InlineKeyboardBuilder()
     builder.row(InlineKeyboardButton(text="💎 PRO olish", callback_data="buy_pro"))
     
@@ -356,32 +355,20 @@ async def cmd_pro_tariffs(message: Message):
         f"Karta egasi: {CARD_HOLDER}\n\n"
         f"To'lovni amalga oshirgach, chekni darhol adminga yuboring: @{ADMIN_USERNAME}"
     )
-    await message.answer(text, reply_markup=get_main_keyboard(), parse_Mode="Markdown")
+    await message.answer(text, reply_markup=get_main_keyboard(), parse_mode="Markdown")
 
 
 @router.message(F.text == "☕ Donat")
 async def cmd_donate(message: Message):
     text = (
         "☕ **Loyihani qo'llab-quvvatlash (Donat):**\n\n"
-        "Agar botimiz sizga foydali bo'lgan bo'lsa va uni yanada rivojlantirishimizga o'z hissangizni qo'shmoqchi bo'lsangiz, quyidagi tugma orqali donat qilishingiz mumkin!"
-    )
-    # Donat tugmasini menyu (inline) ichiga qo'shamiz
-    builder = InlineKeyboardBuilder()
-    builder.row(InlineKeyboardButton(text="☕ Donat qilish (Karta raqami)", callback_data="donate_info"))
-    
-    await message.answer(text, reply_markup=builder.as_markup(), parse_mode="Markdown")
-
-
-@router.callback_query(F.data == "donate_info")
-async def callback_donate_info(callback: CallbackQuery):
-    text = (
+        "Agar botimiz sizga foydali bo'lgan bo'lsa va uni yanada rivojlantirishimizga o'z hissangizni qo'shmoqchi bo'lsangiz, istalgan miqdorda donat qilishingiz mumkin!\n\n"
         f"💳 **Karta raqami (bosib nusxalash):**\n`{CARD_NUMBER}`\n"
         f"👤 **Karta egasi:** {CARD_HOLDER}\n\n"
         f"📲 Qilingan o'tkazma chekini adminga yuborishingiz mumkin: @{ADMIN_USERNAME}\n\n"
         "Yordamingiz uchun katta rahmat! 🙏"
     )
-    await callback.message.answer(text, parse_mode="Markdown")
-    await callback.answer()
+    await message.answer(text, reply_markup=get_main_keyboard(), parse_mode="Markdown")
 
 
 @router.message(F.text == "📜 Oferta")
@@ -418,7 +405,6 @@ async def handle_video(message: Message, bot: Bot):
     user_id = message.from_user.id
     username = message.from_user.username or ""
     
-    # Balansni tekshirish
     credits = get_user_credits(user_id, username)
     if credits <= 0 and not is_user_pro(user_id):
         await message.answer(
@@ -428,7 +414,6 @@ async def handle_video(message: Message, bot: Bot):
         )
         return
 
-    # Video faylini aniqlash
     video_file = message.video or message.document
     if not video_file:
         return
@@ -447,7 +432,6 @@ async def handle_video(message: Message, bot: Bot):
         input_video_path = user_folder / "input.mp4"
         await bot.download_file(file_info.file_path, destination=input_video_path)
 
-        # ElevenLabs orqali audio transkripsiya qilish
         await bot.edit_message_text("🎙 Audio matnga o'girilmoqda (ElevenLabs)...", chat_id=message.chat.id, message_id=status_msg.message_id)
         
         with open(input_video_path, "rb") as audio_file:
@@ -462,21 +446,17 @@ async def handle_video(message: Message, bot: Bot):
             await bot.edit_message_text("Videodan so'zlar topilmadi yoki ovoz aniq emas.", chat_id=message.chat.id, message_id=status_msg.message_id)
             return
 
-        # ASS subtitr faylini generatsiya qilish
         await bot.edit_message_text("✨ Subtitrlar animatsiyasi tayyorlanmoqda...", chat_id=message.chat.id, message_id=status_msg.message_id)
         ass_path = user_folder / "subtitles.ass"
         generate_word_by_word_ass(words, ass_path, "mrbeast_style", "&H0000FFFF&", 85)
 
-        # Videoga subtitr yopishtirish
         await bot.edit_message_text("🎬 Videoga subtitrlar yopishtirilmoqda (FFmpeg)...", chat_id=message.chat.id, message_id=status_msg.message_id)
         output_video_path = user_folder / "output.mp4"
         await burn_subtitles_to_video(input_video_path, ass_path, output_video_path)
 
-        # Foydalanuvchi urinishini ayirish
         if not is_user_pro(user_id):
             deduct_user_credit(user_id)
 
-        # Tayyor videoni yuborish
         await bot.edit_message_text("✅ Tayyor! Video yuborilmoqda...", chat_id=message.chat.id, message_id=status_msg.message_id)
         video_input = FSInputFile(output_video_path)
         await message.answer_video(video=video_input, caption="Mana sizning subtitr qo'yilgan videongiz! 🎬", reply_markup=get_main_keyboard())
@@ -486,7 +466,6 @@ async def handle_video(message: Message, bot: Bot):
         log.error(f"Video ishlov berish xatosi: {e}")
         await message.answer(f"Xatolik yuz berdi: {str(e)}", reply_markup=get_main_keyboard())
     finally:
-        # Vaqtni tozalash
         if user_folder.exists():
             shutil.rmtree(user_folder, ignore_errors=True)
 
@@ -501,7 +480,6 @@ async def main():
     dp = Dispatcher(storage=MemoryStorage())
     dp.include_router(router)
     
-    # Bot menyu tugmasi
     await bot.set_my_commands([
         BotCommand(command="start", description="Qaytadan ishga tushirish / Asosiy menyu")
     ])
