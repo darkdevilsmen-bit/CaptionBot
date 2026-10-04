@@ -388,14 +388,11 @@ def extract_clean_words(transcript: Any, lang: Optional[str] = None) -> List[Dic
             continue
 
         text = clean_text(_get(w, "text", "word"))
-        
-        if text and lang == "uzb":
-            text = uz_cyr_to_latin(text)
-
-        text = text.replace("  ", " ").strip()
-        
         if not text:
             continue
+            
+        if lang == "uzb":
+            text = uz_cyr_to_latin(text)
 
         start = _get(w, "start")
         end = _get(w, "end")
@@ -409,40 +406,30 @@ def extract_clean_words(transcript: Any, lang: Optional[str] = None) -> List[Dic
 
         result.append({"text": text, "start": start, "end": end})
 
-    # 🟢 O'zbek tilidagi bo'linib qolgan bo'laklarni (masalan, "ko", "ra", "sizmi") to'g'ri birlashtiruvchi xavfsiz filtr
-    fixed_result: List[Dict[str, Any]] = []
+    merged_result: List[Dict[str, Any]] = []
     i = 0
     while i < len(result):
         curr = result[i]
         curr_text = curr["text"]
         
-        if i + 1 < len(result):
+        while i + 1 < len(result):
             nxt = result[i + 1]
             gap = nxt["start"] - curr["end"]
             
-            # Faqatgina aniq qisqa bo'laklar va juda yaqin vaqt oralig'idagilarni birlashtiramiz
-            is_short_fragment = len(curr_text) <= 2 and gap < 0.25
-            is_broken_word = curr_text.endswith(",") or (not nxt["text"][0].isupper() and gap < 0.25 and len(curr_text) <= 4)
+            is_fragment = gap < 0.25 and not nxt["text"][0].isupper() and len(curr_text) <= 5
             
-            if is_short_fragment or is_broken_word:
-                clean_curr = curr_text.replace(",", "").strip()
-                clean_nxt = nxt["text"].replace(",", "").strip()
+            if is_fragment:
+                curr_text = curr_text + nxt["text"]
+                curr["end"] = nxt["end"]
+                i += 1
+            else:
+                break
                 
-                separator = "'" if len(clean_curr) == 1 else ""
-                combined_text = clean_curr + separator + clean_nxt
-                
-                fixed_result.append({
-                    "text": combined_text,
-                    "start": curr["start"],
-                    "end": nxt["end"]
-                })
-                i += 2
-                continue
-            
-        fixed_result.append(curr)
+        curr["text"] = curr_text
+        merged_result.append(curr)
         i += 1
 
-    return fixed_result
+    return merged_result
 
 
 def group_into_chunks(words: List[Dict[str, Any]], max_words: int = 3, max_gap: float = 0.65, max_chars: int = 20) -> List[List[Dict[str, Any]]]:
