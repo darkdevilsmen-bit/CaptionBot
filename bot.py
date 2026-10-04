@@ -158,7 +158,7 @@ def get_main_keyboard() -> ReplyKeyboardMarkup:
         [KeyboardButton(text="⚡ Auto Subtitr qo'yish")],
         [KeyboardButton(text="🎨 Subtitr uslublari"), KeyboardButton(text="💳 Balans")],
         [KeyboardButton(text="💎 PRO Tariflar"), KeyboardButton(text="📜 Oferta")],
-        [KeyboardButton(text="👨‍💻 Admin bilan bog'lanish")],
+        [KeyboardButton(text="👨‍‍💻 Admin bilan bog'lanish")],
     ]
     return ReplyKeyboardMarkup(keyboard=keyboard, resize_keyboard=True)
 
@@ -383,7 +383,8 @@ def extract_clean_words(transcript: Any, lang: Optional[str] = None) -> List[Dic
 
         text = clean_text(_get(w, "text", "word"))
         
-        # 🟢 Ortiqcha bo'shliqlarni tozalash (O RTOQLAR muammosini oldini olish uchun)
+        # 🟢 Apostroflarni va ortiqcha bo'shliqlarni yo'q qilish (O RTOQLAR xatosini oldini olish uchun)
+        text = text.replace("'", "").replace("‘", "").replace("’", "")
         if text and text.count(' ') > 0:
             text = re.sub(r'\s+', '', text)
 
@@ -1132,7 +1133,7 @@ async def cmd_balance(message: Message):
     status = "👑 PRO (cheksiz)" if pro else "🆓 Standard (bepul)"
     left = "♾ Cheksiz" if pro else f"{credits} ta video"
     text = (
-        f"💳 <b>SIZning BALANSINGIZ</b>\n{LINE}\n"
+        f"💳 <b>SIZNING BALANSINGIZ</b>\n{LINE}\n"
         f"🆔 ID: <code>{user_id}</code>\n"
         f"🎬 Qolgan videolar: <b>{left}</b>\n"
         f"⭐ Status: <b>{status}</b>\n{LINE}"
