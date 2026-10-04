@@ -63,7 +63,6 @@ DB_FILE = DATA_DIR / "database.db"
 STT_MODEL = os.getenv("STT_MODEL", "scribe_v2")
 INITIAL_CREDITS = 1
 
-# 🟢 ElevenLabs xato yozishi mumkin bo'lgan so'zlarni to'g'rilash lug'ati
 WORD_CORRECTIONS = {
     "bilarmi dela": "Bilarmidila",
     "bilarmi, dela": "Bilarmidila",
@@ -410,45 +409,8 @@ def extract_clean_words(transcript: Any, lang: Optional[str] = None) -> List[Dic
 
         result.append({"text": text, "start": start, "end": end})
 
-    fixed_result: List[Dict[str, Any]] = []
-    i = 0
-    while i < len(result):
-        curr = result[i]
-        curr_text = curr["text"]
-        
-        if i + 1 < len(result):
-            nxt = result[i + 1]
-            gap = nxt["start"] - curr["end"]
-            
-            is_single_letter = curr_text in ("O", "G", "o", "g")
-            is_broken_word = curr_text.endswith(",") or (not nxt["text"][0].isupper() and gap < 0.35 and len(curr_text) <= 8)
-            
-            if is_single_letter or is_broken_word:
-                clean_curr = curr_text.replace(",", "").strip()
-                clean_nxt = nxt["text"].replace(",", "").strip()
-                
-                separator = "'" if is_single_letter else ""
-                combined_text = clean_curr + separator + clean_nxt
-                
-                fixed_result.append({
-                    "text": combined_text,
-                    "start": curr["start"],
-                    "end": nxt["end"]
-                })
-                i += 2
-                continue
-            
-        fixed_result.append(curr)
-        i += 1
-
-    # 🟢 Maxsus lug'at orqali xato so'zlarni tuzatish
-    for item in fixed_result:
-        low_t = item["text"].lower().strip(".,!?")
-        if low_t in WORD_CORRECTIONS:
-            # Asl tinish belgilarini saqlab qolgan holda almashtiramiz
-            item["text"] = WORD_CORRECTIONS[low_t]
-
-    return fixed_result
+    # 🟢 Xavfli avtomatik birlashtiruvchi olib tashlandi, faqat toza so'zlar ro'yxati qaytariladi
+    return result
 
 
 def group_into_chunks(words: List[Dict[str, Any]], max_words: int = 3, max_gap: float = 0.65, max_chars: int = 20) -> List[List[Dict[str, Any]]]:
