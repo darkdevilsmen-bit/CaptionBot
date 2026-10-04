@@ -46,7 +46,6 @@ CARD_HOLDER = "Toshpulatov Shoxrux"
 
 MAX_VIDEO_BYTES = 50 * 1024 * 1024
 WORK_ROOT = Path("temp_processing")
-FONTS_DIR = Path(".")
 DB_FILE = Path("database.db")
 INITIAL_CREDITS = 1
 
@@ -182,7 +181,6 @@ def get_video_resolution(video_path: Path) -> tuple:
 
 
 def generate_word_by_word_ass(words: List[Any], ass_path: Path, anim_style: str, text_color_hex: str, font_size: int, video_w: int, video_h: int) -> int:
-    # PlayResX va PlayResY ga videoning asl o'lchami beriladi, bu orqali animatsiyalar to'g'ri ishlaydi va razmer buzilmaydi
     header = f"""[Script Info]
 ScriptType: v4.00+
 PlayResX: {video_w}
@@ -192,7 +190,7 @@ WrapStyle: 2
 
 [V4+ Styles]
 Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding
-Style: Default,Arial,{font_size},{text_color_hex},&H000000FF,&H00000000,&H80000000,-1,0,0,0,100,100,0,0,1,3,1,2,10,10,30,1
+Style: Default,Arial,{font_size},{text_color_hex},&H000000FF,&H00000000,&H80000000,-1,0,0,0,100,100,0,0,1,3,1,2,10,10,40,1
 
 [Events]
 Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
@@ -214,11 +212,13 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
                     continue
                 if j == idx:
                     if anim_style == "mrbeast_style":
-                        text_parts.append(f"{{\\c&H0000FFFF\\fscx120\\fscy120}}{word_str}{{\\r}}")
+                        text_parts.append(f"{{\\c&H0000FFFF\\fscx125\\fscy125}}{word_str}{{\\r}}")
                     elif anim_style == "active_word_box":
                         text_parts.append(f"{{\\3c&H000000&\\4c&H00FFFF00&}}{word_str}{{\\r}}")
                     elif anim_style == "smooth_tracking":
                         text_parts.append(f"{{\\alpha&H00&}}{word_str}{{\\r}}")
+                    elif anim_style == "active_bold_regular":
+                        text_parts.append(f"{{\\b1}}{word_str}{{\\r}}")
                     else:
                         text_parts.append(f"{{\\c&H00FFFF00&}}{word_str}{{\\r}}")
                 else:
@@ -304,7 +304,7 @@ async def show_styles(message: Message):
     await message.answer(text, reply_markup=builder.as_markup(), parse_mode="Markdown")
 
 
-@router.callback_query(F.data.startswith("set_"))
+@router.callback_query(F.data.startswith("set_") | F.data.startswith("anim_") | F.data.startswith("color_") | F.data.startswith("size_"))
 async def process_settings_callback(callback: CallbackQuery):
     action = callback.data
     user_id = callback.from_user.id
@@ -326,15 +326,15 @@ async def process_settings_callback(callback: CallbackQuery):
     elif action.startswith("anim_"):
         session["anim"] = action.split("_", 1)[1]
         await callback.answer("Uslub saqlandi!")
-        await callback.message.edit_text("✅ Uslub muvaffaqiyatli yangilandi!")
+        await callback.message.edit_text(f"✅ Uslub muvaffaqiyatli o'zgardi: {ANIMATION_STYLES.get(session['anim'])}")
     elif action.startswith("color_"):
         session["color"] = action.split("_", 1)[1]
         await callback.answer("Rang saqlandi!")
-        await callback.message.edit_text("✅ Rang muvaffaqiyatli yangilandi!")
+        await callback.message.edit_text(f"✅ Rang muvaffaqiyatli o'zgardi: {TEXT_COLORS.get(session['color'])[0]}")
     elif action.startswith("size_"):
         session["size"] = action.split("_", 1)[1]
         await callback.answer("O'lcham saqlandi!")
-        await callback.message.edit_text("✅ O'lcham muvaffaqiyatli yangilandi!")
+        await callback.message.edit_text(f"✅ O'lcham muvaffaqiyatli o'zgardi: {FONT_SIZES.get(session['size'])[0]}")
 
 
 @router.message(F.text == "⚡ Auto Subtitr qo'yish")
@@ -375,10 +375,8 @@ async def handle_video(message: Message, bot: Bot):
         file_info = await bot.get_file(message.video.file_id)
         await bot.download_file(file_info.file_path, destination=input_video)
         
-        # Videoning asl o'lchamlarini aniqlash
         v_width, v_height = get_video_resolution(input_video)
         
-        # Audio chiqarib olish
         cmd_audio = [FFMPEG_PATH, "-y", "-i", str(input_video), "-vn", "-acodec", "libmp3lame", str(audio_path)]
         subprocess.run(cmd_audio, stdout=subprocess.PIPE, stderr=subprocess.PIPE, check=True)
         
@@ -402,17 +400,18 @@ async def handle_video(message: Message, bot: Bot):
         color_hex = TEXT_COLORS.get(session["color"], TEXT_COLORS["yellow"])[1]
         f_size = FONT_SIZES.get(session["size"], FONT_SIZES["normal"])[1]
         
-        # Dinamik o'lchamlar yordamida ASS fayl yaratish
         generate_word_by_word_ass(words, ass_path, anim_style, color_hex, f_size, v_width, v_height)
         
         await status_msg.edit_text("🎨 Subtitrlar videoga yopishtirilmoqda (FFmpeg render)...")
         
         escaped_ass = str(ass_path.resolve()).replace('\\', '/').replace(':', '\\:')
+        
+        # -crf 18 va -preset medium orqali video sifati tushib ketishi va hajmi kichrayib ketishining oldi olindi
         cmd_render = [
             FFMPEG_PATH, "-y",
             "-i", str(input_video),
             "-vf", f"subtitles='{escaped_ass}'",
-            "-c:v", "libx264", "-preset", "fast", "-crf", "23",
+            "-c:v", "libx264", "-preset", "medium", "-crf", "18",
             "-c:a", "copy",
             str(output_video)
         ]
