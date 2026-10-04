@@ -420,7 +420,11 @@ async def handle_video(message: Message, bot: Bot):
             str(output_video)
         ]
         
-        subprocess.run(cmd_render, stdout=subprocess.PIPE, stderr=subprocess.PIPE, check=True)
+        process = subprocess.run(cmd_render, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+        if process.returncode != 0:
+            log.error(f"FFmpeg xatosi: {process.stderr}")
+            await status_msg.edit_text(f"❌ Render qilishda xatolik yuz berdi. (FFmpeg error)")
+            return
         
         if output_video.exists():
             deduct_user_credit(user_id)
@@ -429,10 +433,10 @@ async def handle_video(message: Message, bot: Bot):
             await message.answer_video(video=video_file, caption="✨ Mana sizning subtitr qo'yilgan videongiz!")
             await status_msg.delete()
         else:
-            await status_msg.edit_text("❌ Videoni render qilishda xatolik yuz berdi.")
+            await status_msg.edit_text("❌ Videoni render qilishda xatolik yuz berdi (fayl topilmadi).")
             
     except Exception as e:
-        log.error(f"Video qayta ishlashda xato: {e}")
+        log.error(f"Video qayta ishlashda xato: {e}", exc_info=True)
         await status_msg.edit_text(f"❌ Xatolik yuz berdi: {str(e)}")
     finally:
         shutil.rmtree(task_dir, ignore_errors=True)
