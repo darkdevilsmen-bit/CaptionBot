@@ -48,7 +48,6 @@ ADMIN_ID = 7662888182
 ADMIN_USERNAME = "Captions_Admin"
 ADMIN_PHONE = "+998 (93) 495-10-89"
 
-# 📢 Majburiy obuna uchun kanal ulandi
 REQUIRED_CHANNEL = "@Auto_Captions"
 
 CARD_NUMBER = "5614686505428600"
@@ -62,12 +61,6 @@ DATA_DIR.mkdir(parents=True, exist_ok=True)
 DB_FILE = DATA_DIR / "database.db"
 STT_MODEL = os.getenv("STT_MODEL", "scribe_v2")
 INITIAL_CREDITS = 1
-
-WORD_CORRECTIONS = {
-    "bilarmi dela": "Bilarmidila",
-    "bilarmi, dela": "Bilarmidila",
-    "bilarmidela": "Bilarmidila",
-}
 
 HEADLIGHT_WORDS = {
     "chirchiq", "chirchiqda", "chirchiqning", "chirchiqliklar", "chirchiqqa",
@@ -379,6 +372,7 @@ def clean_text(raw: Any) -> str:
 
 
 def extract_clean_words(transcript: Any, lang: Optional[str] = None) -> List[Dict[str, Any]]:
+    # ElevenLabs to'liq transkripsiya matnidan vaqtlarni toza olamiz
     raw_words = _get(transcript, "words", default=[]) or []
     result: List[Dict[str, Any]] = []
 
@@ -406,30 +400,7 @@ def extract_clean_words(transcript: Any, lang: Optional[str] = None) -> List[Dic
 
         result.append({"text": text, "start": start, "end": end})
 
-    merged_result: List[Dict[str, Any]] = []
-    i = 0
-    while i < len(result):
-        curr = result[i]
-        curr_text = curr["text"]
-        
-        while i + 1 < len(result):
-            nxt = result[i + 1]
-            gap = nxt["start"] - curr["end"]
-            
-            is_fragment = gap < 0.25 and not nxt["text"][0].isupper() and len(curr_text) <= 5
-            
-            if is_fragment:
-                curr_text = curr_text + nxt["text"]
-                curr["end"] = nxt["end"]
-                i += 1
-            else:
-                break
-                
-        curr["text"] = curr_text
-        merged_result.append(curr)
-        i += 1
-
-    return merged_result
+    return result
 
 
 def group_into_chunks(words: List[Dict[str, Any]], max_words: int = 3, max_gap: float = 0.65, max_chars: int = 20) -> List[List[Dict[str, Any]]]:
@@ -547,37 +518,7 @@ async def ensure_fonts():
             log.warning(f"{dest.name} yuklanmadi ({e}).")
 
 
-def _format_word(word_text: str, state: str, anim_style: str, chosen_color: str, bold_ok: bool = True) -> str:
-    b1, b0 = ("\\b1", "\\b0") if bold_ok else ("", "")
-    clean_w = re.sub(r"[^\w]", "", word_text.lower())
-    is_headlight = clean_w in HEADLIGHT_WORDS
-
-    if state == "future":
-        return f"{{\\c{chosen_color}\\fscx100\\fscy100{b0}}}{word_text}"
-
-    if state == "past":
-        color = HEADLIGHT_COLOR if is_headlight else chosen_color
-        return f"{{\\c{color}\\fscx100\\fscy100{b1 if is_headlight else b0}}}{word_text}"
-
-    active_color = HEADLIGHT_COLOR if is_headlight else ACTIVE_SPOKEN_COLOR
-
-    if anim_style == "mrbeast_style":
-        return (f"{{\\c{active_color}{b1}\\t(0,60,\\fscx120\\fscy120)\\t(60,130,\\fscx112\\fscy112)}}"
-                f"{word_text}{{\\fscx112\\fscy112}}")
-
-    return f"{{\\c{active_color}\\fscx112\\fscy112{b1}}}{word_text}{{\\fscx100\\fscy100{b0}}}"
-
-
-def scaled_font_size(font_size: int, video_w: int, video_h: int) -> int:
-    return max(24, int(round(font_size * min(video_w, video_h) / 1080)))
-
-
-def max_chars_for(font_size: int, video_w: int, video_h: int) -> int:
-    fs = scaled_font_size(font_size, video_w, video_h)
-    avail = video_w - 2 * 40
-    return int(max(8, min(24, avail / (fs * 0.62) - 1)))
-
-
+# 🟢 CHUNK (GAP) BO'YICHA CHIQARISH: So'zlar orasida probel ochilib ketishining oldini oladi
 def generate_word_by_word_ass(
     chunks: List[List[Dict[str, Any]]],
     ass_path: Path,
@@ -613,47 +554,16 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
     for chunk in chunks:
         chunk_start = chunk[0]["start"]
         chunk_end = chunk[-1]["end"]
-        total_dur_ms = max(250, int((chunk_end - chunk_start) * 1000))
-        target_sp = round(base_sp + 2.8, 1)
+        
+        # Butun bir guruh (chunk) matnini oddiy va butun holatda chiqaramiz
+        text = " ".join(w["text"] for w in chunk)
+        
+        # Matn ichidagi har qanday qo'shaloq probellarni tozalaymiz
+        text = re.sub(r'\s+', ' ', text).strip()
 
-        for i, current_word in enumerate(chunk):
-            start = current_word["start"]
-            end = chunk[i + 1]["start"] if i + 1 < len(chunk) else current_word["end"]
-            if end <= start:
-                end = start + 0.1
-
-            word_parts = []
-            for j, w in enumerate(chunk):
-                if j < i:
-                    state = "past"
-                elif j == i:
-                    state = "active"
-                else:
-                    state = "future"
-
-                word_parts.append(_format_word(w["text"], state, anim_style, chosen_color, bold_ok))
-
-            text = " ".join(word_parts)
-
-            if anim_style == "smooth_tracking":
-                t1 = int((start - chunk_start) * 1000)
-                t2 = int((end - chunk_start) * 1000)
-
-                sp1 = round(base_sp + (target_sp - base_sp) * (t1 / total_dur_ms), 2)
-                sp2 = round(base_sp + (target_sp - base_sp) * (t2 / total_dur_ms), 2)
-
-                dur_part = max(10, t2 - t1)
-                anim_prefix = f"{{\\fsp{sp1}\\t(0,{dur_part},\\fsp{sp2})}}"
-
-                if i == len(chunk) - 1:
-                    fade_time = min(150, max(50, int(dur_part * 0.4)))
-                    anim_prefix = f"{{\\fad(0,{fade_time})}}" + anim_prefix
-
-                text = anim_prefix + text
-
-            dialogues.append(
-                f"Dialogue: 0,{format_ass_time(start)},{format_ass_time(end)},Default,,0,0,0,,{text}"
-            )
+        dialogues.append(
+            f"Dialogue: 0,{format_ass_time(chunk_start)},{format_ass_time(chunk_end)},Default,,0,0,0,,{text}"
+        )
 
     ass_path.write_text(header + "\n".join(dialogues) + "\n", encoding="utf-8")
     return len(dialogues)
@@ -1196,7 +1106,7 @@ async def cmd_terms(message: Message):
     )
 
 
-@router.message(F.text == "👨‍💻 Admin bilan bog'lanish")
+@router.message(F.text == "👨‍‍💻 Admin bilan bog'lanish")
 async def cmd_contact_admin(message: Message):
     b = InlineKeyboardBuilder()
     b.row(InlineKeyboardButton(text="💬 Telegram'da yozish", url=admin_url(f"Salom! Yordam kerak. Mening ID: {message.from_user.id}")))
