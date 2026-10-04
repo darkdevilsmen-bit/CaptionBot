@@ -48,7 +48,7 @@ MAX_VIDEO_BYTES = 50 * 1024 * 1024
 WORK_ROOT = Path("temp_processing")
 FONTS_DIR = Path(".")
 DB_FILE = Path("database.db")
-INITIAL_CREDITS = 1
+INITIAL_CREDITS = 0  # Boshlang'ich balans 0 ta video
 
 VIDEO_LANGS = {
     "uz": "🇺🇿 O'zbekcha",
@@ -101,7 +101,7 @@ def init_db():
             CREATE TABLE IF NOT EXISTS users (
                 user_id INTEGER PRIMARY KEY,
                 username TEXT,
-                credits INTEGER DEFAULT 1,
+                credits INTEGER DEFAULT 0,
                 is_pro INTEGER DEFAULT 0,
                 bot_lang TEXT DEFAULT 'uz',
                 terms_accepted INTEGER DEFAULT 0,
@@ -186,7 +186,6 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
         if not chunk:
             continue
         
-        # Obyekt yoki lug'at ekanligini to'g'ri tekshirib olish uchun xavfsiz usul
         first_w = chunk[0]
         start_t = first_w.start if hasattr(first_w, 'start') else first_w.get('start', 0.0)
         
@@ -262,6 +261,46 @@ async def cmd_start(message: Message, bot: Bot):
         "Videongizga professional darajada avtomatik subtitrlar qo'shib beraman.",
         reply_markup=get_main_keyboard()
     )
+
+
+# --- ADMIN KOMANDALARI (/add va /pro) ---
+@router.message(Command("add"))
+async def cmd_add_credits(message: Message):
+    if message.from_user.id != ADMIN_ID:
+        return
+    args = message.text.split()
+    if len(args) < 3:
+        await message.answer("Ishlatish: /add [user_id] [miqdor]")
+        return
+    try:
+        target_user_id = int(args[1])
+        amount = int(args[2])
+        with sqlite3.connect(DB_FILE) as conn:
+            cursor = conn.cursor()
+            cursor.execute("UPDATE users SET credits = credits + ? WHERE user_id = ?", (amount, target_user_id))
+            conn.commit()
+        await message.answer(f"Foydalanuvchi ({target_user_id}) balansiga {amount} ta video qo'shildi.")
+    except Exception as e:
+        await message.answer(f"Xatolik: {e}")
+
+
+@router.message(Command("pro"))
+async def cmd_set_pro(message: Message):
+    if message.from_user.id != ADMIN_ID:
+        return
+    args = message.text.split()
+    if len(args) < 2:
+        await message.answer("Ishlatish: /pro [user_id]")
+        return
+    try:
+        target_user_id = int(args[1])
+        with sqlite3.connect(DB_FILE) as conn:
+            cursor = conn.cursor()
+            cursor.execute("UPDATE users SET is_pro = 1 WHERE user_id = ?", (target_user_id,))
+            conn.commit()
+        await message.answer(f"Foydalanuvchi ({target_user_id}) PRO statusga o'tkazildi.")
+    except Exception as e:
+        await message.answer(f"Xatolik: {e}")
 
 
 @router.callback_query(F.data == "check_sub")
