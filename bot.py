@@ -1,6 +1,8 @@
 import os
 import re
+import time
 import uuid
+import struct
 import shutil
 import sqlite3
 import asyncio
@@ -51,7 +53,7 @@ DB_FILE = Path("database.db")
 INITIAL_CREDITS = 1
 
 ANIMATION_STYLES = {
-    "mrbeast_style": "🟢 Komika Axis Pop-up (MrBeast)",
+    "mrbeast_style": "🟢 MrBeast Pop-up",
     "smooth_tracking": "✨ Smooth Text Tracking (Fade)",
     "active_bold_regular": "🔥 Active Bold / Regular",
     "active_word_box": "⬛ Active Word Highlight (Box)",
@@ -68,13 +70,19 @@ FONT_SIZES = {
 MONTSERRAT_SPACING = -0.03
 
 _GF = "https://github.com/google/fonts/raw/main/ofl/montserrat/static/"
-# key: (tugmadagi nom, ASS family nomi, fayl nomida bo'lishi kerak so'zlar, yuklash URL, qalin(\\b) ishlatish mumkinmi)
+# Shriftlar fonts/ papkasidan (yoki bot.py yonidan) topiladi. Family nomi fayl ichidan o'qiladi.
+#   tokens — fayl nomida (bo'sh joy, _ va - siz, kichik harfda) bo'lishi shart bo'lgan so'zlar
 FONT_OPTIONS = {
-    "mont_xb": ("💪 Montserrat ExtraBold", "Montserrat ExtraBold", ("montserrat", "extrabold"), _GF + "Montserrat-ExtraBold.ttf", False),
-    "mont_black": ("⚫ Montserrat Black", "Montserrat Black", ("montserrat", "black"), _GF + "Montserrat-Black.ttf", False),
-    "komika": ("🟢 Komika Axis", "Komika Axis", ("komika",), None, True),
-    "arial": ("🔤 Arial (standart)", "Arial", (), None, True),
+    "the_bold": {"label": "🅱️ The Bold", "family": "The Bold Font", "tokens": ("thebold",),
+                 "url": None, "bold_ok": False, "tight": False},
+    "komika": {"label": "🟢 Komika Axis", "family": "Komika Axis", "tokens": ("komika",),
+               "url": None, "bold_ok": True, "tight": False},
+    "mont_xb": {"label": "💪 Montserrat ExtraBold", "family": "Montserrat ExtraBold", "tokens": ("montserrat", "extrabold"),
+                "url": _GF + "Montserrat-ExtraBold.ttf", "bold_ok": False, "tight": True},
+    "mont_black": {"label": "⚫ Montserrat Black", "family": "Montserrat Black", "tokens": ("montserrat", "black"),
+                   "url": _GF + "Montserrat-Black.ttf", "bold_ok": False, "tight": True},
 }
+DEFAULT_FONT_KEY = "the_bold"
 
 BASE_COLOR = "&H00FFFFFF"    # oq (BGR formatda)
 ACTIVE_COLOR = "&H0000FFFF"  # sariq
@@ -83,7 +91,7 @@ router = Router()
 el_client = ElevenLabs(api_key=ELEVENLABS_API_KEY)
 FFMPEG_PATH = imageio_ffmpeg.get_ffmpeg_exe()
 
-USER_SESSIONS: Dict[int, Dict[str, Any]] = {}
+PROCESSING: set = set()  # hozir ishlov berilayotgan foydalanuvchilar (qo'sh bosishdan himoya)
 
 
 # ---------------------------------------------------------------- KLAVIATURA
@@ -110,6 +118,21 @@ def init_db():
                 bot_lang TEXT DEFAULT 'uz',
                 terms_accepted INTEGER DEFAULT 0,
                 joined_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+            """
+        )
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS sessions (
+                user_id INTEGER PRIMARY KEY,
+                sid TEXT,
+                file_id TEXT,
+                video_path TEXT,
+                dir_path TEXT,
+                anim_style TEXT,
+                font_key TEXT,
+                font_size INTEGER,
+                created REAL
             )
             """
         )
@@ -144,6 +167,61 @@ def deduct_user_credit(user_id: int) -> bool:
         cur.execute("UPDATE users SET credits = credits - 1 WHERE user_id = ? AND credits > 0", (user_id,))
         conn.commit()
         return cur.rowcount > 0
+
+
+# ---------------------------------------------------- SESSIYALAR (bazada)
+# Sessiya bazada saqlanadi, shuning uchun bot qayta ishga tushsa ham tugmalar ishlayveradi.
+_SESSION_COLS = {"anim_style", "font_key", "font_size"}
+
+
+def db_save_session(user_id: int, sid: str, file_id: str, video_path: str, dir_path: str):
+    with sqlite3.connect(DB_FILE) as conn:
+        conn.execute(
+            "INSERT OR REPLACE INTO sessions (user_id, sid, file_id, video_path, dir_path, anim_style, font_key, font_size, created) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            (user_id, sid, file_id, video_path, dir_path, "mrbeast_style", DEFAULT_FONT_KEY, 85, time.time()),
+        )
+        conn.commit()
+
+
+def db_get_session(user_id: int) -> Optional[Dict[str, Any]]:
+    with sqlite3.connect(DB_FILE) as conn:
+        conn.row_factory = sqlite3.Row
+        row = conn.execute("SELECT * FROM sessions WHERE user_id = ?", (user_id,)).fetchone()
+        return dict(row) if row else None
+
+
+def db_update_session(user_id: int, **fields):
+    fields = {k: v for k, v in fields.items() if k in _SESSION_COLS}
+    if not fields:
+        return
+    sets = ", ".join(f"{k} = ?" for k in fields)
+    with sqlite3.connect(DB_FILE) as conn:
+        conn.execute(f"UPDATE sessions SET {sets} WHERE user_id = ?", (*fields.values(), user_id))
+        conn.commit()
+
+
+def db_delete_session(user_id: int):
+    with sqlite3.connect(DB_FILE) as conn:
+        conn.execute("DELETE FROM sessions WHERE user_id = ?", (user_id,))
+        conn.commit()
+
+
+def cleanup_stale_sessions(max_age_sec: int = 24 * 3600):
+    """24 soatdan eski sessiyalar va yetim vaqtinchalik papkalarni tozalaydi."""
+    now = time.time()
+    with sqlite3.connect(DB_FILE) as conn:
+        rows = conn.execute("SELECT user_id, dir_path, created FROM sessions").fetchall()
+        for uid, dir_path, created in rows:
+            if now - (created or 0) > max_age_sec:
+                shutil.rmtree(dir_path, ignore_errors=True)
+                conn.execute("DELETE FROM sessions WHERE user_id = ?", (uid,))
+        conn.commit()
+        alive = {Path(r[0]).resolve() for r in conn.execute("SELECT dir_path FROM sessions").fetchall()}
+    if WORK_ROOT.exists():
+        for d in WORK_ROOT.iterdir():
+            if d.is_dir() and d.resolve() not in alive and now - d.stat().st_mtime > 3600:
+                shutil.rmtree(d, ignore_errors=True)
 
 
 async def check_subscription(bot: Bot, user_id: int) -> bool:
@@ -268,43 +346,95 @@ def write_srt(chunks: List[List[Dict[str, Any]]], srt_path: Path) -> int:
     return len(chunks)
 
 
+def _norm(name: str) -> str:
+    return re.sub(r"[^a-z0-9]", "", name.lower())
+
+
 def find_font_file(key: str) -> Optional[Path]:
-    """fonts/ papkasidan (yoki bot.py yonidan) shrift faylini topadi. Arial doim 'mavjud' (None qaytadi, lekin ok)."""
-    _, _, tokens, _, _ = FONT_OPTIONS[key]
-    if not tokens:
+    """fonts/ papkasidan (yoki bot.py yonidagi papkadan) shrift faylini topadi."""
+    opt = FONT_OPTIONS.get(key)
+    if not opt:
         return None
     for folder in (FONTS_DIR, Path(".").resolve()):
         if not folder.exists():
             continue
-        for f in folder.iterdir():
-            n = f.name.lower()
-            if f.suffix.lower() in (".ttf", ".otf") and "italic" not in n and all(t in n.replace("_", "").replace("-", "") for t in tokens):
+        for f in sorted(folder.iterdir()):
+            n = _norm(f.stem)
+            if f.suffix.lower() in (".ttf", ".otf") and "italic" not in n and all(t in n for t in opt["tokens"]):
                 return f
     return None
 
 
-def font_available(key: str) -> bool:
-    return key == "arial" or find_font_file(key) is not None
+def read_font_family(path: Path) -> Optional[str]:
+    """TTF/OTF faylning 'name' jadvalidan haqiqiy family nomini o'qiydi (FFmpeg/libass aynan shu nom bilan qidiradi)."""
+    try:
+        data = path.read_bytes()
+        base = 0
+        if data[:4] == b"ttcf":
+            base = struct.unpack(">I", data[12:16])[0]
+        num_tables = struct.unpack(">H", data[base + 4:base + 6])[0]
+        name_off = None
+        for i in range(num_tables):
+            rec = data[base + 12 + 16 * i: base + 28 + 16 * i]
+            if rec[:4] == b"name":
+                name_off = struct.unpack(">I", rec[8:12])[0]
+                break
+        if name_off is None:
+            return None
+        count, str_off = struct.unpack(">HH", data[name_off + 2:name_off + 6])
+        found: Dict[int, str] = {}
+        for i in range(count):
+            plat, enc, lang, nid, length, off = struct.unpack(">HHHHHH", data[name_off + 6 + 12 * i: name_off + 18 + 12 * i])
+            if nid not in (1, 4, 16):
+                continue
+            raw = data[name_off + str_off + off: name_off + str_off + off + length]
+            try:
+                text = raw.decode("utf-16-be") if plat in (0, 3) else raw.decode("mac_roman")
+            except Exception:
+                continue
+            text = text.strip().replace(",", " ")
+            if text and (nid not in found or (plat == 3 and lang == 0x409)):
+                found[nid] = text
+        return found.get(1) or found.get(16) or found.get(4)
+    except Exception as e:
+        log.warning(f"Shrift nomini o'qib bo'lmadi ({path.name}): {e}")
+        return None
+
+
+def resolve_font(key: str) -> Tuple[str, bool, bool, Optional[Path]]:
+    """(family nomi, qalin tegi ishlatilsinmi, zich harf oralig'i, fayl). Shrift topilmasa Arial."""
+    opt = FONT_OPTIONS.get(key)
+    if opt:
+        f = find_font_file(key)
+        if f:
+            return read_font_family(f) or opt["family"], opt["bold_ok"], opt["tight"], f
+    return "Arial", True, False, None
+
+
+def available_fonts() -> List[str]:
+    return [k for k in FONT_OPTIONS if find_font_file(k)]
 
 
 async def ensure_fonts():
     """Montserrat fayllari yo'q bo'lsa Google Fonts'dan yuklab oladi (bir marta)."""
     import aiohttp
     FONTS_DIR.mkdir(parents=True, exist_ok=True)
-    for key, (_, _, _, url, _) in FONT_OPTIONS.items():
+    for key, opt in FONT_OPTIONS.items():
+        url = opt["url"]
         if not url or find_font_file(key):
             continue
         dest = FONTS_DIR / url.rsplit("/", 1)[-1]
         try:
             async with aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=60)) as sess:
                 async with sess.get(url) as resp:
+                    status = resp.status
                     data = await resp.read()
-            if resp.status != 200 or len(data) < 50_000 or data[:4] not in (b"\x00\x01\x00\x00", b"OTTO", b"true"):
-                raise RuntimeError(f"noto'g'ri javob (status={resp.status}, {len(data)} bayt)")
+            if status != 200 or len(data) < 50_000 or data[:4] not in (b"\x00\x01\x00\x00", b"OTTO", b"true"):
+                raise RuntimeError(f"noto'g'ri javob (status={status}, {len(data)} bayt)")
             dest.write_bytes(data)
             log.info(f"Shrift yuklandi: {dest.name}")
         except Exception as e:
-            log.warning(f"{dest.name} yuklanmadi ({e}). Faylni qo'lda {FONTS_DIR} ichiga qo'ying.")
+            log.warning(f"{dest.name} yuklanmadi ({e}). Xohlasangiz faylni qo'lda {FONTS_DIR} ichiga qo'ying.")
 
 
 def _style_word(text: str, active: bool, anim_style: str, bold_ok: bool = True) -> str:
@@ -328,14 +458,12 @@ def generate_word_by_word_ass(
     font_size: int,
     video_w: int,
     video_h: int,
-    font_key: str = "mont_xb",
+    font_key: str = DEFAULT_FONT_KEY,
 ) -> int:
-    _, font_name, _, _, bold_ok = FONT_OPTIONS[font_key]
-    if not font_available(font_key):
-        font_name, bold_ok = "Arial", True
+    font_name, bold_ok, tight, _ = resolve_font(font_key)
     # Shrift o'lchami 1080 px asosida berilgan: video o'lchamiga moslaymiz
     font_size = max(24, int(round(font_size * min(video_w, video_h) / 1080)))
-    spacing = round(font_size * MONTSERRAT_SPACING, 1) if font_name.startswith("Montserrat") else 0
+    spacing = round(font_size * MONTSERRAT_SPACING, 1) if tight else 0
     bold_flag = -1 if bold_ok else 0
     header = f"""[Script Info]
 ScriptType: v4.00+
@@ -413,13 +541,13 @@ def _ff_escape(path: str) -> str:
     return path.replace("\\", "/").replace(":", "\\:").replace("'", "\\'")
 
 
-async def burn_subtitles_to_video(input_video: Path, ass_name: str, output_video: Path, work_dir: Path, font_key: str = "arial"):
+async def burn_subtitles_to_video(input_video: Path, ass_name: str, output_video: Path, work_dir: Path, font_key: str = DEFAULT_FONT_KEY):
     """
     ASS faylga faqat NISBIY nom beriladi va FFmpeg work_dir ichida ishga tushadi:
     shunda Windows `C:\\...` va bo'sh joy/ikki nuqta muammolari chiqmaydi.
     """
     vf = f"subtitles={ass_name}"
-    font_file = find_font_file(font_key)
+    font_file = resolve_font(font_key)[3]
     if font_file:
         vf += f":fontsdir='{_ff_escape(str(font_file.parent))}'"
 
@@ -537,15 +665,21 @@ async def handle_video(message: Message, bot: Bot):
         await message.answer(NO_CREDITS_TEXT, reply_markup=get_main_keyboard())
         return
 
+    if user_id in PROCESSING:
+        await message.answer("⏳ Oldingi videongiz hali tayyorlanmoqda, iltimos kuting.")
+        return
+
     if message.video.file_size and message.video.file_size > MAX_VIDEO_BYTES:
         await message.answer("❌ Video hajmi 50 MB dan oshmasligi kerak.")
         return
 
     # Eski sessiya papkasi qolib ketgan bo'lsa tozalaymiz
-    old = USER_SESSIONS.pop(user_id, None)
+    old = db_get_session(user_id)
     if old:
         shutil.rmtree(old["dir_path"], ignore_errors=True)
+        db_delete_session(user_id)
 
+    sid = uuid.uuid4().hex[:8]
     user_dir = WORK_ROOT / str(uuid.uuid4())
     user_dir.mkdir(parents=True, exist_ok=True)
     input_video = user_dir / "input.mp4"
@@ -559,80 +693,112 @@ async def handle_video(message: Message, bot: Bot):
         await message.answer("❌ Videoni yuklab olib bo'lmadi (Telegram cheklovi: ~20 MB gacha bo'lishi mumkin).")
         return
 
-    USER_SESSIONS[user_id] = {
-        "video_path": str(input_video),
-        "dir_path": str(user_dir),
-        "anim_style": "mrbeast_style",
-        "font_key": "mont_xb",
-        "font_size": 85,
-    }
+    db_save_session(user_id, sid, message.video.file_id, str(input_video), str(user_dir))
 
     builder = InlineKeyboardBuilder()
     for key, name in ANIMATION_STYLES.items():
-        builder.row(InlineKeyboardButton(text=name, callback_data=f"anim_{key}"))
-    await message.answer(
+        builder.row(InlineKeyboardButton(text=name, callback_data=f"anim:{key}:{sid}"))
+    await message.reply(
         "✨ Videongiz qabul qilindi!\n\nSubtitr uchun <b>animatsiya uslubini</b> tanlang:",
         reply_markup=builder.as_markup(),
     )
 
 
-@router.callback_query(F.data.startswith("anim_"))
-async def callback_anim_style(callback: CallbackQuery):
+async def load_session(callback: CallbackQuery, bot: Bot, sid: str) -> Optional[Dict[str, Any]]:
+    """Sessiyani bazadan oladi. Video fayl yo'qolgan bo'lsa (masalan, server qayta ishga tushsa) Telegram'dan qayta yuklaydi."""
     user_id = callback.from_user.id
-    if user_id not in USER_SESSIONS:
-        await callback.answer("Sessiya eskirgan. Iltimos videoni qaytadan yuboring.", show_alert=True)
-        return
+    sess = db_get_session(user_id)
+    if not sess or sess["sid"] != sid:
+        await callback.answer("Bu tugma eskirgan. Iltimos, videoni qaytadan yuboring.", show_alert=True)
+        return None
+    video = Path(sess["video_path"])
+    if not video.exists():
+        try:
+            video.parent.mkdir(parents=True, exist_ok=True)
+            file_info = await bot.get_file(sess["file_id"])
+            await bot.download_file(file_info.file_path, destination=video)
+        except Exception as e:
+            log.error(f"Videoni qayta yuklab bo'lmadi: {e}")
+            shutil.rmtree(sess["dir_path"], ignore_errors=True)
+            db_delete_session(user_id)
+            await callback.answer("Videoni qayta yuklab bo'lmadi. Iltimos, videoni qaytadan yuboring.", show_alert=True)
+            return None
+    return sess
 
-    style_key = callback.data.replace("anim_", "")
-    if style_key not in ANIMATION_STYLES:
+
+def _parse_cb(data: str) -> Optional[Tuple[str, str]]:
+    parts = data.split(":", 2)
+    return (parts[1], parts[2]) if len(parts) == 3 else None
+
+
+@router.callback_query(F.data.startswith("anim:"))
+async def callback_anim_style(callback: CallbackQuery, bot: Bot):
+    parsed = _parse_cb(callback.data)
+    if not parsed or parsed[0] not in ANIMATION_STYLES:
         await callback.answer("Noma'lum uslub.", show_alert=True)
         return
-    USER_SESSIONS[user_id]["anim_style"] = style_key
+    style_key, sid = parsed
+    sess = await load_session(callback, bot, sid)
+    if not sess:
+        return
+    db_update_session(callback.from_user.id, anim_style=style_key)
 
     builder = InlineKeyboardBuilder()
-    for key, (name, *_rest) in FONT_OPTIONS.items():
-        if font_available(key):
-            builder.row(InlineKeyboardButton(text=name, callback_data=f"font_{key}"))
-    await callback.message.edit_text(
-        "🔠 Subtitr <b>shriftini</b> tanlang:", reply_markup=builder.as_markup()
-    )
+    fonts = available_fonts()
+    for key in fonts:
+        builder.row(InlineKeyboardButton(text=FONT_OPTIONS[key]["label"], callback_data=f"font:{key}:{sid}"))
+    if not fonts:
+        builder.row(InlineKeyboardButton(text="🔤 Standart shrift", callback_data=f"font:arial:{sid}"))
+    await callback.message.edit_text("🔠 Subtitr <b>shriftini</b> tanlang:", reply_markup=builder.as_markup())
+    await callback.answer()
 
 
-@router.callback_query(F.data.startswith("font_"))
-async def callback_font_family(callback: CallbackQuery):
-    user_id = callback.from_user.id
-    if user_id not in USER_SESSIONS:
-        await callback.answer("Sessiya eskirgan. Iltimos videoni qaytadan yuboring.", show_alert=True)
-        return
-    key = callback.data.replace("font_", "")
-    if key not in FONT_OPTIONS or not font_available(key):
+@router.callback_query(F.data.startswith("font:"))
+async def callback_font_family(callback: CallbackQuery, bot: Bot):
+    parsed = _parse_cb(callback.data)
+    if not parsed or (parsed[0] not in FONT_OPTIONS and parsed[0] != "arial"):
         await callback.answer("Bu shrift mavjud emas.", show_alert=True)
         return
-    USER_SESSIONS[user_id]["font_key"] = key
+    key, sid = parsed
+    sess = await load_session(callback, bot, sid)
+    if not sess:
+        return
+    db_update_session(callback.from_user.id, font_key=key)
 
     builder = InlineKeyboardBuilder()
     for skey, (name, _) in FONT_SIZES.items():
-        builder.row(InlineKeyboardButton(text=name, callback_data=f"size_{skey}"))
-    await callback.message.edit_text(
-        "📱 Endi subtitr <b>shrift o'lchamini</b> tanlang:", reply_markup=builder.as_markup()
-    )
+        builder.row(InlineKeyboardButton(text=name, callback_data=f"size:{skey}:{sid}"))
+    await callback.message.edit_text("📱 Endi subtitr <b>shrift o'lchamini</b> tanlang:", reply_markup=builder.as_markup())
+    await callback.answer()
 
 
-@router.callback_query(F.data.startswith("size_"))
+@router.callback_query(F.data.startswith("size:"))
 async def callback_font_size(callback: CallbackQuery, bot: Bot):
     user_id = callback.from_user.id
-    size_key = callback.data.replace("size_", "")
-    if size_key not in FONT_SIZES:
+    parsed = _parse_cb(callback.data)
+    if not parsed or parsed[0] not in FONT_SIZES:
         await callback.answer("Noma'lum o'lcham.", show_alert=True)
         return
+    size_key, sid = parsed
 
-    # pop() — ikki marta bosilsa ikkinchi marta ishlamaydi (balans buzilmaydi)
-    session = USER_SESSIONS.pop(user_id, None)
-    if session is None:
-        await callback.answer("Sessiya eskirgan. Iltimos videoni qaytadan yuboring.", show_alert=True)
+    if user_id in PROCESSING:
+        await callback.answer("Video tayyorlanmoqda, iltimos kuting...", show_alert=True)
         return
 
+    session = await load_session(callback, bot, sid)
+    if not session:
+        return
+
+    if get_user_credits(user_id) <= 0 and not is_user_pro(user_id):
+        await callback.answer(NO_CREDITS_TEXT, show_alert=True)
+        return
+
+    PROCESSING.add(user_id)
+    await callback.answer()
+
     font_size = FONT_SIZES[size_key][1]
+    font_key = session["font_key"] or DEFAULT_FONT_KEY
+    anim_style = session["anim_style"] or "mrbeast_style"
     input_video = Path(session["video_path"])
     user_dir = Path(session["dir_path"])
     output_video = user_dir / "output.mp4"
@@ -666,9 +832,9 @@ async def callback_font_size(callback: CallbackQuery, bot: Bot):
 
         chunks = group_into_chunks(words)
         write_srt(chunks, srt_path)
-        generate_word_by_word_ass(chunks, ass_path, session["anim_style"], font_size, v_width, v_height, session["font_key"])
+        generate_word_by_word_ass(chunks, ass_path, anim_style, font_size, v_width, v_height, font_key)
 
-        await burn_subtitles_to_video(input_video, ass_name, output_video, user_dir, session["font_key"] if font_available(session["font_key"]) else "arial")
+        await burn_subtitles_to_video(input_video, ass_name, output_video, user_dir, font_key)
 
         if not is_user_pro(user_id):
             deduct_user_credit(user_id)
@@ -686,11 +852,13 @@ async def callback_font_size(callback: CallbackQuery, bot: Bot):
     except Exception as e:
         log.exception("Video qayta ishlashda xatolik")
         try:
-            await status_msg.edit_text(f"❌ Xatolik yuz berdi: {escape(str(e))}")
+            await status_msg.edit_text(f"❌ Xatolik yuz berdi: {escape(str(e))}\n\nIltimos, videoni qaytadan yuboring.")
         except Exception:
             pass
     finally:
+        PROCESSING.discard(user_id)
         shutil.rmtree(user_dir, ignore_errors=True)
+        db_delete_session(user_id)
 
 
 @router.message(F.text == "🎨 Subtitr uslublari")
@@ -698,7 +866,7 @@ async def cmd_sub_styles(message: Message):
     await message.answer(
         "Subtitr uslublarini tanlash:\n\n"
         "Hozirda quyidagi animatsiya uslublari mavjud:\n"
-        "1. Komika Axis Pop-up (MrBeast uslubi)\n"
+        "1. MrBeast Pop-up\n"
         "2. Smooth Text Tracking (Fade)\n"
         "3. Active Bold / Regular\n"
         "4. Active Word Highlight (Box)\n\n"
@@ -773,7 +941,9 @@ async def cmd_contact_admin(message: Message):
 async def main():
     WORK_ROOT.mkdir(parents=True, exist_ok=True)
     init_db()
+    cleanup_stale_sessions()
     await ensure_fonts()
+    log.info(f"Mavjud shriftlar: {[FONT_OPTIONS[k]['label'] for k in available_fonts()] or 'faqat Arial'}")
 
     bot = Bot(
         token=BOT_TOKEN,
