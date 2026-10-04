@@ -29,7 +29,7 @@ from aiogram.types import (
 )
 from aiogram.utils.keyboard import InlineKeyboardBuilder
 try:
-    from aiogram.types import CopyTextButton  # aiogram >= 3.13
+    from aiogram.types import CopyTextButton
 except Exception:
     CopyTextButton = None
 from elevenlabs.client import ElevenLabs
@@ -51,9 +51,9 @@ CARD_NUMBER = "5614686505428600"
 CARD_HOLDER = "Toshpulatov Shoxrux"
 
 MAX_VIDEO_BYTES = 50 * 1024 * 1024
-WORK_ROOT = Path("temp_processing")
+WORK_ROOT = Path("temp_processing").resolve()
 FONTS_DIR = Path("fonts").resolve()
-DATA_DIR = Path(os.getenv("DATA_DIR", "."))
+DATA_DIR = Path(os.getenv("DATA_DIR", ".")).resolve()
 DATA_DIR.mkdir(parents=True, exist_ok=True)
 DB_FILE = DATA_DIR / "database.db"
 STT_MODEL = os.getenv("STT_MODEL", "scribe_v2")
@@ -67,6 +67,7 @@ ANIMATION_STYLES = {
 }
 
 COLOR_OPTIONS = {
+    "white": {"label": "⚪ Oq", "bgr": "&H00FFFFFF&"},
     "yellow": {"label": "🟡 Sariq", "bgr": "&H0000FFFF&"},
     "green": {"label": "🟢 MrBeast Yashil", "bgr": "&H0032FF00&"},
     "cyan": {"label": "🔵 Moviy / Cyan", "bgr": "&H00FFFF00&"},
@@ -236,7 +237,7 @@ def db_delete_session(user_id: int):
         conn.commit()
 
 
-def cleanup_stale_sessions(max_age_sec: int = 24 * 3600):
+def cleanup_stale_sessions(max_age_sec: int = 48 * 3600):
     now = time.time()
     with sqlite3.connect(DB_FILE) as conn:
         rows = conn.execute("SELECT user_id, dir_path, created FROM sessions").fetchall()
@@ -248,7 +249,7 @@ def cleanup_stale_sessions(max_age_sec: int = 24 * 3600):
         alive = {Path(r[0]).resolve() for r in conn.execute("SELECT dir_path FROM sessions").fetchall()}
     if WORK_ROOT.exists():
         for d in WORK_ROOT.iterdir():
-            if d.is_dir() and d.resolve() not in alive and now - d.stat().st_mtime > 3600:
+            if d.is_dir() and d.resolve() not in alive and now - d.stat().st_mtime > 7200:
                 shutil.rmtree(d, ignore_errors=True)
 
 
@@ -261,7 +262,6 @@ async def check_subscription(bot: Bot, user_id: int) -> bool:
         return False
 
 
-# ------------------------------------------------------- VAQT FORMATLARI
 def format_srt_time(seconds: float) -> str:
     total_ms = max(0, int(round(seconds * 1000)))
     h, rem = divmod(total_ms, 3_600_000)
@@ -278,7 +278,6 @@ def format_ass_time(seconds: float) -> str:
     return f"{h}:{m:02d}:{s:02d}.{cs:02d}"
 
 
-# ----------------------------------------- MATNNI TOZALASH
 def _get(obj: Any, *names: str, default: Any = None) -> Any:
     for name in names:
         if isinstance(obj, dict):
@@ -386,7 +385,6 @@ def group_into_chunks(words: List[Dict[str, Any]], max_words: int = 4, max_gap: 
     return chunks
 
 
-# ------------------------------------------------------------ SRT / ASS
 def write_srt(chunks: List[List[Dict[str, Any]]], srt_path: Path) -> int:
     lines = []
     for idx, chunk in enumerate(chunks, 1):
@@ -412,7 +410,7 @@ def find_font_file(key: str) -> Optional[Path]:
         for f in sorted(folder.iterdir()):
             n = _norm(f.stem)
             if f.suffix.lower() in (".ttf", ".otf") and "italic" not in n and all(t in n for t in opt["tokens"]):
-                return f
+                return f.resolve()
     return None
 
 
@@ -485,26 +483,21 @@ async def ensure_fonts():
             log.warning(f"{dest.name} yuklanmadi ({e}).")
 
 
-# ----------------------------------------- HAR BIR USLUB UCHUN SO'Z FORMATI
 def _style_word(text: str, active: bool, anim_style: str, active_color: str, bold_ok: bool = True) -> str:
     b1, b0 = ("\\b1", "\\b0") if bold_ok else ("", "")
 
     if not active:
         return f"{{\\c{BASE_COLOR}{b0}}}{text}"
 
-    # 1. MrBeast Style: O'lcham pop-up bo'lib (125%) darhol 100% ga qaytadi
     if anim_style == "mrbeast_style":
         return f"{{\\c{active_color}{b1}\\t(0,90,\\fscx125\\fscy125)\\t(90,180,\\fscx100\\fscy100)}}{text}{{\\fscx100\\fscy100}}"
 
-    # 2. Active Bold / Regular: Faol so'z qalin va rangli bo'ladi
     if anim_style == "active_bold_regular":
         return f"{{\\c{active_color}{b1}}}{text}{{{b0}}}"
 
-    # 3. Active Word Highlight (Box): So'z atrofida qalinroq hoshiya / blok effekti
     if anim_style == "active_word_box":
         return f"{{\\c&H00000000&\\3c{active_color}\\bord8{b1}}}{text}{{\\bord3\\3c&H00000000&{b0}}}"
 
-    # 4. Smooth Tracking: Faol so'z rangli bo'ladi
     return f"{{\\c{active_color}{b1}}}{text}{{{b0}}}"
 
 
@@ -564,7 +557,6 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
             parts = [_style_word(w["text"], j == i, anim_style, active_color, bold_ok) for j, w in enumerate(chunk)]
             text = " ".join(parts)
 
-            # Smooth Tracking: harflar zichlikdan silliq yoyiladi
             if anim_style == "smooth_tracking":
                 t_start = max(0, int((start - chunk_start) * 1000))
                 t_end = min(chunk_duration_ms, int((end - chunk_start) * 1000))
@@ -605,34 +597,39 @@ async def get_video_resolution(video_path: Path) -> Tuple[int, int]:
 
 async def extract_audio(video: Path, audio: Path):
     code, err = await _run(
-        [FFMPEG_PATH, "-y", "-i", str(video), "-vn", "-ac", "1", "-ar", "16000", "-af", "highpass=f=70,loudnorm=I=-16:TP=-1.5:LRA=11", "-c:a", "pcm_s16le", str(audio)]
+        [FFMPEG_PATH, "-y", "-i", str(video), "-vn", "-ac", "1", "-ar", "16000", "-c:a", "pcm_s16le", str(audio)]
     )
     if code != 0:
         log.error(f"Audio ajratishda xato: {err[-800:]}")
         raise RuntimeError("Videodan audio ajratib bo'lmadi.")
 
 
-def _ff_escape(path: str) -> str:
-    return path.replace("\\", "/").replace(":", "\\:").replace("'", "\\'")
+def _escape_ass_filter_path(p: Path) -> str:
+    """Windows va Linux uchun FFmpeg filtergraph yo'llarini xatosiz formatlash"""
+    s = str(p.resolve()).replace("\\", "/")
+    s = s.replace(":", "\\:").replace("'", "\\'")
+    return s
 
 
-async def burn_subtitles_to_video(input_video: Path, ass_name: str, output_video: Path, work_dir: Path, font_key: str = DEFAULT_FONT_KEY):
-    vf = f"subtitles={ass_name}"
+async def burn_subtitles_to_video(input_video: Path, ass_file: Path, output_video: Path, font_key: str = DEFAULT_FONT_KEY):
+    escaped_ass = _escape_ass_filter_path(ass_file)
+    vf = f"subtitles='{escaped_ass}'"
     font_file = resolve_font(font_key)[3]
     if font_file:
-        vf += f":fontsdir='{_ff_escape(str(font_file.parent))}'"
+        escaped_font_dir = _escape_ass_filter_path(font_file.parent)
+        vf += f":fontsdir='{escaped_font_dir}'"
 
     cmd = [
         FFMPEG_PATH, "-y",
         "-i", str(input_video.resolve()),
         "-vf", vf,
-        "-c:v", "libx264", "-preset", "fast", "-crf", "16", "-profile:v", "high",
+        "-c:v", "libx264", "-preset", "veryfast", "-crf", "18", "-profile:v", "high",
         "-pix_fmt", "yuv420p",
         "-c:a", "aac", "-b:a", "192k",
         "-movflags", "+faststart",
         str(output_video.resolve()),
     ]
-    code, err = await _run(cmd, cwd=work_dir)
+    code, err = await _run(cmd)
     if code != 0:
         log.error(f"FFmpeg xatosi: {err[-1500:]}")
         raise RuntimeError("Videoga subtitr yopishtirishda xatolik yuz berdi.")
@@ -777,9 +774,12 @@ async def handle_video(message: Message, bot: Bot):
 async def load_session(callback: CallbackQuery, bot: Bot, sid: str) -> Optional[Dict[str, Any]]:
     user_id = callback.from_user.id
     sess = db_get_session(user_id)
-    if not sess or sess["sid"] != sid:
+    
+    # Agar sessiya bazada bo'lmasa, eskirgan deb ogohlantiramiz
+    if not sess:
         await callback.answer("Bu tugma eskirgan. Iltimos, videoni qaytadan yuboring.", show_alert=True)
         return None
+
     video = Path(sess["video_path"])
     if not video.exists():
         try:
@@ -790,7 +790,7 @@ async def load_session(callback: CallbackQuery, bot: Bot, sid: str) -> Optional[
             log.error(f"Videoni qayta yuklab bo'lmadi: {e}")
             shutil.rmtree(sess["dir_path"], ignore_errors=True)
             db_delete_session(user_id)
-            await callback.answer("Videoni qayta yuklab bo'lmadi. Iltimos, qaytadan yuboring.", show_alert=True)
+            await callback.answer("Videoni qayta yuklab bo'lmadi. Qaytadan yuboring.", show_alert=True)
             return None
     return sess
 
@@ -897,7 +897,6 @@ async def callback_font_size(callback: CallbackQuery, bot: Bot):
     if not session:
         return
 
-    # Balans tekshiruvini to'g'rilash (username uzatilib bazadan aniq olinadi)
     user_credits = get_user_credits(user_id, username)
     user_is_pro = is_user_pro(user_id)
     if user_credits <= 0 and not user_is_pro:
@@ -918,8 +917,7 @@ async def callback_font_size(callback: CallbackQuery, bot: Bot):
     user_dir = Path(session["dir_path"])
     output_video = user_dir / "output.mp4"
     audio_path = user_dir / "audio.wav"
-    ass_name = "subs.ass"
-    ass_path = user_dir / ass_name
+    ass_path = user_dir / "subs.ass"
     srt_path = user_dir / "subs.srt"
 
     status_msg = await callback.message.edit_text("✨ Subtitrlar tayyorlanmoqda, iltimos kuting...")
@@ -953,7 +951,8 @@ async def callback_font_size(callback: CallbackQuery, bot: Bot):
         write_srt(chunks, srt_path)
         generate_word_by_word_ass(chunks, ass_path, anim_style, font_size, v_width, v_height, font_key, color_key)
 
-        await burn_subtitles_to_video(input_video, ass_name, output_video, user_dir, font_key)
+        # To'liq tuzatilgan FFmpeg subtitle yo'li orqali montaj
+        await burn_subtitles_to_video(input_video, ass_path, output_video, font_key)
 
         if not user_is_pro:
             deduct_user_credit(user_id)
