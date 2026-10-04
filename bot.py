@@ -123,7 +123,7 @@ MONTSERRAT_SPACING = -0.02
 
 _GF = "https://github.com/google/fonts/raw/main/ofl/montserrat/static/"
 FONT_OPTIONS = {
-    "the_bold": {"label": "🅱️️ The Bold", "family": "The Bold Font", "tokens": ("thebold",),
+    "the_bold": {"label": "🅱 The Bold", "family": "The Bold Font", "tokens": ("thebold",),
                  "url": None, "bold_ok": False, "tight": False},
     "komika": {"label": "🟢 Komika Axis", "family": "Komika Axis", "tokens": ("komika",),
                "url": None, "bold_ok": True, "tight": False},
@@ -382,6 +382,11 @@ def extract_clean_words(transcript: Any, lang: Optional[str] = None) -> List[Dic
             continue
 
         text = clean_text(_get(w, "text", "word"))
+        
+        # 🟢 Ortiqcha bo'shliqlarni tozalash (O RTOQLAR muammosini oldini olish uchun)
+        if text and text.count(' ') > 0:
+            text = re.sub(r'\s+', '', text)
+
         if text and lang == "uzb":
             text = uz_cyr_to_latin(text)
         if not text:
@@ -1127,7 +1132,7 @@ async def cmd_balance(message: Message):
     status = "👑 PRO (cheksiz)" if pro else "🆓 Standard (bepul)"
     left = "♾ Cheksiz" if pro else f"{credits} ta video"
     text = (
-        f"💳 <b>SIZNING BALANSINGIZ</b>\n{LINE}\n"
+        f"💳 <b>SIZning BALANSINGIZ</b>\n{LINE}\n"
         f"🆔 ID: <code>{user_id}</code>\n"
         f"🎬 Qolgan videolar: <b>{left}</b>\n"
         f"⭐ Status: <b>{status}</b>\n{LINE}"
