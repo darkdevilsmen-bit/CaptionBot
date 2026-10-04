@@ -48,7 +48,7 @@ MAX_VIDEO_BYTES = 50 * 1024 * 1024
 WORK_ROOT = Path("temp_processing")
 FONTS_DIR = Path(".")
 DB_FILE = Path("database.db")
-INITIAL_CREDITS = 1  # Yangi foydalanuvchiga 1 ta bepul video
+INITIAL_CREDITS = 1
 
 ANIMATION_STYLES = {
     "mrbeast_style": "🟢 Komika Axis Pop-up (MrBeast)",
@@ -65,10 +65,10 @@ TEXT_COLORS = {
 }
 
 FONT_SIZES = {
-    "small": ("🔽 Kichik (70)", 70),
-    "normal": ("📱 Normal (85)", 85),
-    "large": ("📈 Katta (100)", 100),
-    "xlarge": ("🔥 Juda katta (115)", 115)
+    "small": ("🔽 Kichik (50)", 50),
+    "normal": ("📱 Normal (70)", 70),
+    "large": ("📈 Katta (90)", 90),
+    "xlarge": ("🔥 Juda katta (110)", 110)
 }
 
 router = Router()
@@ -160,440 +160,269 @@ def format_ass_time(seconds: float) -> str:
     return f"{hours}:{mins:02d}:{secs:02d}.{centis:02d}"
 
 
-def get_video_resolution(video_path: Path) -> tuple:
-    """Videoning asl kenglik va balandligini FFprobe orqali aniqlash"""
-    try:
-        cmd = [
-            FFMPEG_PATH.replace("ffmpeg", "ffprobe"),
-            "-v", "error",
-            "-select_streams", "v:0",
-            "-show_entries", "stream=width,height",
-            "-of", "csv=p=0",
-            str(video_path)
-        ]
-        # ffprobe topilmasa ffmpeg orqali ham aniqlash mumkin, standart o'lcham 1080x1920
-        result = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, timeout=5)
-        if result.returncode == 0:
-            parts = result.strip().split(',')
-            if len(parts) == 2:
-                return int(parts[0]), int(parts[1])
-    except Exception:
-        pass
-    return 1080, 1920
-
-
-def generate_word_by_word_ass(words: List[Any], ass_path: Path, anim_style: str, text_color_hex: str, font_size: int, video_w: int, video_h: int) -> int:
-    # Videoning o'lchamlari PlayResX va PlayResY ga yoziladi, shunda kadr siljimaydi va o'lcham buzilmaydi
+def generate_word_by_word_ass(words: List[Any], ass_path: Path, anim_style: str, text_color_hex: str, font_size: int) -> int:
     header = f"""[Script Info]
 ScriptType: v4.00+
-PlayResX: {video_w}
-PlayResY: {video_h}
 ScaledBorderAndShadow: yes
 WrapStyle: 2
 
 [V4+ Styles]
 Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding
-Style: Default,Arial,{font_size},{text_color_hex},&H000000FF,&H00000000,&H80000000,-1,0,0,0,100,100,0,0,1,3,0,2,10,10,80,1
+Style: Default,Arial,{font_size},{text_color_hex},&H000000FF,&H00000000,&H80000000,-1,0,0,0,100,100,0,0,1,3,1,2,10,10,30,1
 
 [Events]
 Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
 """
-    dialogues = []
+    events = []
     chunk_size = 5
     for i in range(0, len(words), chunk_size):
         chunk = words[i:i + chunk_size]
         if not chunk:
             continue
-        
-        first_w = chunk[0]
-        start_t = getattr(first_w, 'start', None)
-        if start_t is None and isinstance(first_w, dict):
-            start_t = first_w.get('start', 0.0)
-        if start_t is None:
-            start_t = 0.0
-        
-        last_w = chunk[-1]
-        end_t = getattr(last_w, 'end', None)
-        if end_t is None and isinstance(last_w, dict):
-            end_t = last_w.get('end', start_t + 1.0)
-        if end_t is None:
-            end_t = start_t + 1.0
+        start_t = chunk[0].start
+        end_t = chunk[-1].end
 
-        line_parts = []
-        for j, w in enumerate(chunk):
-            w_text = getattr(w, 'word', None)
-            if w_text is None and isinstance(w, dict):
-                w_text = w.get('word', '')
-            if w_text is None:
-                w_text = str(w)
+        for idx, w in enumerate(chunk):
+            w_start = w.start
+            w_end = w.end
+            text_parts = []
+            for j, cw in enumerate(chunk):
+                word_str = cw.text.strip()
+                if not word_str:
+                    continue
+                if j == idx:
+                    if anim_style == "mrbeast_style":
+                        text_parts.pop() if text_parts else None
+                        text_parts.append(f"{{\\c&H0000FFFF\\fscx120\\fscy120}}{word_str}{{\\r}}")
+                    elif anim_style == "active_word_box":
+                        text_parts.append(f"{{\\3c&H000000&\\4c&H00FFFF00&}}{word_str}{{\\r}}")
+                    else:
+                        text_parts.append(f"{{\\c&H00FFFF00&}}{word_str}{{\\r}}")
+                else:
+                    text_parts.append(word_str)
             
-            w_text = w_text.strip()
-            if not w_text:
-                continue
-            
-            highlighted_word = f"{{\\c&H0000FFFF&}}{w_text}{{\\c{text_color_hex}&}}"
-            
-            if anim_style == "mrbeast_style":
-                animated_word = f"{{\\t(0,100,\\fscx120\\fscy120)\\t(100,200,\\fscx100\\fscy100)}}{highlighted_word}"
-            elif anim_style == "smooth_tracking":
-                animated_word = f"{{\\fad(100,100)}}{highlighted_word}"
-            elif anim_style == "active_bold_regular":
-                animated_word = f"{{\\b1}}{highlighted_word}{{\\b0}}"
-            else:
-                animated_word = highlighted_word
-                
-            line_parts.append(animated_word)
+            line_text = " ".join(text_parts)
+            s_str = format_ass_time(w_start)
+            e_str = format_ass_time(w_end if w_end > w_start else w_start + 0.3)
+            events.append(f"Dialogue: 0,{s_str},{e_str},Default,,0,0,0,,{line_text}")
 
-        text_content = " ".join(line_parts)
-        if text_content:
-            dialogues.append(f"Dialogue: 0,{format_ass_time(start_t)},{format_ass_time(end_t)},Default,,0,0,0,,{text_content}")
-
-    with open(ass_path, "w", encoding="utf-8") as f:
-        f.write(header + "\n".join(dialogues) + "\n")
-    return len(dialogues)
-
-
-async def burn_subtitles_to_video(input_video: Path, ass_path: Path, output_video: Path):
-    vf_filter = "subtitles=" + str(ass_path).replace("\\", "/")
-    cmd = [
-        FFMPEG_PATH,
-        "-y",
-        "-i", str(input_video),
-        "-vf", vf_filter,
-        "-c:v", "libx264",
-        "-preset", "fast",
-        "-crf", "23",
-        "-c:a", "copy",
-        str(output_video)
-    ]
-    process = await asyncio.create_subprocess_exec(
-        *cmd,
-        stdout=asyncio.subprocess.PIPE,
-        stderr=asyncio.subprocess.PIPE
-    )
-    stdout, stderr = await process.communicate()
-    if process.returncode != 0:
-        log.error(f"FFmpeg error: {stderr.decode('utf-8', errors='ignore')}")
-        raise RuntimeError("Videoga subtitr yopishtirishda xatolik yuz berdi.")
+    ass_path.write_text(header + "\n".join(events), encoding="utf-8")
+    return len(words)
 
 
 @router.message(CommandStart())
-async def cmd_start(message: Message, bot: Bot):
+async def cmd_start(message: Message):
     user_id = message.from_user.id
     username = message.from_user.username or ""
     get_user_credits(user_id, username)
     
-    if REQUIRED_CHANNEL and not await check_subscription(bot, user_id):
-        builder = InlineKeyboardBuilder()
-        builder.row(InlineKeyboardButton(text="📢 Kanalga obuna bo'lish", url=f"https://t.me/{REQUIRED_CHANNEL.replace('@', '')}"))
-        builder.row(InlineKeyboardButton(text="✅ Obunani tekshirish", callback_data="check_sub"))
-        await message.answer(
-            f"Botimizdan to'liq foydalanish uchun avval rasmiy kanalimizga obuna bo'ling:\n{REQUIRED_CHANNEL}",
-            reply_markup=builder.as_markup()
-        )
-        return
-
-    await message.answer(
-        "Assalomu alaykum! Auto Subtitles botiga xush kelibsiz.\n"
-        "Videongizga professional darajada avtomatik subtitrlar qo'shib beraman.",
-        reply_markup=get_main_keyboard()
+    welcome_text = (
+        "✨ **Assalomu alaykum! Auto Captions botiga xush kelibsiz.**\n\n"
+        "Bu bot videolaringizga avtomatik tarzda professional va chiroyli subtitrlar (titrlar) qo'shib beradi.\n\n"
+        "Pastdagi tugmalar yordamida kerakli bo'limni tanlang:"
     )
+    await message.answer(welcome_text, reply_markup=get_main_keyboard(), parse_mode="Markdown")
 
 
-@router.message(Command("add"))
-async def cmd_add_credits(message: Message):
-    if message.from_user.id != ADMIN_ID:
-        return
-    args = message.text.split()
-    if len(args) < 3:
-        await message.answer("Ishlatish: /add [user_id] [miqdor]")
-        return
-    try:
-        target_user_id = int(args[1])
-        amount = int(args[2])
-        with sqlite3.connect(DB_FILE) as conn:
-            cursor = conn.cursor()
-            cursor.execute("UPDATE users SET credits = credits + ? WHERE user_id = ?", (amount, target_user_id))
-            conn.commit()
-        await message.answer(f"Foydalanuvchi ({target_user_id}) balansiga {amount} ta video qo'shildi.")
-    except Exception as e:
-        await message.answer(f"Xatolik: {e}")
+@router.message(F.text == "💳 Balans")
+async def show_balance(message: Message):
+    user_id = message.from_user.id
+    credits = get_user_credits(user_id, message.from_user.username or "")
+    pro_status = "Faol 💎" if is_user_pro(user_id) else "Faol emas"
+    
+    text = (
+        f"💳 **Sizning balansingiz:**\n\n"
+        f"🔹 Qolgan urinishlar: **{credits} ta**\n"
+        f"⭐ PRO Status: **{pro_status}**\n\n"
+        f"Ko'proq urinish sotib olish uchun PRO Tariflar bo'limiga o'ting."
+    )
+    await message.answer(text, parse_mode="Markdown")
 
 
-@router.message(Command("pro"))
-async def cmd_set_pro(message: Message):
-    if message.from_user.id != ADMIN_ID:
-        return
-    args = message.text.split()
-    if len(args) < 2:
-        await message.answer("Ishlatish: /pro [user_id]")
-        return
-    try:
-        target_user_id = int(args[1])
-        with sqlite3.connect(DB_FILE) as conn:
-            cursor = conn.cursor()
-            cursor.execute("UPDATE users SET is_pro = 1 WHERE user_id = ?", (target_user_id,))
-            conn.commit()
-        await message.answer(f"Foydalanuvchi ({target_user_id}) PRO statusga o'tkazildi.")
-    except Exception as e:
-        await message.answer(f"Xatolik: {e}")
+@router.message(F.text == "👨‍💻 Admin bilan bog'lanish")
+async def contact_admin(message: Message):
+    text = (
+        f"👨‍💻 **Admin bilan bog'lanish:**\n\n"
+        f"Murojaat uchun: @{ADMIN_USERNAME}\n"
+        f"Telefon: {ADMIN_PHONE}"
+    )
+    await message.answer(text, parse_mode="Markdown")
 
 
-@router.callback_query(F.data == "check_sub")
-async def callback_check_sub(callback: CallbackQuery, bot: Bot):
+@router.message(F.text == "📜 Oferta")
+async def show_terms(message: Message):
+    text = (
+        "📜 **Foydalanish shartlari (Oferta):**\n\n"
+        "1. Bot xizmatlaridan foydalanganda qoidalarga amal qiling.\n"
+        "2. To'lovlar qaytarilmaydi.\n"
+        "3. Har qanday savollar bo'yicha adмин bilan bog'lanishingiz mumkin."
+    )
+    await message.answer(text, parse_mode="Markdown")
+
+
+@router.message(F.text == "🎨 Subtitr uslublari")
+async def show_styles(message: Message):
+    user_id = message.from_user.id
+    session = USER_SESSIONS.setdefault(user_id, {"anim": "mrbeast_style", "color": "yellow", "size": "normal"})
+    
+    text = (
+        f"🎨 **Joriy sozlamalaringiz:**\n"
+        f"• Uslub: {ANIMATION_STYLES.get(session['anim'])}\n"
+        f"• Rang: {TEXT_COLORS.get(session['color'])[0]}\n"
+        f"• O'lcham: {FONT_SIZES.get(session['size'])[0]}\n\n"
+        f"O'zgartirish uchun pastdagi tugmalardan foydalaning:"
+    )
+    
+    builder = InlineKeyboardBuilder()
+    builder.row(InlineKeyboardButton(text="Uslubni o'zgartirish", callback_data="set_anim"))
+    builder.row(InlineKeyboardButton(text="Rangni o'zgartirish", callback_data="set_color"))
+    builder.row(InlineKeyboardButton(text="O'lchamni o'zgartirish", callback_data="set_size"))
+    
+    await message.answer(text, reply_markup=builder.as_markup(), parse_mode="Markdown")
+
+
+@router.callback_query(F.data.startswith("set_"))
+async def process_settings_callback(callback: CallbackQuery):
+    action = callback.data
     user_id = callback.from_user.id
-    if await check_subscription(bot, user_id):
-        await callback.message.delete()
-        await callback.message.answer(
-            "Obunangiz tasdiqlandi! Xush kelibsiz.",
-            reply_markup=get_main_keyboard()
-        )
-    else:
-        await callback.answer("Siz hali kanalga obuna bo'lmadingiz!", show_alert=True)
+    session = USER_SESSIONS.setdefault(user_id, {"anim": "mrbeast_style", "color": "yellow", "size": "normal"})
+    
+    builder = InlineKeyboardBuilder()
+    if action == "set_anim":
+        for k, v in ANIMATION_STYLES.items():
+            builder.row(InlineKeyboardButton(text=v, callback_data=f"anim_{k}"))
+        await callback.message.edit_text("Uslubni tanlang:", reply_markup=builder.as_markup())
+    elif action == "set_color":
+        for k, v in TEXT_COLORS.items():
+            builder.row(InlineKeyboardButton(text=v[0], callback_data=f"color_{k}"))
+        await callback.message.edit_text("Rangni tanlang:", reply_markup=builder.as_markup())
+    elif action == "set_size":
+        for k, v in FONT_SIZES.items():
+            builder.row(InlineKeyboardButton(text=v[0], callback_data=f"size_{k}"))
+        await callback.message.edit_text("O'lchamni tanlang:", reply_markup=builder.as_markup())
+    elif action.startswith("anim_"):
+        session["anim"] = action.split("_", 1)[1]
+        await callback.answer("Uslub saqlandi!")
+        await callback.message.edit_text("✅ Uslub muvaffaqiyatli yangilandi!")
+    elif action.startswith("color_"):
+        session["color"] = action.split("_", 1)[1]
+        await callback.answer("Rang saqlandi!")
+        await callback.message.edit_text("✅ Rang muvaffaqiyatli yangilandi!")
+    elif action.startswith("size_"):
+        session["size"] = action.split("_", 1)[1]
+        await callback.answer("O'lcham saqlandi!")
+        await callback.message.edit_text("✅ O'lcham muvaffaqiyatli yangilandi!")
 
 
 @router.message(F.text == "⚡ Auto Subtitr qo'yish")
-async def cmd_auto_subtitles(message: Message):
-    user_id = message.from_user.id
-    credits = get_user_credits(user_id, message.from_user.username or "")
-    
-    if credits <= 0 and not is_user_pro(user_id):
-        await message.answer(
-            "Balansingizda video yaratish uchun urinishlar qolmadi.\n\n"
-            "Ko'proq video yaratish uchun PRO tarifga o'ting",
-            reply_markup=get_main_keyboard()
-        )
-        return
-        
-    await message.answer(
-        "Marhamat, subtitr qo'shilishi kerak bo'lgan videoni yuboring.\n\n"
-        "(Video formati MP4, hajmi 50 MB dan oshmasligi kerak)",
-        reply_markup=get_main_keyboard()
-    )
+async def start_subtitling_flow(message: Message):
+    await message.answer("Iltimos, subtitr qo'shmoqchi bo'lgan **videongizni yuboring** (maksimal hajm 50MB):", reply_markup=get_main_keyboard())
 
 
 @router.message(F.video)
 async def handle_video(message: Message, bot: Bot):
     user_id = message.from_user.id
+    
+    if not await check_subscription(bot, user_id):
+        await message.answer(f"Botdan foydalanish uchun avval kanalimizga obuna bo'ling: {REQUIRED_CHANNEL}")
+        return
+        
     credits = get_user_credits(user_id, message.from_user.username or "")
-    
     if credits <= 0 and not is_user_pro(user_id):
-        await message.answer(
-            "Balansingizda video yaratish uchun urinishlar qolmadi.\n\n"
-            "Ko'proq video yaratish uchun PRO tarifga o'ting",
-            reply_markup=get_main_keyboard()
-        )
+        await message.answer("❌ Balansingizda urinishlar qolmadi. Iltimos, tarif sotib oling yoki admin bilan bog'laning.")
         return
 
-    user_dir = WORK_ROOT / str(uuid.uuid4())
-    user_dir.mkdir(parents=True, exist_ok=True)
-    input_video = user_dir / "input.mp4"
-    
-    file_info = await bot.get_file(message.video.file_id)
-    await bot.download_file(file_info.file_path, destination=input_video)
-    
-    USER_SESSIONS[user_id] = {
-        "video_path": str(input_video),
-        "dir_path": str(user_dir),
-        "anim_style": "mrbeast_style",
-        "font_size": 85,
-        "color": "&H00FFFFFF"
-    }
-    
-    builder = InlineKeyboardBuilder()
-    for key, name in ANIMATION_STYLES.items():
-        builder.row(InlineKeyboardButton(text=name, callback_data=f"anim_{key}"))
-        
-    await message.answer(
-        "✨ Videongiz qabul qilindi!\n\nSubtitr uchun **animatsiya uslubini** tanlang:",
-        reply_markup=builder.as_markup()
-    )
-
-
-@router.callback_query(F.data.startswith("anim_"))
-async def callback_anim_style(callback: CallbackQuery):
-    user_id = callback.from_user.id
-    if user_id not in USER_SESSIONS:
-        await callback.answer("Sessiya eskirgan. Iltimos videoni qaytadan yuboring.", show_alert=True)
+    if message.video.file_size > MAX_VIDEO_BYTES:
+        await message.answer("❌ Video hajmi juda katta! Maksimal hajm: 50MB.")
         return
-        
-    style_key = callback.data.replace("anim_", "")
-    USER_SESSIONS[user_id]["anim_style"] = style_key
-    
-    builder = InlineKeyboardBuilder()
-    for key, (name, val) in FONT_SIZES.items():
-        builder.row(InlineKeyboardButton(text=name, callback_data=f"size_{key}"))
-        
-    await callback.message.edit_text(
-        "📱 Endi subtitr **shrift o'lchamini** tanlang:",
-        reply_markup=builder.as_markup()
-    )
 
-
-@router.callback_query(F.data.startswith("size_"))
-async def callback_font_size(callback: CallbackQuery, bot: Bot):
-    user_id = callback.from_user.id
-    if user_id not in USER_SESSIONS:
-        await callback.answer("Sessiya eskirgan. Iltimos videoni qaytadan yuboring.", show_alert=True)
-        return
-        
-    size_key = callback.data.replace("size_", "")
-    USER_SESSIONS[user_id]["font_size"] = FONT_SIZES[size_key][1]
+    status_msg = await message.answer("⏳ Video qabul qilindi, yuklab olinmoqda va qayta ishlanmoqda...")
     
-    session = USER_SESSIONS[user_id]
-    input_video = Path(session["video_path"])
-    user_dir = Path(session["dir_path"])
-    output_video = user_dir / "output.mp4"
-    ass_path = user_dir / "subs.ass"
+    WORK_ROOT.mkdir(exist_ok=True)
+    task_id = str(uuid.uuid4())
+    task_dir = WORK_ROOT / task_id
+    task_dir.mkdir(exist_ok=True)
     
-    status_msg = await callback.message.edit_text("✨ Subtitrlar tayyorlanmoqda, iltimos kuting...")
+    input_video = task_dir / "input.mp4"
+    output_video = task_dir / "output.mp4"
+    audio_path = task_dir / "audio.mp3"
+    ass_path = task_dir / "subs.ass"
     
     try:
-        # Videoning asl o'lchamlarini aniqlash
-        v_width, v_height = get_video_resolution(input_video)
-
-        with open(input_video, "rb") as audio_file:
+        file_info = await bot.get_file(message.video.file_id)
+        await bot.download_file(file_info.file_path, destination=input_video)
+        
+        # Audio chiqarib olish
+        cmd_audio = [FFMPEG_PATH, "-y", "-i", str(input_video), "-vn", "-acodec", "libmp3lame", str(audio_path)]
+        subprocess.run(cmd_audio, stdout=subprocess.PIPE, stderr=subprocess.PIPE, check=True)
+        
+        await status_msg.edit_text("🎙️ ElevenLabs orqali ovozni matnga o'tkazish (Speech-to-Text) bajarilmoqda...")
+        
+        with open(audio_path, "rb") as f:
             transcript = el_client.speech_to_text.convert(
-                file=audio_file,
+                file=f,
                 model_id="scribe_v1",
                 tag_audio_events=False
             )
-        
-        words = getattr(transcript, "words", [])
-        if not words and isinstance(transcript, dict):
-            words = transcript.get("words", [])
             
+        words = transcript.words if hasattr(transcript, 'words') else []
         if not words:
-            await status_msg.edit_text("❌ Videodan ovoz topilmadi yoki matnga o'girib bo'lmadi.")
-            shutil.rmtree(user_dir, ignore_errors=True)
+            await status_msg.edit_text("❌ Videodan so'zlar topilmadi yoki ovoz aniqlanmadi.")
+            shutil.rmtree(task_dir, ignore_errors=True)
             return
             
-        generate_word_by_word_ass(
-            words=words,
-            ass_path=ass_path,
-            anim_style=session["anim_style"],
-            text_color_hex=session["color"],
-            font_size=session["font_size"],
-            video_w=v_width,
-            video_h=v_height
-        )
+        session = USER_SESSIONS.get(user_id, {"anim": "mrbeast_style", "color": "yellow", "size": "normal"})
+        anim_style = session["anim"]
+        color_hex = TEXT_COLORS.get(session["color"], TEXT_COLORS["yellow"])[1]
+        f_size = FONT_SIZES.get(session["size"], FONT_SIZES["normal"])[1]
         
-        await burn_subtitles_to_video(input_video, ass_path, output_video)
+        generate_word_by_word_ass(words, ass_path, anim_style, color_hex, f_size)
         
-        if not is_user_pro(user_id):
+        await status_msg.edit_text("🎨 Subtitrlar videoga yopishtirilmoqda (FFmpeg render)...")
+        
+        # Original resolution buzilmasligi uchun subtitles filter to'g'ridan-to'g'ri ishlatiladi
+        escaped_ass = str(ass_path.resolve()).replace('\\', '/').replace(':', '\\:')
+        cmd_render = [
+            FFMPEG_PATH, "-y",
+            "-i", str(input_video),
+            "-vf", f"subtitles='{escaped_ass}'",
+            "-c:v", "libx264", "-preset", "fast", "-crf", "23",
+            "-c:a", "copy",
+            str(output_video)
+        ]
+        
+        subprocess.run(cmd_render, stdout=subprocess.PIPE, stderr=subprocess.PIPE, check=True)
+        
+        if output_video.exists():
             deduct_user_credit(user_id)
+            await status_msg.edit_text("📤 Tayyor video yuborilmoqda...")
+            video_file = FSInputFile(output_video)
+            await message.answer_video(video=video_file, caption="✨ Mana sizning subtitr qo'yilgan videongiz!")
+            await status_msg.delete()
+        else:
+            await status_msg.edit_text("❌ Videoni render qilishda xatolik yuz berdi.")
             
-        remaining_credits = get_user_credits(user_id)
-        
-        await bot.send_video(
-            chat_id=user_id,
-            video=FSInputFile(output_video),
-            caption=f"🔥 Subtitr Tayyor!\n\n💳 Qolgan balans: {remaining_credits} ta video",
-            reply_markup=get_main_keyboard()
-        )
-        await status_msg.delete()
-        shutil.rmtree(user_dir, ignore_errors=True)
-        del USER_SESSIONS[user_id]
-        
     except Exception as e:
-        log.error(f"Video qayta ishlashda xatolik: {e}")
-        await status_msg.edit_text(f"❌ Xatolik yuz berdi: {e}")
-
-
-@router.message(F.text == "🎨 Subtitr uslublari")
-async def cmd_sub_styles(message: Message):
-    styles_text = (
-        "Subtitr uslublarini tanlash:\n\n"
-        "Hozirda quyidagi animatsiya uslublari mavjud:\n"
-        "1. Komika Axis Pop-up (MrBeast uslubi)\n"
-        "2. Smooth Text Tracking (Fade)\n"
-        "3. Active Bold / Regular\n"
-        "4. Active Word Highlight (Box)\n\n"
-        "Video yuborganingizdan so'ng uslubni tanlashingiz mumkin."
-    )
-    await message.answer(styles_text, reply_markup=get_main_keyboard())
-
-
-@router.message(F.text == "💳 Balans")
-async def cmd_balance(message: Message):
-    user_id = message.from_user.id
-    credits = get_user_credits(user_id, message.from_user.username or "")
-    pro_status = "PRO Tarif (Cheksiz)" if is_user_pro(user_id) else "Standard (Bepul)"
-    await message.answer(
-        f"Sizning balansingiz:\n\n"
-        f"ID: {user_id}\n"
-        f"Qolgan urinishlar: {credits} ta video\n"
-        f"Status: {pro_status}",
-        reply_markup=get_main_keyboard()
-    )
-
-
-@router.message(F.text == "💎 PRO Tariflar")
-async def cmd_pro_tariffs(message: Message):
-    text = (
-        "AVTO SUBTITR — PRO TARIFLAR\n\n"
-        "Nima uchun PRO ga o'tish kerak?\n"
-        "• Cheklovsiz videolar va tezkor ishlov berish\n"
-        "• 2K Ultra HD sifat va mukammal shriftlar\n"
-        "• Barcha turdagi premium animatsiyalar\n\n"
-        "1 Oylik PRO: 49,000 so'm\n"
-        "VIP Umrbod (Lifetime): 149,000 so'm\n\n"
-        f"To'lov uchun karta (bosib nusxalash mumkin):\n`{CARD_NUMBER}`\n"
-        f"Karta egasi: {CARD_HOLDER}\n\n"
-        f"To'lovni amalga oshirgach, chekni darhol adminga yuboring: @{ADMIN_USERNAME}"
-    )
-    await message.answer(text, reply_markup=get_main_keyboard(), parse_mode="Markdown")
-
-
-@router.message(F.text == "📜 Oferta")
-async def cmd_terms(message: Message):
-    terms_text = (
-        "Foydalanish shartlari va Ommaviy Oferta:\n\n"
-        "1. Umumiy qoidalar:\n"
-        "Ushbu shartnoma Auto Subtitles boti orqali taqdim etiladigan xizmatlardan foydalanish qoidalarini belgilaydi. Botdan foydalanishni boshlagan har bir shaxs ushbu shartlarga to'liq rozilik bildirgan hisoblanadi.\n\n"
-        "2. Xizmatlar mazmuni:\n"
-        "Bot foydalanuvchilar tomonidan yuborilgan videolarga sun'iy intellekt yordamida avtomatik subtitrlar (taglavhalar) qo'shib berish xizmatini ko'rsatadi.\n\n"
-        "3. To'lovlar va tariflar:\n"
-        "Xizmatlar pullik va bepul asosda taqdim etiladi. PRO tariflar uchun qilingan to'lovlar raqamli xizmat ko'rsatilganligi sababli qaytarilmaydi.\n\n"
-        "4. Foydalanuvchi mas'uliyati:\n"
-        "Foydalanuvchi yuklayotgan videolari O'zbekiston Respublikasi qonunchiligiga zid kelmasligini, mualliflik huquqlarini buzmasligini va boshqalarning huquqlarini poymol qilmasligini kafolatlaydi.\n\n"
-        "5. Maxfiylik:\n"
-        "Foydalanuvchining shaxsiy ma'lumotlari xavfsiz saqlanadi va uchinchi shaxslarga berilmaydi."
-    )
-    await message.answer(terms_text, reply_markup=get_main_keyboard())
-
-
-@router.message(F.text == "👨‍💻 Admin bilan bog'lanish")
-async def cmd_contact_admin(message: Message):
-    await message.answer(
-        f"Texnik yordam va Admin:\n\n"
-        f"Murojaat uchun: @{ADMIN_USERNAME}\n"
-        f"Telefon raqam: {ADMIN_PHONE}",
-        reply_markup=get_main_keyboard()
-    )
+        log.error(f"Video qayta ishlashda xato: {e}")
+        await status_msg.edit_text(f"❌ Xatolik yuz berdi: {str(e)}")
+    finally:
+        shutil.rmtree(task_dir, ignore_errors=True)
 
 
 async def main():
-    if not WORK_ROOT.exists():
-        WORK_ROOT.mkdir(parents=True)
     init_db()
-    
     session = AiohttpSession()
     bot = Bot(token=BOT_TOKEN, session=session)
     dp = Dispatcher(storage=MemoryStorage())
     dp.include_router(router)
     
     await bot.set_my_commands([
-        BotCommand(command="start", description="Botni ishga tushirish / Asosiy menyu")
+        BotCommand(command="start", description="Botni ishga tushirish")
     ])
     
     log.info("Bot ishga tushdi...")
-    await bot.delete_webhook(drop_pending_updates=True)
     await dp.start_polling(bot)
 
 
 if __name__ == "__main__":
-    try:
-        asyncio.run(main())
-    except (KeyboardInterrupt, SystemExit):
-        log.info("Bot to'xtatildi.")
+    asyncio.run(main())
