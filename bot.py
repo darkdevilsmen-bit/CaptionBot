@@ -21,7 +21,6 @@ from aiogram.fsm.storage.memory import MemoryStorage
 from aiogram.types import (
     BotCommand,
     CallbackQuery,
-    ChatJoinRequest,
     FSInputFile,
     InlineKeyboardButton,
     KeyboardButton,
@@ -42,14 +41,15 @@ logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(
 log = logging.getLogger(__name__)
 
 # --- SOZLAMALAR ---
-BOT_TOKEN = os.getenv("BOT_TOKEN", "8933394511:AAEQ5atljKHskaCTG2UINuIiXPHHogNkqMM")
+BOT_TOKEN = os.getenv("BOT_TOKEN", "8933394511:AAE_-rkX_t_yhFF79k-fpQoosvHE1CtTp2o")
 ELEVENLABS_API_KEY = os.getenv("ELEVENLABS_API_KEY", "sk_2645eb8c6ab7457d5661f30bc9935e8107560bec586b14c8")
 
 ADMIN_ID = 7662888182
 ADMIN_USERNAME = "Captions_Admin"
 ADMIN_PHONE = "+998 (93) 495-10-89"
+
+# 📢 Majburiy obuna uchun kanal ulandi
 REQUIRED_CHANNEL = "@Auto_Captions"
-CHANNEL_LINK = "https://t.me/Auto_Captions"
 
 CARD_NUMBER = "5614686505428600"
 CARD_HOLDER = "Toshpulatov Shoxrux"
@@ -123,7 +123,7 @@ MONTSERRAT_SPACING = -0.02
 
 _GF = "https://github.com/google/fonts/raw/main/ofl/montserrat/static/"
 FONT_OPTIONS = {
-    "the_bold": {"label": "🅱️ The Bold", "family": "The Bold Font", "tokens": ("thebold",),
+    "the_bold": {"label": "🅱️️ The Bold", "family": "The Bold Font", "tokens": ("thebold",),
                  "url": None, "bold_ok": False, "tight": False},
     "komika": {"label": "🟢 Komika Axis", "family": "Komika Axis", "tokens": ("komika",),
                "url": None, "bold_ok": True, "tight": False},
@@ -151,7 +151,6 @@ el_client = ElevenLabs(api_key=ELEVENLABS_API_KEY)
 FFMPEG_PATH = imageio_ffmpeg.get_ffmpeg_exe()
 
 PROCESSING: set = set()
-approved_users = set()
 
 
 def get_main_keyboard() -> ReplyKeyboardMarkup:
@@ -287,22 +286,14 @@ def cleanup_stale_sessions(max_age_sec: int = 72 * 3600):
 
 
 async def check_subscription(bot: Bot, user_id: int) -> bool:
-    if user_id in approved_users:
+    if not REQUIRED_CHANNEL:
         return True
     try:
         member = await bot.get_chat_member(chat_id=REQUIRED_CHANNEL, user_id=user_id)
-        if member.status in ("member", "administrator", "creator", "restricted"):
-            approved_users.add(user_id)
-            return True
+        return member.status in ("member", "administrator", "creator")
     except Exception as e:
         log.error(f"Obunani tekshirishda xatolik: {e}")
-    return False
-
-
-@router.chat_join_request()
-async def handle_join_request(request: ChatJoinRequest) -> None:
-    user_id = request.from_user.id
-    approved_users.add(user_id)
+        return False
 
 
 def format_srt_time(seconds: float) -> str:
@@ -707,11 +698,12 @@ async def cmd_start(message: Message, bot: Bot):
 
     if REQUIRED_CHANNEL and not await check_subscription(bot, user_id):
         builder = InlineKeyboardBuilder()
-        builder.row(InlineKeyboardButton(text="📢 Kanalga So'rov Yuborish", url=CHANNEL_LINK))
-        builder.row(InlineKeyboardButton(text="✅ Obunani Tekshirish", callback_data="check_sub"))
+        builder.row(InlineKeyboardButton(
+            text="📢 Kanalga obuna bo'lish",
+            url=f"https://t.me/{REQUIRED_CHANNEL.replace('@', '')}"))
+        builder.row(InlineKeyboardButton(text="✅ Obunani tekshirish", callback_data="check_sub"))
         await message.answer(
-            f"Botimizdan foydalanish uchun avval quyidagi kanalimizga a'zo bo'lish uchun so'rov yuboring:\n{REQUIRED_CHANNEL}\n\n"
-            f"So'rov yuborganingizdan so'ng <b>'Obunani Tekshirish'</b> tugmasini bosing:",
+            f"Botimizdan to'liq foydalanish uchun avval rasmiy kanalimizga obuna bo'ling:\n{REQUIRED_CHANNEL}",
             reply_markup=builder.as_markup(),
         )
         return
@@ -721,15 +713,6 @@ async def cmd_start(message: Message, bot: Bot):
         "Videongizga professional darajada avtomatik subtitrlar qo'shib beraman.",
         reply_markup=get_main_keyboard(),
     )
-
-
-@router.callback_query(F.data == "check_sub")
-async def callback_check_sub(callback: CallbackQuery, bot: Bot):
-    if await check_subscription(bot, callback.from_user.id):
-        await callback.message.delete()
-        await callback.message.answer("Obunangiz tasdiqlandi! Xush kelibsiz.", reply_markup=get_main_keyboard())
-    else:
-        await callback.answer("Siz hali kanalga so'rov yubormadingiz yoki a'zo emassiz!", show_alert=True)
 
 
 @router.message(Command("add"))
@@ -793,6 +776,15 @@ async def cmd_set_pro(message: Message):
         await message.answer(f"Xatolik: {escape(str(e))}")
 
 
+@router.callback_query(F.data == "check_sub")
+async def callback_check_sub(callback: CallbackQuery, bot: Bot):
+    if await check_subscription(bot, callback.from_user.id):
+        await callback.message.delete()
+        await callback.message.answer("Obunangiz tasdiqlandi! Xush kelibsiz.", reply_markup=get_main_keyboard())
+    else:
+        await callback.answer("Siz hali kanalga obuna bo'lmadingiz!", show_alert=True)
+
+
 NO_CREDITS_TEXT = (
     "Balansingizda video yaratish uchun urinishlar qolmadi.\n\n"
     "Ko'proq video yaratish uchun PRO tarifga o'ting"
@@ -804,9 +796,9 @@ async def cmd_auto_subtitles(message: Message, bot: Bot):
     user_id = message.from_user.id
     if REQUIRED_CHANNEL and not await check_subscription(bot, user_id):
         builder = InlineKeyboardBuilder()
-        builder.row(InlineKeyboardButton(text="📢 Kanalga So'rov Yuborish", url=CHANNEL_LINK))
-        builder.row(InlineKeyboardButton(text="✅ Obunani Tekshirish", callback_data="check_sub"))
-        await message.answer("Botdan foydalanish uchun avval kanalimizga so'rov yuboring:", reply_markup=builder.as_markup())
+        builder.row(InlineKeyboardButton(text="📢 Kanalga obuna bo'lish", url=f"https://t.me/{REQUIRED_CHANNEL.replace('@', '')}"))
+        builder.row(InlineKeyboardButton(text="✅ Obunani tekshirish", callback_data="check_sub"))
+        await message.answer(f"Botdan foydalanish uchun avval kanalga obuna bo'ling:\n{REQUIRED_CHANNEL}", reply_markup=builder.as_markup())
         return
 
     credits = get_user_credits(user_id, message.from_user.username or "")
@@ -824,10 +816,6 @@ async def cmd_auto_subtitles(message: Message, bot: Bot):
 async def handle_video(message: Message, bot: Bot):
     user_id = message.from_user.id
     if REQUIRED_CHANNEL and not await check_subscription(bot, user_id):
-        builder = InlineKeyboardBuilder()
-        builder.row(InlineKeyboardButton(text="📢 Kanalga So'rov Yuborish", url=CHANNEL_LINK))
-        builder.row(InlineKeyboardButton(text="✅ Obunani Tekshirish", callback_data="check_sub"))
-        await message.answer("Botdan foydalanish uchun avval kanalimizga so'rov yuboring:", reply_markup=builder.as_markup())
         return
 
     credits = get_user_credits(user_id, message.from_user.username or "")
@@ -876,6 +864,7 @@ async def handle_video(message: Message, bot: Bot):
 async def load_session(callback: CallbackQuery, bot: Bot, sid: str) -> Optional[Dict[str, Any]]:
     user_id = callback.from_user.id
     sess = db_get_session(user_id)
+    
     if not sess:
         await callback.answer("⏳ Sessiya yangilanmoqda...", show_alert=False)
         return None
@@ -1186,7 +1175,7 @@ async def cmd_contact_admin(message: Message):
         f"💬 Telegram: @{ADMIN_USERNAME}\n"
         f"📞 Telefon: <code>{ADMIN_PHONE}</code>\n{LINE}\n"
         "Savol, to'lov yoki muammo bo'lsa — yozing, tez javob beramiz.",
-        reply_markup=b.as_markup(),
+        reply_markup=b.as_km() if hasattr(b, 'as_km') else b.as_markup(),
     )
 
 
