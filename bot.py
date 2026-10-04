@@ -88,8 +88,8 @@ def get_main_keyboard() -> ReplyKeyboardMarkup:
     keyboard = [
         [KeyboardButton(text="⚡ Auto Subtitr qo'yish")],
         [KeyboardButton(text="🎨 Subtitr uslublari"), KeyboardButton(text="💳 Balans")],
-        [KeyboardButton(text="💎 PRO Tariflar"), KeyboardButton(text="☕ Donat")],
-        [KeyboardButton(text="📜 Oferta"), KeyboardButton(text="👨‍💻 Admin bilan bog'lanish")]
+        [KeyboardButton(text="💎 PRO Tariflar"), KeyboardButton(text="📜 Oferta")],
+        [KeyboardButton(text="👨‍💻 Admin bilan bog'lanish")]
     ]
     return ReplyKeyboardMarkup(keyboard=keyboard, resize_keyboard=True)
 
@@ -336,6 +336,75 @@ async def cmd_auto_subtitles(message: Message):
     )
 
 
+# --- VIDEO KELGANDA QABUL QILISH (HANDLER) ---
+@router.message(F.video)
+async def handle_video(message: Message, bot: Bot):
+    user_id = message.from_user.id
+    credits = get_user_credits(user_id, message.from_user.username or "")
+    
+    if credits <= 0 and not is_user_pro(user_id):
+        await message.answer(
+            "Balansingizda video yaratish uchun urinishlar qolmadi.\n\n"
+            "Ko'proq video yaratish uchun PRO tarifga o'ting",
+            reply_markup=get_main_keyboard()
+        )
+        return
+
+    status_msg = await message.answer("✨ Subtitrlar tayyorlanmoqda, iltimos kuting...")
+    
+    try:
+        user_dir = WORK_ROOT / str(uuid.uuid4())
+        user_dir.mkdir(parents=True, exist_ok=True)
+        
+        input_video = user_dir / "input.mp4"
+        output_video = user_dir / "output.mp4"
+        ass_path = user_dir / "subs.ass"
+        
+        file_info = await bot.get_file(message.video.file_id)
+        await bot.download_file(file_info.file_path, destination=input_video)
+        
+        # ElevenLabs orqali ovozni matnga o'girish va subtitr yasash
+        with open(input_video, "rb") as audio_file:
+            transcript = el_client.speech_to_text.convert(
+                file=audio_file,
+                model_id="scribe_v1",
+                tag_audio_events=False
+            )
+        
+        words = getattr(transcript, "words", [])
+        if not words:
+            await status_msg.edit_text("❌ Videodan ovoz topilmadi yoki matnga o'girib bo'lmadi.")
+            shutil.rmtree(user_dir, ignore_errors=True)
+            return
+            
+        generate_word_by_word_ass(
+            words=words,
+            ass_path=ass_path,
+            anim_style="mrbeast_style",
+            text_color_hex="&H00FFFFFF",
+            font_size=85
+        )
+        
+        await burn_subtitles_to_video(input_video, ass_path, output_video)
+        
+        if not is_user_pro(user_id):
+            deduct_user_credit(user_id)
+            
+        remaining_credits = get_user_credits(user_id)
+        
+        await message.answer_video(
+            video=FSInputFile(output_video),
+            caption=f"🔥 Subtitr Tayyor!\n\n💳 Qolgan balans: {remaining_credits} ta video",
+            reply_markup=get_main_keyboard()
+        )
+        await status_msg.delete()
+        shutil.rmtree(user_dir, ignore_errors=True)
+        
+    except Exception as e:
+        log.error(f"Video qayta ishlashda xatolik: {e}")
+        await status_msg.edit_text(f"❌ Xatolik yuz berdi: {e}")
+
+
 @router.message(F.text == "🎨 Subtitr uslublari")
 async def cmd_sub_styles(message: Message):
     styles_text = (
@@ -377,19 +446,6 @@ async def cmd_pro_tariffs(message: Message):
         f"To'lov uchun karta (bosib nusxalash mumkin):\n`{CARD_NUMBER}`\n"
         f"Karta egasi: {CARD_HOLDER}\n\n"
         f"To'lovni amalga oshirgach, chekni darhol adminga yuboring: @{ADMIN_USERNAME}"
-    )
-    await message.answer(text, reply_markup=get_main_keyboard(), parse_mode="Markdown")
-
-
-@router.message(F.text == "☕ Donat")
-async def cmd_donate(message: Message):
-    text = (
-        "☕ **Loyihani qo'llab-quvvatlash (Donat):**\n\n"
-        "Agar botimiz sizga foydali bo'lgan bo'lsa va uni yanada rivojlantirishimizga o'z hissangizni qo'shmoqchi bo'lsangiz, istalgan miqdorda donat qilishingiz mumkin!\n\n"
-        f"💳 **Karta raqami (bosib nusxalash):**\n`{CARD_NUMBER}`\n"
-        f"👤 **Karta egasi:** {CARD_HOLDER}\n\n"
-        f"📲 Qilingan o'tkazma chekini adminga yuborishingiz mumkin: @{ADMIN_USERNAME}\n\n"
-        "Yordamingiz uchun katta rahmat! 🙏"
     )
     await message.answer(text, reply_markup=get_main_keyboard(), parse_mode="Markdown")
 
