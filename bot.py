@@ -82,7 +82,7 @@ def get_main_keyboard() -> ReplyKeyboardMarkup:
         [KeyboardButton(text="⚡ Auto Subtitr qo'yish")],
         [KeyboardButton(text="🎨 Subtitr uslublari"), KeyboardButton(text="💳 Balans")],
         [KeyboardButton(text="💎 PRO Tariflar"), KeyboardButton(text="📜 Oferta")],
-        [KeyboardButton(text="👨‍💻 Admin bilan bog'lanish")]
+        [KeyboardButton(text="👨‍‍💻 Admin bilan bog'lanish")]
     ]
     return ReplyKeyboardMarkup(keyboard=keyboard, resize_keyboard=True)
 
@@ -308,7 +308,6 @@ async def show_styles(message: Message):
 @router.callback_query(F.data == "set_anim")
 async def cb_set_anim(callback: CallbackQuery):
     builder = InlineKeyboardBuilder()
-    # 4 ta animatsiya tugmasini har birini alohida qatorda qo'shamiz
     builder.row(InlineKeyboardButton(text=ANIMATION_STYLES["mrbeast_style"], callback_data="anim_mrbeast_style"))
     builder.row(InlineKeyboardButton(text=ANIMATION_STYLES["smooth_tracking"], callback_data="anim_smooth_tracking"))
     builder.row(InlineKeyboardButton(text=ANIMATION_STYLES["active_bold_regular"], callback_data="anim_active_bold_regular"))
