@@ -1,7 +1,6 @@
 import os
 import sys
 import time
-import uuid
 import json
 import shutil
 import sqlite3
@@ -11,7 +10,6 @@ import subprocess
 from pathlib import Path
 from typing import Dict, Any, List, Tuple
 
-from aiohttp import web
 from aiogram import Bot, Dispatcher, F, Router
 from aiogram.filters import CommandStart, Command
 from aiogram.types import (
@@ -33,7 +31,7 @@ import imageio_ffmpeg
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
 log = logging.getLogger(__name__)
 
-# --- SOZLAMALAR ---
+# ================= ASOSIY SOZLAMALAR =================
 BOT_TOKEN = "8933394511:AAH4jiabi75UgDni40C2rfge8-4uDv7kzwE"
 ELEVENLABS_API_KEY = "sk_2645eb8c6ab7457d5661f30bc9935e8107560bec586b14c8"
 ADMIN_ID = 7662888182
@@ -45,17 +43,15 @@ REQUIRED_CHANNEL = "@Auto_Captions"
 CARD_NUMBER = "5614686505428600"
 CARD_HOLDER = "Toshpulatov Shoxrux"
 
-MAX_VIDEO_BYTES = 50 * 1024 * 1024
 WORK_ROOT = Path("temp_processing")
-FONTS_DIR = Path(".")
 DB_FILE = Path("database.db")
 INITIAL_CREDITS = 1
 
 ANIMATION_STYLES = {
     "mrbeast_style": "🟢 Komika Axis Pop-up (MrBeast)",
-    "smooth_tracking": "✨ Smooth Text Tracking (Fade)",
-    "active_bold_regular": "🔥 Active Bold / Regular",
-    "active_word_box": "⬛ Active Word Highlight (Box)"
+    "smooth_tracking": "✨ Neon Porlash (Glow)",
+    "active_bold_regular": "🔥 Active Bold (Olov rang)",
+    "active_word_box": "⬛ Active Word Box (Sariq fon)"
 }
 
 FONT_SIZES = {
@@ -64,13 +60,11 @@ FONT_SIZES = {
     "large": ("📈 Katta (100)", 100),
     "xlarge": ("🔥 Juda katta (115)", 115)
 }
+# =====================================================
 
 router = Router()
 el_client = ElevenLabs(api_key=ELEVENLABS_API_KEY)
 FFMPEG_PATH = imageio_ffmpeg.get_ffmpeg_exe()
-
-# Sessiyalar xotirada barqaror saqlanadi
-USER_SESSIONS: Dict[int, Dict[str, Any]] = {}
 
 
 def get_main_keyboard() -> ReplyKeyboardMarkup:
@@ -97,6 +91,55 @@ def init_db():
                 joined_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             )
         """)
+        # Sessiyalarni bazada saqlash — server qayta ishga tushsa ham eskirib qolmaydi
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS user_sessions (
+                user_id INTEGER PRIMARY KEY,
+                video_path TEXT,
+                dir_path TEXT,
+                raw_w INTEGER,
+                raw_h INTEGER,
+                raw_dur INTEGER,
+                anim_style TEXT DEFAULT 'mrbeast_style',
+                font_size INTEGER DEFAULT 85,
+                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+        """)
+        conn.commit()
+
+
+def save_session(user_id: int, video_path: str, dir_path: str, raw_w: int, raw_h: int, raw_dur: int):
+    with sqlite3.connect(DB_FILE) as conn:
+        cursor = conn.cursor()
+        cursor.execute("""
+            INSERT OR REPLACE INTO user_sessions (user_id, video_path, dir_path, raw_w, raw_h, raw_dur, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+        """, (user_id, video_path, dir_path, raw_w, raw_h, raw_dur))
+        conn.commit()
+
+
+def update_session(user_id: int, **kwargs):
+    fields = ", ".join([f"{k} = ?" for k in kwargs.keys()])
+    values = list(kwargs.values()) + [user_id]
+    with sqlite3.connect(DB_FILE) as conn:
+        cursor = conn.cursor()
+        cursor.execute(f"UPDATE user_sessions SET {fields} WHERE user_id = ?", values)
+        conn.commit()
+
+
+def get_session(user_id: int) -> dict:
+    with sqlite3.connect(DB_FILE) as conn:
+        conn.row_factory = sqlite3.Row
+        cursor = conn.cursor()
+        cursor.execute("SELECT * FROM user_sessions WHERE user_id = ?", (user_id,))
+        row = cursor.fetchone()
+        return dict(row) if row else None
+
+
+def delete_session(user_id: int):
+    with sqlite3.connect(DB_FILE) as conn:
+        cursor = conn.cursor()
+        cursor.execute("DELETE FROM user_sessions WHERE user_id = ?", (user_id,))
         conn.commit()
 
 
@@ -141,7 +184,7 @@ async def check_subscription(bot: Bot, user_id: int) -> bool:
         if member.status in ["member", "administrator", "creator"]:
             return True
     except Exception as e:
-        log.error(f"Obunani tekshirishda xatolik: {e}")
+        log.error(f"Obuna tekshirishda xatolik: {e}")
     return False
 
 
@@ -156,6 +199,7 @@ def format_ass_time(seconds: float) -> str:
 
 
 def get_video_metadata(video_path: Path, fallback_w: int = 1080, fallback_h: int = 1920, fallback_dur: int = 0) -> Tuple[int, int, int]:
+    """Videoning aniq o'lchami va vaqtini aniqlash"""
     try:
         cmd = [
             "ffprobe",
@@ -197,9 +241,7 @@ def get_video_metadata(video_path: Path, fallback_w: int = 1080, fallback_h: int
 
 def generate_word_by_word_ass(words: List[Any], ass_path: Path, anim_style: str, font_size: int, video_w: int, video_h: int) -> int:
     """
-    Haqiqiy karaoke/animatsiya:
-    Kadrda bir vaqtda 3-4 ta so'z ko'rinadi va gapirilayotgan so'z o'sha soniyada
-    ajralib (sakrab / sariq bo'lib / neon bo'lib) turadi.
+    Haqiqiy millisekundli karaoke animatsiyasi.
     """
     header = f"""[Script Info]
 ScriptType: v4.00+
@@ -233,8 +275,8 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
         
         et = getattr(w, 'end', None)
         if et is None and isinstance(w, dict):
-            et = w.get('end', st + 0.4)
-        et = float(et or (st + 0.4))
+            et = w.get('end', st + 0.35)
+        et = float(et or (st + 0.35))
         
         clean_words.append({"word": txt, "start": st, "end": et})
 
@@ -248,7 +290,6 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
         if not chunk:
             continue
 
-        # Har bir so'z gapirilayotgan alohida vaqt oralig'i uchun kadr chizamiz
         for active_idx, target_word in enumerate(chunk):
             w_start = target_word["start"]
             w_end = target_word["end"]
@@ -257,23 +298,17 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
             for j, item in enumerate(chunk):
                 word_text = item["word"]
                 if j == active_idx:
-                    # Aktiv aytilayotgan so'zning animatsiyasi
                     if anim_style == "mrbeast_style":
-                        # Sakrash va sariq rang
-                        formatted = f"{{\\c&H0000FFFF&\\t(0,80,\\fscx125\\fscy125)\\t(80,160,\\fscx100\\fscy100)}}{word_text}"
+                        formatted = f"{{\\c&H0000FFFF&\\t(0,70,\\fscx125\\fscy125)\\t(70,140,\\fscx100\\fscy100)}}{word_text}"
                     elif anim_style == "smooth_tracking":
-                        # Neon yashil va porlash
-                        formatted = f"{{\\c&H0000FF00&\\bord5\\shad0}}{word_text}"
+                        formatted = f"{{\\c&H0000FF00&\\bord4\\shad0}}{word_text}"
                     elif anim_style == "active_bold_regular":
-                        # Qizil/olov rang va qalin
-                        formatted = f"{{\\b1\\c&H000080FF&}}{word_text}{{\\b0}}"
+                        formatted = f"{{\\b1\\c&H000055FF&}}{word_text}{{\\b0}}"
                     elif anim_style == "active_word_box":
-                        # Oq fon (box) bilan qora matn
                         formatted = f"{{\\c&H00000000&\\4c&H0000FFFF&\\bord4}}{word_text}"
                     else:
                         formatted = f"{{\\c&H0000FFFF&}}{word_text}"
                 else:
-                    # Hali aytilmagan yoki aytib bo'lingan oddiy oq so'z
                     formatted = f"{{\\c&H00FFFFFF&}}{word_text}"
                 
                 line_parts.append(formatted)
@@ -379,6 +414,7 @@ async def cmd_set_pro(message: Message):
 
 @router.callback_query(F.data == "check_sub")
 async def callback_check_sub(callback: CallbackQuery, bot: Bot):
+    await callback.answer()
     user_id = callback.from_user.id
     if await check_subscription(bot, user_id):
         await callback.message.delete()
@@ -387,7 +423,7 @@ async def callback_check_sub(callback: CallbackQuery, bot: Bot):
             reply_markup=get_main_keyboard()
         )
     else:
-        await callback.answer("Siz hali kanalga obuna bo'lmadingiz!", show_alert=True)
+        await callback.message.answer("Siz hali kanalga obuna bo'lmadingiz! Iltimos, obuna bo'lib qayta tekshiring.")
 
 
 @router.message(F.text == "⚡ Auto Subtitr qo'yish")
@@ -423,17 +459,16 @@ async def handle_video(message: Message, bot: Bot):
         )
         return
 
-    # Oldingi sessiya bo'lsa tozalash
-    if user_id in USER_SESSIONS:
-        old_dir = Path(USER_SESSIONS[user_id].get("dir_path", ""))
-        if old_dir.exists():
-            shutil.rmtree(old_dir, ignore_errors=True)
+    # Eski sessiya bo'lsa papkasini tozalab yangilaymiz
+    old_session = get_session(user_id)
+    if old_session and old_session.get("dir_path"):
+        shutil.rmtree(old_session["dir_path"], ignore_errors=True)
 
     user_dir = WORK_ROOT / f"user_{user_id}_{int(time.time())}"
     user_dir.mkdir(parents=True, exist_ok=True)
     input_video = user_dir / "input.mp4"
     
-    status_dl = await message.reply("⏳ Video yuklab olinmoqda...")
+    status_dl = await message.reply("⏳ Video qabul qilinmoqda...")
     file_info = await bot.get_file(message.video.file_id)
     await bot.download_file(file_info.file_path, destination=input_video)
     
@@ -441,16 +476,7 @@ async def handle_video(message: Message, bot: Bot):
     init_h = message.video.height or 1920
     init_dur = message.video.duration or 0
 
-    USER_SESSIONS[user_id] = {
-        "video_path": str(input_video),
-        "dir_path": str(user_dir),
-        "anim_style": "mrbeast_style",
-        "font_size": 85,
-        "raw_w": init_w,
-        "raw_h": init_h,
-        "raw_dur": init_dur,
-        "processing": False
-    }
+    save_session(user_id, str(input_video), str(user_dir), init_w, init_h, init_dur)
     
     builder = InlineKeyboardBuilder()
     for key, name in ANIMATION_STYLES.items():
@@ -467,12 +493,14 @@ async def handle_video(message: Message, bot: Bot):
 async def callback_anim_style(callback: CallbackQuery):
     await callback.answer()
     user_id = callback.from_user.id
-    if user_id not in USER_SESSIONS:
-        await callback.message.answer("Sessiya topilmadi. Iltimos videoni qaytadan yuboring.")
+    session = get_session(user_id)
+    
+    if not session or not Path(session["video_path"]).exists():
+        await callback.message.answer("⚠️ Sessiya eskirgan yoki fayl topilmadi. Iltimos, videoni qaytadan yuboring.")
         return
         
     style_key = callback.data.replace("anim_", "")
-    USER_SESSIONS[user_id]["anim_style"] = style_key
+    update_session(user_id, anim_style=style_key)
     
     builder = InlineKeyboardBuilder()
     for key, (name, val) in FONT_SIZES.items():
@@ -494,17 +522,14 @@ async def callback_anim_style(callback: CallbackQuery):
 async def callback_font_size(callback: CallbackQuery, bot: Bot):
     await callback.answer()
     user_id = callback.from_user.id
-    if user_id not in USER_SESSIONS:
-        await callback.message.answer("Sessiya eskirgan. Iltimos videoni qaytadan yuboring.")
+    session = get_session(user_id)
+    
+    if not session or not Path(session["video_path"]).exists():
+        await callback.message.answer("⚠️ Sessiya eskirgan. Iltimos, videoni qaytadan yuboring.")
         return
-        
-    session = USER_SESSIONS[user_id]
-    if session.get("processing"):
-        return
-    session["processing"] = True
 
     size_key = callback.data.replace("size_", "")
-    session["font_size"] = FONT_SIZES.get(size_key, ("Normal", 85))[1]
+    chosen_font_size = FONT_SIZES.get(size_key, ("Normal", 85))[1]
     
     input_video = Path(session["video_path"])
     user_dir = Path(session["dir_path"])
@@ -514,11 +539,12 @@ async def callback_font_size(callback: CallbackQuery, bot: Bot):
     status_msg = await callback.message.edit_text("✨ Subtitrlar tayyorlanmoqda, iltimos kuting...")
     
     try:
+        # Videoning haqiqiy o'lchamlari va davomiyligi
         v_width, v_height, v_dur = get_video_metadata(
             input_video,
-            session.get("raw_w", 1080),
-            session.get("raw_h", 1920),
-            session.get("raw_dur", 0)
+            session["raw_w"],
+            session["raw_h"],
+            session["raw_dur"]
         )
 
         with open(input_video, "rb") as audio_file:
@@ -535,14 +561,14 @@ async def callback_font_size(callback: CallbackQuery, bot: Bot):
         if not words:
             await status_msg.edit_text("❌ Videodan ovoz topilmadi yoki matnga o'girib bo'lmadi.")
             shutil.rmtree(user_dir, ignore_errors=True)
-            USER_SESSIONS.pop(user_id, None)
+            delete_session(user_id)
             return
             
         generate_word_by_word_ass(
             words=words,
             ass_path=ass_path,
             anim_style=session["anim_style"],
-            font_size=session["font_size"],
+            font_size=chosen_font_size,
             video_w=v_width,
             video_h=v_height
         )
@@ -571,7 +597,7 @@ async def callback_font_size(callback: CallbackQuery, bot: Bot):
         await status_msg.edit_text(f"❌ Xatolik yuz berdi: {e}")
     finally:
         shutil.rmtree(user_dir, ignore_errors=True)
-        USER_SESSIONS.pop(user_id, None)
+        delete_session(user_id)
 
 
 @router.message(F.text == "🎨 Subtitr uslublari")
@@ -579,10 +605,10 @@ async def cmd_sub_styles(message: Message):
     styles_text = (
         "Subtitr uslublarini tanlash:\n\n"
         "Hozirda quyidagi animatsiya uslublari mavjud:\n"
-        "1. 🟢 Komika Axis Pop-up (MrBeast uslubi - har bir so'z aytilganda sakraydi)\n"
-        "2. ✨ Smooth Text Tracking (Neon porlash bilan)\n"
-        "3. 🔥 Active Bold / Regular (Aytilayotgan so'z qalinlashadi)\n"
-        "4. ⬛ Active Word Highlight (Aktiv so'z sariq qutida ajraladi)\n\n"
+        "1. 🟢 Komika Axis Pop-up (MrBeast uslubi - aytilayotgan so'z sakraydi va sariq bo'ladi)\n"
+        "2. ✨ Neon Porlash (Aktiv so'z yashil neon bo'lib ajraladi)\n"
+        "3. 🔥 Active Bold (Aktiv so'z olov rangda qalinlashadi)\n"
+        "4. ⬛ Active Word Box (Aktiv so'z orqasida sariq fon chiqadi)\n\n"
         "Video yuborganingizdan so'ng uslubni tanlashingiz mumkin."
     )
     await message.answer(styles_text, reply_markup=get_main_keyboard())
