@@ -160,9 +160,33 @@ def format_ass_time(seconds: float) -> str:
     return f"{hours}:{mins:02d}:{secs:02d}.{centis:02d}"
 
 
-def generate_word_by_word_ass(words: List[Any], ass_path: Path, anim_style: str, text_color_hex: str, font_size: int) -> int:
+def get_video_resolution(video_path: Path) -> tuple:
+    try:
+        ffprobe_path = FFMPEG_PATH.replace("ffmpeg", "ffprobe")
+        cmd = [
+            ffprobe_path,
+            "-v", "error",
+            "-select_streams", "v:0",
+            "-show_entries", "stream=width,height",
+            "-of", "csv=p=0",
+            str(video_path)
+        ]
+        result = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, timeout=5)
+        if result.returncode == 0:
+            parts = result.stdout.strip().split(',')
+            if len(parts) == 2:
+                return int(parts[0]), int(parts[1])
+    except Exception:
+        pass
+    return 1080, 1920
+
+
+def generate_word_by_word_ass(words: List[Any], ass_path: Path, anim_style: str, text_color_hex: str, font_size: int, video_w: int, video_h: int) -> int:
+    # PlayResX va PlayResY ga videoning asl o'lchami beriladi, bu orqali animatsiyalar to'g'ri ishlaydi va razmer buzilmaydi
     header = f"""[Script Info]
 ScriptType: v4.00+
+PlayResX: {video_w}
+PlayResY: {video_h}
 ScaledBorderAndShadow: yes
 WrapStyle: 2
 
@@ -179,9 +203,7 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
         chunk = words[i:i + chunk_size]
         if not chunk:
             continue
-        start_t = chunk[0].start
-        end_t = chunk[-1].end
-
+        
         for idx, w in enumerate(chunk):
             w_start = w.start
             w_end = w.end
@@ -192,10 +214,11 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
                     continue
                 if j == idx:
                     if anim_style == "mrbeast_style":
-                        text_parts.pop() if text_parts else None
                         text_parts.append(f"{{\\c&H0000FFFF\\fscx120\\fscy120}}{word_str}{{\\r}}")
                     elif anim_style == "active_word_box":
                         text_parts.append(f"{{\\3c&H000000&\\4c&H00FFFF00&}}{word_str}{{\\r}}")
+                    elif anim_style == "smooth_tracking":
+                        text_parts.append(f"{{\\alpha&H00&}}{word_str}{{\\r}}")
                     else:
                         text_parts.append(f"{{\\c&H00FFFF00&}}{word_str}{{\\r}}")
                 else:
@@ -255,7 +278,7 @@ async def show_terms(message: Message):
         "📜 **Foydalanish shartlari (Oferta):**\n\n"
         "1. Bot xizmatlaridan foydalanganda qoidalarga amal qiling.\n"
         "2. To'lovlar qaytarilmaydi.\n"
-        "3. Har qanday savollar bo'yicha adмин bilan bog'lanishingiz mumkin."
+        "3. Har qanday savollar bo'yicha admin bilan bog'lanishingiz mumkin."
     )
     await message.answer(text, parse_mode="Markdown")
 
@@ -352,6 +375,9 @@ async def handle_video(message: Message, bot: Bot):
         file_info = await bot.get_file(message.video.file_id)
         await bot.download_file(file_info.file_path, destination=input_video)
         
+        # Videoning asl o'lchamlarini aniqlash
+        v_width, v_height = get_video_resolution(input_video)
+        
         # Audio chiqarib olish
         cmd_audio = [FFMPEG_PATH, "-y", "-i", str(input_video), "-vn", "-acodec", "libmp3lame", str(audio_path)]
         subprocess.run(cmd_audio, stdout=subprocess.PIPE, stderr=subprocess.PIPE, check=True)
@@ -376,11 +402,11 @@ async def handle_video(message: Message, bot: Bot):
         color_hex = TEXT_COLORS.get(session["color"], TEXT_COLORS["yellow"])[1]
         f_size = FONT_SIZES.get(session["size"], FONT_SIZES["normal"])[1]
         
-        generate_word_by_word_ass(words, ass_path, anim_style, color_hex, f_size)
+        # Dinamik o'lchamlar yordamida ASS fayl yaratish
+        generate_word_by_word_ass(words, ass_path, anim_style, color_hex, f_size, v_width, v_height)
         
         await status_msg.edit_text("🎨 Subtitrlar videoga yopishtirilmoqda (FFmpeg render)...")
         
-        # Original resolution buzilmasligi uchun subtitles filter to'g'ridan-to'g'ri ishlatiladi
         escaped_ass = str(ass_path.resolve()).replace('\\', '/').replace(':', '\\:')
         cmd_render = [
             FFMPEG_PATH, "-y",
