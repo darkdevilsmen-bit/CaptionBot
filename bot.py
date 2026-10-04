@@ -372,7 +372,6 @@ def clean_text(raw: Any) -> str:
 
 
 def extract_clean_words(transcript: Any, lang: Optional[str] = None) -> List[Dict[str, Any]]:
-    # ElevenLabs to'liq transkripsiya matnidan vaqtlarni toza olamiz
     raw_words = _get(transcript, "words", default=[]) or []
     result: List[Dict[str, Any]] = []
 
@@ -518,7 +517,16 @@ async def ensure_fonts():
             log.warning(f"{dest.name} yuklanmadi ({e}).")
 
 
-# 🟢 CHUNK (GAP) BO'YICHA CHIQARISH: So'zlar orasida probel ochilib ketishining oldini oladi
+def scaled_font_size(font_size: int, video_w: int, video_h: int) -> int:
+    return max(24, int(round(font_size * min(video_w, video_h) / 1080)))
+
+
+def max_chars_for(font_size: int, video_w: int, video_h: int) -> int:
+    fs = scaled_font_size(font_size, video_w, video_h)
+    avail = video_w - 2 * 40
+    return int(max(8, min(24, avail / (fs * 0.62) - 1)))
+
+
 def generate_word_by_word_ass(
     chunks: List[List[Dict[str, Any]]],
     ass_path: Path,
@@ -555,10 +563,7 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
         chunk_start = chunk[0]["start"]
         chunk_end = chunk[-1]["end"]
         
-        # Butun bir guruh (chunk) matnini oddiy va butun holatda chiqaramiz
         text = " ".join(w["text"] for w in chunk)
-        
-        # Matn ichidagi har qanday qo'shaloq probellarni tozalaymiz
         text = re.sub(r'\s+', ' ', text).strip()
 
         dialogues.append(
@@ -1106,7 +1111,7 @@ async def cmd_terms(message: Message):
     )
 
 
-@router.message(F.text == "👨‍‍💻 Admin bilan bog'lanish")
+@router.message(F.text == "👨‍💻 Admin bilan bog'lanish")
 async def cmd_contact_admin(message: Message):
     b = InlineKeyboardBuilder()
     b.row(InlineKeyboardButton(text="💬 Telegram'da yozish", url=admin_url(f"Salom! Yordam kerak. Mening ID: {message.from_user.id}")))
