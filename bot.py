@@ -21,6 +21,7 @@ from aiogram.fsm.storage.memory import MemoryStorage
 from aiogram.types import (
     BotCommand,
     CallbackQuery,
+    ChatJoinRequest,
     FSInputFile,
     InlineKeyboardButton,
     KeyboardButton,
@@ -48,6 +49,7 @@ ADMIN_ID = 7662888182
 ADMIN_USERNAME = "Captions_Admin"
 ADMIN_PHONE = "+998 (93) 495-10-89"
 REQUIRED_CHANNEL = "@Auto_Captions"
+CHANNEL_LINK = "https://t.me/Auto_Captions"
 
 CARD_NUMBER = "5614686505428600"
 CARD_HOLDER = "Toshpulatov Shoxrux"
@@ -61,46 +63,32 @@ DB_FILE = DATA_DIR / "database.db"
 STT_MODEL = os.getenv("STT_MODEL", "scribe_v2")
 INITIAL_CREDITS = 1
 
-# 300+ ta avtomatik aniqlanadigan reels va blogerlik urg'u so'zlari
 HEADLIGHT_WORDS = {
-    # Joy nomlari va hududlar
     "chirchiq", "chirchiqda", "chirchiqning", "chirchiqliklar", "chirchiqqa",
     "toshkent", "toshkentda", "samarqand", "buxoro", "andijon", "farg'ona",
     "namangan", "qashqadaryo", "surxondaryo", "xorazm", "navoiy", "jizzax",
     "qoraqalpog'iston", "o'zbekiston", "ozbekiston", "rossiya", "turkiya", "dubay",
-
-    # Diqqat va shov-shuv so'zlari
     "diqqat", "ogohlantirish", "shoshiling", "tezkor", "bomba", "daxshat",
     "dahshat", "shok", "yangilik", "sensatsiya", "muhim", "rasman", "favqulodda",
     "qarang", "eshiting", "tomosha", "sir", "sirlari", "haqiqat", "aldov",
     "xushxabar", "afsus", "voy", "o'rtoqlar", "do'stlar", "odamlar", "xalq",
-
-    # Emotsional va jargon so'zlar
     "vapshe", "vapsheyam", "zo'r", "daraxt", "gap", "yo'q", "gapyo'q", "lekin",
     "prosto", "chempion", "super", "klass", "top", "trend", "reels", "video",
     "bunaqasi", "bo'lmagan", "ko'ring", "aytgancha", "rosti", "aniq", "tiniq",
     "chotki", "otdushi", "baza", "yondiradi", "portlatdi", "dod", "voydod",
-
-    # Savdo, narx, pul va xarid
     "narxi", "qancha", "so'm", "dollar", "valyuta", "kurs", "tekin", "bepul",
     "skidka", "aksiya", "arzon", "qimmat", "foyda", "daromad", "sovg'a", "yutuq",
     "bonus", "pulingiz", "pul", "million", "milliard", "sotuvda", "xarid",
     "buyurtma", "yetkazib", "berish", "magazin", "do'kon", "bozor", "savdo",
     "kafolat", "kredit", "rassrochka", "foizsiz", "halol",
-
-    # Tarmoqlar, media va harakatga chaqiruv
     "obuna", "layk", "komment", "repost", "podpiska", "profil", "ssilka",
     "admin", "kanal", "guruh", "direct", "lichka", "raqam", "telefon", "manzil",
     "lokatsiya", "aloqa", "yozing", "bosing", "saqlab", "oling", "tarqating",
     "fikringiz", "savol", "javob", "jonli", "efir", "stories", "post",
-
-    # Sifat va baholash
     "birinchi", "oxirgi", "yagona", "mukammal", "haqiqiy", "original", "poddelka",
     "soxta", "toza", "sifatli", "ajoyib", "chiroyli", "mashhur", "professional",
     "aqlli", "tez", "oson", "qulay", "ishonchli", "xavfsiz", "muammo", "qaror",
     "xato", "to'g'ri", "noto'g'ri", "sabab", "natija", "rekord", "tarixiy",
-
-    # Kundalik va biznes iboralari
     "ish", "biznes", "loyiha", "startap", "kasb", "mutaxassis", "ustoz",
     "shogird", "o'quvchi", "talaba", "universitet", "maktab", "kurs", "dars",
     "ta'lim", "ishchi", "vakansiya", "oylik", "maosh", "karyera", "rivojlanish",
@@ -163,9 +151,9 @@ el_client = ElevenLabs(api_key=ELEVENLABS_API_KEY)
 FFMPEG_PATH = imageio_ffmpeg.get_ffmpeg_exe()
 
 PROCESSING: set = set()
+approved_users = set()
 
 
-# ---------------------------------------------------------------- KLAVIATURA
 def get_main_keyboard() -> ReplyKeyboardMarkup:
     keyboard = [
         [KeyboardButton(text="⚡ Auto Subtitr qo'yish")],
@@ -176,7 +164,6 @@ def get_main_keyboard() -> ReplyKeyboardMarkup:
     return ReplyKeyboardMarkup(keyboard=keyboard, resize_keyboard=True)
 
 
-# ------------------------------------------------------------------ BAZA
 def init_db():
     with sqlite3.connect(DB_FILE) as conn:
         conn.execute(
@@ -247,7 +234,6 @@ def deduct_user_credit(user_id: int) -> bool:
         return cur.rowcount > 0
 
 
-# ---------------------------------------------------- SESSIYALAR
 _SESSION_COLS = {"anim_style", "font_key", "font_size", "color_key", "lang"}
 
 
@@ -301,12 +287,22 @@ def cleanup_stale_sessions(max_age_sec: int = 72 * 3600):
 
 
 async def check_subscription(bot: Bot, user_id: int) -> bool:
+    if user_id in approved_users:
+        return True
     try:
         member = await bot.get_chat_member(chat_id=REQUIRED_CHANNEL, user_id=user_id)
-        return member.status in ("member", "administrator", "creator")
+        if member.status in ("member", "administrator", "creator", "restricted"):
+            approved_users.add(user_id)
+            return True
     except Exception as e:
         log.error(f"Obunani tekshirishda xatolik: {e}")
-        return False
+    return False
+
+
+@router.chat_join_request()
+async def handle_join_request(request: ChatJoinRequest) -> None:
+    user_id = request.from_user.id
+    approved_users.add(user_id)
 
 
 def format_srt_time(seconds: float) -> str:
@@ -530,7 +526,6 @@ async def ensure_fonts():
             log.warning(f"{dest.name} yuklanmadi ({e}).")
 
 
-# ----------------------- SO'ZNI FORMATLASH VA ANIMATSIYA
 def _format_word(word_text: str, state: str, anim_style: str, chosen_color: str, bold_ok: bool = True) -> str:
     b1, b0 = ("\\b1", "\\b0") if bold_ok else ("", "")
     clean_w = re.sub(r"[^\w]", "", word_text.lower())
@@ -643,7 +638,6 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
     return len(dialogues)
 
 
-# ------------------------------------------------------------------ FFMPEG
 async def _run(cmd: List[str], cwd: Optional[Path] = None) -> Tuple[int, str]:
     proc = await asyncio.create_subprocess_exec(
         *cmd,
@@ -706,7 +700,6 @@ async def burn_subtitles_to_video(input_video: Path, ass_file: Path, output_vide
         raise RuntimeError("Videoga subtitr yopishtirishda xatolik yuz berdi.")
 
 
-# --------------------------------------------------------------- HANDLERLAR
 @router.message(CommandStart())
 async def cmd_start(message: Message, bot: Bot):
     user_id = message.from_user.id
@@ -714,12 +707,11 @@ async def cmd_start(message: Message, bot: Bot):
 
     if REQUIRED_CHANNEL and not await check_subscription(bot, user_id):
         builder = InlineKeyboardBuilder()
-        builder.row(InlineKeyboardButton(
-            text="📢 Kanalga obuna bo'lish",
-            url=f"https://t.me/{REQUIRED_CHANNEL.replace('@', '')}"))
-        builder.row(InlineKeyboardButton(text="✅ Obunani tekshirish", callback_data="check_sub"))
+        builder.row(InlineKeyboardButton(text="📢 Kanalga So'rov Yuborish", url=CHANNEL_LINK))
+        builder.row(InlineKeyboardButton(text="✅ Obunani Tekshirish", callback_data="check_sub"))
         await message.answer(
-            f"Botimizdan to'liq foydalanish uchun avval rasmiy kanalimizga obuna bo'ling:\n{REQUIRED_CHANNEL}",
+            f"Botimizdan foydalanish uchun avval quyidagi kanalimizga a'zo bo'lish uchun so'rov yuboring:\n{REQUIRED_CHANNEL}\n\n"
+            f"So'rov yuborganingizdan so'ng <b>'Obunani Tekshirish'</b> tugmasini bosing:",
             reply_markup=builder.as_markup(),
         )
         return
@@ -731,13 +723,20 @@ async def cmd_start(message: Message, bot: Bot):
     )
 
 
-# --- ADMIN KOMANDALARI (Moslashuvchan) ---
+@router.callback_query(F.data == "check_sub")
+async def callback_check_sub(callback: CallbackQuery, bot: Bot):
+    if await check_subscription(bot, callback.from_user.id):
+        await callback.message.delete()
+        await callback.message.answer("Obunangiz tasdiqlandi! Xush kelibsiz.", reply_markup=get_main_keyboard())
+    else:
+        await callback.answer("Siz hali kanalga so'rov yubormadingiz yoki a'zo emassiz!", show_alert=True)
+
+
 @router.message(Command("add"))
 async def cmd_add_credits(message: Message):
     if message.from_user.id != ADMIN_ID:
         return
     args = message.text.strip().split()
-    # /add 5  yoki  /add 7662888182 5  yoki  /add 7662888182 pro
     if len(args) == 2:
         val = args[1].lower()
         target = message.from_user.id
@@ -794,15 +793,6 @@ async def cmd_set_pro(message: Message):
         await message.answer(f"Xatolik: {escape(str(e))}")
 
 
-@router.callback_query(F.data == "check_sub")
-async def callback_check_sub(callback: CallbackQuery, bot: Bot):
-    if await check_subscription(bot, callback.from_user.id):
-        await callback.message.delete()
-        await callback.message.answer("Obunangiz tasdiqlandi! Xush kelibsiz.", reply_markup=get_main_keyboard())
-    else:
-        await callback.answer("Siz hali kanalga obuna bo'lmadingiz!", show_alert=True)
-
-
 NO_CREDITS_TEXT = (
     "Balansingizda video yaratish uchun urinishlar qolmadi.\n\n"
     "Ko'proq video yaratish uchun PRO tarifga o'ting"
@@ -810,8 +800,15 @@ NO_CREDITS_TEXT = (
 
 
 @router.message(F.text == "⚡ Auto Subtitr qo'yish")
-async def cmd_auto_subtitles(message: Message):
+async def cmd_auto_subtitles(message: Message, bot: Bot):
     user_id = message.from_user.id
+    if REQUIRED_CHANNEL and not await check_subscription(bot, user_id):
+        builder = InlineKeyboardBuilder()
+        builder.row(InlineKeyboardButton(text="📢 Kanalga So'rov Yuborish", url=CHANNEL_LINK))
+        builder.row(InlineKeyboardButton(text="✅ Obunani Tekshirish", callback_data="check_sub"))
+        await message.answer("Botdan foydalanish uchun avval kanalimizga so'rov yuboring:", reply_markup=builder.as_markup())
+        return
+
     credits = get_user_credits(user_id, message.from_user.username or "")
     if credits <= 0 and not is_user_pro(user_id):
         await message.answer(NO_CREDITS_TEXT, reply_markup=get_main_keyboard())
@@ -826,6 +823,13 @@ async def cmd_auto_subtitles(message: Message):
 @router.message(F.video)
 async def handle_video(message: Message, bot: Bot):
     user_id = message.from_user.id
+    if REQUIRED_CHANNEL and not await check_subscription(bot, user_id):
+        builder = InlineKeyboardBuilder()
+        builder.row(InlineKeyboardButton(text="📢 Kanalga So'rov Yuborish", url=CHANNEL_LINK))
+        builder.row(InlineKeyboardButton(text="✅ Obunani Tekshirish", callback_data="check_sub"))
+        await message.answer("Botdan foydalanish uchun avval kanalimizga so'rov yuboring:", reply_markup=builder.as_markup())
+        return
+
     credits = get_user_credits(user_id, message.from_user.username or "")
     if credits <= 0 and not is_user_pro(user_id):
         await message.answer(NO_CREDITS_TEXT, reply_markup=get_main_keyboard())
@@ -870,10 +874,8 @@ async def handle_video(message: Message, bot: Bot):
 
 
 async def load_session(callback: CallbackQuery, bot: Bot, sid: str) -> Optional[Dict[str, Any]]:
-    """Sessiya topilmasa yoki video fayl yo'qolsa, file_id orqali tiklanadi (eskirgan deb to'xtamaydi)"""
     user_id = callback.from_user.id
     sess = db_get_session(user_id)
-    
     if not sess:
         await callback.answer("⏳ Sessiya yangilanmoqda...", show_alert=False)
         return None
@@ -993,7 +995,6 @@ async def callback_font_size(callback: CallbackQuery, bot: Bot):
     if not session:
         return
 
-    # Balans tekshiruvi: 1 ta bo'lsa ham aniq o'tkazadi
     user_credits = get_user_credits(user_id, username)
     user_is_pro = is_user_pro(user_id)
     if user_credits < 1 and not user_is_pro:
@@ -1050,7 +1051,6 @@ async def callback_font_size(callback: CallbackQuery, bot: Bot):
 
         await burn_subtitles_to_video(input_video, ass_path, output_video, font_key)
 
-        # Video to'liq tayyor bo'lib yuborilgandagina balansdan 1 ta ayriladi
         if not user_is_pro:
             deduct_user_credit(user_id)
         remaining = get_user_credits(user_id, username)
