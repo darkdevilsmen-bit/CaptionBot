@@ -48,7 +48,7 @@ MAX_VIDEO_BYTES = 50 * 1024 * 1024
 WORK_ROOT = Path("temp_processing")
 FONTS_DIR = Path(".")
 DB_FILE = Path("database.db")
-INITIAL_CREDITS = 0
+INITIAL_CREDITS = 1  # Yangi foydalanuvchiga 1 ta bepul video
 
 ANIMATION_STYLES = {
     "mrbeast_style": "🟢 Komika Axis Pop-up (MrBeast)",
@@ -95,7 +95,7 @@ def init_db():
             CREATE TABLE IF NOT EXISTS users (
                 user_id INTEGER PRIMARY KEY,
                 username TEXT,
-                credits INTEGER DEFAULT 0,
+                credits INTEGER DEFAULT 1,
                 is_pro INTEGER DEFAULT 0,
                 bot_lang TEXT DEFAULT 'uz',
                 terms_accepted INTEGER DEFAULT 0,
@@ -181,14 +181,27 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
             continue
         
         first_w = chunk[0]
-        start_t = first_w.start if hasattr(first_w, 'start') else first_w.get('start', 0.0)
+        start_t = getattr(first_w, 'start', None)
+        if start_t is None and isinstance(first_w, dict):
+            start_t = first_w.get('start', 0.0)
+        if start_t is None:
+            start_t = 0.0
         
         last_w = chunk[-1]
-        end_t = last_w.end if hasattr(last_w, 'end') else last_w.get('end', start_t + 1.0)
+        end_t = getattr(last_w, 'end', None)
+        if end_t is None and isinstance(last_w, dict):
+            end_t = last_w.get('end', start_t + 1.0)
+        if end_t is None:
+            end_t = start_t + 1.0
 
         line_parts = []
         for j, w in enumerate(chunk):
-            w_text = w.word if hasattr(w, 'word') else w.get('word', '')
+            w_text = getattr(w, 'word', None)
+            if w_text is None and isinstance(w, dict):
+                w_text = w.get('word', '')
+            if w_text is None:
+                w_text = str(w)
+            
             w_text = w_text.strip()
             if not w_text:
                 continue
@@ -329,7 +342,6 @@ async def cmd_auto_subtitles(message: Message):
     )
 
 
-# --- VIDEO KELGANDA UNI SAQLASH VA SOZLAMALARNI SO'RASH ---
 @router.message(F.video)
 async def handle_video(message: Message, bot: Bot):
     user_id = message.from_user.id
@@ -358,7 +370,6 @@ async def handle_video(message: Message, bot: Bot):
         "color": "&H00FFFFFF"
     }
     
-    # Animatsiya va shrift uslublarini tanlash uchun inline tugmalar
     builder = InlineKeyboardBuilder()
     for key, name in ANIMATION_STYLES.items():
         builder.row(InlineKeyboardButton(text=name, callback_data=f"anim_{key}"))
@@ -379,7 +390,6 @@ async def callback_anim_style(callback: CallbackQuery):
     style_key = callback.data.replace("anim_", "")
     USER_SESSIONS[user_id]["anim_style"] = style_key
     
-    # Shrift o'lchamini tanlash uchun tugmalar
     builder = InlineKeyboardBuilder()
     for key, (name, val) in FONT_SIZES.items():
         builder.row(InlineKeyboardButton(text=name, callback_data=f"size_{key}"))
@@ -417,6 +427,9 @@ async def callback_font_size(callback: CallbackQuery, bot: Bot):
             )
         
         words = getattr(transcript, "words", [])
+        if not words and isinstance(transcript, dict):
+            words = transcript.get("words", [])
+            
         if not words:
             await status_msg.edit_text("❌ Videodan ovoz topilmadi yoki matnga o'girib bo'lmadi.")
             shutil.rmtree(user_dir, ignore_errors=True)
