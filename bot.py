@@ -63,6 +63,13 @@ DB_FILE = DATA_DIR / "database.db"
 STT_MODEL = os.getenv("STT_MODEL", "scribe_v2")
 INITIAL_CREDITS = 1
 
+# 🟢 ElevenLabs xato yozishi mumkin bo'lgan so'zlarni to'g'rilash lug'ati
+WORD_CORRECTIONS = {
+    "bilarmi dela": "Bilarmidila",
+    "bilarmi, dela": "Bilarmidila",
+    "bilarmidela": "Bilarmidila",
+}
+
 HEADLIGHT_WORDS = {
     "chirchiq", "chirchiqda", "chirchiqning", "chirchiqliklar", "chirchiqqa",
     "toshkent", "toshkentda", "samarqand", "buxoro", "andijon", "farg'ona",
@@ -158,7 +165,7 @@ def get_main_keyboard() -> ReplyKeyboardMarkup:
         [KeyboardButton(text="⚡ Auto Subtitr qo'yish")],
         [KeyboardButton(text="🎨 Subtitr uslublari"), KeyboardButton(text="💳 Balans")],
         [KeyboardButton(text="💎 PRO Tariflar"), KeyboardButton(text="📜 Oferta")],
-        [KeyboardButton(text="👨‍‍💻 Admin bilan bog'lanish")],
+        [KeyboardButton(text="👨‍💻 Admin bilan bog'lanish")],
     ]
     return ReplyKeyboardMarkup(keyboard=keyboard, resize_keyboard=True)
 
@@ -383,13 +390,11 @@ def extract_clean_words(transcript: Any, lang: Optional[str] = None) -> List[Dic
 
         text = clean_text(_get(w, "text", "word"))
         
-        # 🟢 Apostroflarni va ortiqcha bo'shliqlarni yo'q qilish (O RTOQLAR xatosini oldini olish uchun)
-        text = text.replace("'", "").replace("‘", "").replace("’", "")
-        if text and text.count(' ') > 0:
-            text = re.sub(r'\s+', '', text)
-
         if text and lang == "uzb":
             text = uz_cyr_to_latin(text)
+
+        text = text.replace("  ", " ").strip()
+        
         if not text:
             continue
 
@@ -405,7 +410,45 @@ def extract_clean_words(transcript: Any, lang: Optional[str] = None) -> List[Dic
 
         result.append({"text": text, "start": start, "end": end})
 
-    return result
+    fixed_result: List[Dict[str, Any]] = []
+    i = 0
+    while i < len(result):
+        curr = result[i]
+        curr_text = curr["text"]
+        
+        if i + 1 < len(result):
+            nxt = result[i + 1]
+            gap = nxt["start"] - curr["end"]
+            
+            is_single_letter = curr_text in ("O", "G", "o", "g")
+            is_broken_word = curr_text.endswith(",") or (not nxt["text"][0].isupper() and gap < 0.35 and len(curr_text) <= 8)
+            
+            if is_single_letter or is_broken_word:
+                clean_curr = curr_text.replace(",", "").strip()
+                clean_nxt = nxt["text"].replace(",", "").strip()
+                
+                separator = "'" if is_single_letter else ""
+                combined_text = clean_curr + separator + clean_nxt
+                
+                fixed_result.append({
+                    "text": combined_text,
+                    "start": curr["start"],
+                    "end": nxt["end"]
+                })
+                i += 2
+                continue
+            
+        fixed_result.append(curr)
+        i += 1
+
+    # 🟢 Maxsus lug'at orqali xato so'zlarni tuzatish
+    for item in fixed_result:
+        low_t = item["text"].lower().strip(".,!?")
+        if low_t in WORD_CORRECTIONS:
+            # Asl tinish belgilarini saqlab qolgan holda almashtiramiz
+            item["text"] = WORD_CORRECTIONS[low_t]
+
+    return fixed_result
 
 
 def group_into_chunks(words: List[Dict[str, Any]], max_words: int = 3, max_gap: float = 0.65, max_chars: int = 20) -> List[List[Dict[str, Any]]]:
@@ -579,7 +622,7 @@ WrapStyle: 0
 
 [V4+ Styles]
 Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding
-Style: Default,{font_name},{font_size},{chosen_color},&H000000FF,&H00000000,&H80000000,{bold_flag},0,0,0,100,100,{base_sp},0,1,3,0,2,40,40,{int(video_h * 0.12)},1
+Style: Default,{font_name},{font_size},{chosen_color},&H000000FF,&H00000000,&H80000000,{bold_flag},0,0,0,100,100,{base_sp},0,1,3.5,1.5,2,40,40,{int(video_h * 0.12)},1
 
 [Events]
 Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
@@ -685,9 +728,9 @@ async def burn_subtitles_to_video(input_video: Path, ass_file: Path, output_vide
         FFMPEG_PATH, "-y",
         "-i", str(input_video.resolve()),
         "-vf", vf,
-        "-c:v", "libx264", "-preset", "veryfast", "-crf", "18", "-profile:v", "high",
+        "-c:v", "libx264", "-preset", "medium", "-crf", "14", "-profile:v", "high",
         "-pix_fmt", "yuv420p",
-        "-c:a", "aac", "-b:a", "192k",
+        "-c:a", "copy",
         "-movflags", "+faststart",
         str(output_video.resolve()),
     ]
@@ -1181,7 +1224,7 @@ async def cmd_contact_admin(message: Message):
         f"💬 Telegram: @{ADMIN_USERNAME}\n"
         f"📞 Telefon: <code>{ADMIN_PHONE}</code>\n{LINE}\n"
         "Savol, to'lov yoki muammo bo'lsa — yozing, tez javob beramiz.",
-        reply_markup=b.as_km() if hasattr(b, 'as_km') else b.as_markup(),
+        reply_markup=b.as_markup(),
     )
 
 
@@ -1200,7 +1243,9 @@ async def main():
     dp = Dispatcher(storage=MemoryStorage())
     dp.include_router(router)
 
-    await bot.set_my_commands([BotCommand(command="start", description="Botni ishga tushirish / Asosiy menyu")])
+    await bot.set_my_commands([
+        BotCommand(command="start", description="Botni ishga tushirish / Asosiy menyu")
+    ])
 
     log.info("Bot ishga tushdi...")
     await bot.delete_webhook(drop_pending_updates=True)
