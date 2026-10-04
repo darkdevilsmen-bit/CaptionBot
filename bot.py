@@ -30,7 +30,7 @@ from aiogram.types import (
 from aiogram.utils.keyboard import InlineKeyboardBuilder
 try:
     from aiogram.types import CopyTextButton  # aiogram >= 3.13
-except Exception:  # eski versiyada yo'q
+except Exception:
     CopyTextButton = None
 from elevenlabs.client import ElevenLabs
 import imageio_ffmpeg
@@ -39,7 +39,6 @@ logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(
 log = logging.getLogger(__name__)
 
 # --- SOZLAMALAR ---
-# Kalitlar shu yerda yozilgan. Xohlasangiz muhit o'zgaruvchisi (BOT_TOKEN / ELEVENLABS_API_KEY) bilan almashtirish mumkin.
 BOT_TOKEN = os.getenv("BOT_TOKEN", "8933394511:AAEQ5atljKHskaCTG2UINuIiXPHHogNkqMM")
 ELEVENLABS_API_KEY = os.getenv("ELEVENLABS_API_KEY", "sk_2645eb8c6ab7457d5661f30bc9935e8107560bec586b14c8")
 
@@ -53,20 +52,27 @@ CARD_HOLDER = "Toshpulatov Shoxrux"
 
 MAX_VIDEO_BYTES = 50 * 1024 * 1024
 WORK_ROOT = Path("temp_processing")
-FONTS_DIR = Path("fonts").resolve()   # shriftlar shu papkada saqlanadi (Montserrat o'zi yuklanadi)
-# Railway'da bazani deploy'dan keyin yo'qotmaslik uchun Volume ulang va DATA_DIR=/data qo'ying.
+FONTS_DIR = Path("fonts").resolve()
 DATA_DIR = Path(os.getenv("DATA_DIR", "."))
 DATA_DIR.mkdir(parents=True, exist_ok=True)
 DB_FILE = DATA_DIR / "database.db"
-STT_MODEL = os.getenv("STT_MODEL", "scribe_v2")   # xato bersa avtomatik scribe_v1 ga tushadi
+STT_MODEL = os.getenv("STT_MODEL", "scribe_v2")
 INITIAL_CREDITS = 1
 
 ANIMATION_STYLES = {
     "mrbeast_style": "🟢 MrBeast Pop-up",
-    "smooth_tracking": "✨ Smooth Text Tracking (Fade)",
+    "smooth_tracking": "✨ Smooth Text Tracking (Yoyilish)",
     "active_bold_regular": "🔥 Active Bold / Regular",
     "active_word_box": "⬛ Active Word Highlight (Box)",
 }
+
+COLOR_OPTIONS = {
+    "yellow": {"label": "🟡 Sariq", "bgr": "&H0000FFFF&"},
+    "green": {"label": "🟢 MrBeast Yashil", "bgr": "&H0032FF00&"},
+    "cyan": {"label": "🔵 Moviy / Cyan", "bgr": "&H00FFFF00&"},
+    "pink": {"label": "🌸 Pushti / Qizil", "bgr": "&H005020FF&"},
+}
+DEFAULT_COLOR_KEY = "yellow"
 
 FONT_SIZES = {
     "small": ("🔽 Kichik (70)", 70),
@@ -75,12 +81,9 @@ FONT_SIZES = {
     "xlarge": ("🔥 Juda katta (115)", 115),
 }
 
-# Montserrat uchun harflar orasi biroz zichroq (manfiy = zichroq). Font o'lchamiga nisbatan.
 MONTSERRAT_SPACING = -0.03
 
 _GF = "https://github.com/google/fonts/raw/main/ofl/montserrat/static/"
-# Shriftlar fonts/ papkasidan (yoki bot.py yonidan) topiladi. Family nomi fayl ichidan o'qiladi.
-#   tokens — fayl nomida (bo'sh joy, _ va - siz, kichik harfda) bo'lishi shart bo'lgan so'zlar
 FONT_OPTIONS = {
     "the_bold": {"label": "🅱️ The Bold", "family": "The Bold Font", "tokens": ("thebold",),
                  "url": None, "bold_ok": False, "tight": False},
@@ -93,7 +96,6 @@ FONT_OPTIONS = {
 }
 DEFAULT_FONT_KEY = "the_bold"
 
-# Nutq tili (ElevenLabs ISO-639-3 kodlari). Tilni aniq berish aniqlikni keskin oshiradi.
 LANG_OPTIONS = {
     "uzb": ("🇺🇿 O'zbekcha", "uzb"),
     "rus": ("🇷🇺 Ruscha", "rus"),
@@ -101,20 +103,18 @@ LANG_OPTIONS = {
     "auto": ("🌐 Avto aniqlash", None),
 }
 
-# PRO tariflar — narxlarni shu yerdan o'zgartiring
 TARIFFS = [
     {"emoji": "🥈", "name": "1 OYLIK PRO", "price": "49 000 so'm"},
     {"emoji": "👑", "name": "VIP UMRBOD", "price": "149 000 so'm"},
 ]
 
-BASE_COLOR = "&H00FFFFFF"    # oq (BGR formatda)
-ACTIVE_COLOR = "&H0000FFFF"  # sariq
+BASE_COLOR = "&H00FFFFFF&"
 
 router = Router()
 el_client = ElevenLabs(api_key=ELEVENLABS_API_KEY)
 FFMPEG_PATH = imageio_ffmpeg.get_ffmpeg_exe()
 
-PROCESSING: set = set()  # hozir ishlov berilayotgan foydalanuvchilar (qo'sh bosishdan himoya)
+PROCESSING: set = set()
 
 
 # ---------------------------------------------------------------- KLAVIATURA
@@ -155,15 +155,17 @@ def init_db():
                 anim_style TEXT,
                 font_key TEXT,
                 font_size INTEGER,
+                color_key TEXT,
                 created REAL,
                 lang TEXT
             )
             """
         )
-        try:
-            conn.execute("ALTER TABLE sessions ADD COLUMN lang TEXT")
-        except sqlite3.OperationalError:
-            pass  # ustun allaqachon bor
+        for col in ["lang TEXT", "color_key TEXT"]:
+            try:
+                conn.execute(f"ALTER TABLE sessions ADD COLUMN {col}")
+            except sqlite3.OperationalError:
+                pass
         conn.commit()
 
 
@@ -180,7 +182,7 @@ def get_user_credits(user_id: int, username: str = "") -> int:
             )
             conn.commit()
             return INITIAL_CREDITS
-        return row[0]
+        return int(row[0])
 
 
 def is_user_pro(user_id: int) -> bool:
@@ -197,17 +199,16 @@ def deduct_user_credit(user_id: int) -> bool:
         return cur.rowcount > 0
 
 
-# ---------------------------------------------------- SESSIYALAR (bazada)
-# Sessiya bazada saqlanadi, shuning uchun bot qayta ishga tushsa ham tugmalar ishlayveradi.
-_SESSION_COLS = {"anim_style", "font_key", "font_size", "lang"}
+# ---------------------------------------------------- SESSIYALAR
+_SESSION_COLS = {"anim_style", "font_key", "font_size", "color_key", "lang"}
 
 
 def db_save_session(user_id: int, sid: str, file_id: str, video_path: str, dir_path: str):
     with sqlite3.connect(DB_FILE) as conn:
         conn.execute(
-            "INSERT OR REPLACE INTO sessions (user_id, sid, file_id, video_path, dir_path, anim_style, font_key, font_size, created, lang) "
-            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-            (user_id, sid, file_id, video_path, dir_path, "mrbeast_style", DEFAULT_FONT_KEY, 85, time.time(), "uzb"),
+            "INSERT OR REPLACE INTO sessions (user_id, sid, file_id, video_path, dir_path, anim_style, font_key, font_size, color_key, created, lang) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            (user_id, sid, file_id, video_path, dir_path, "mrbeast_style", DEFAULT_FONT_KEY, 85, DEFAULT_COLOR_KEY, time.time(), "uzb"),
         )
         conn.commit()
 
@@ -236,7 +237,6 @@ def db_delete_session(user_id: int):
 
 
 def cleanup_stale_sessions(max_age_sec: int = 24 * 3600):
-    """24 soatdan eski sessiyalar va yetim vaqtinchalik papkalarni tozalaydi."""
     now = time.time()
     with sqlite3.connect(DB_FILE) as conn:
         rows = conn.execute("SELECT user_id, dir_path, created FROM sessions").fetchall()
@@ -263,7 +263,6 @@ async def check_subscription(bot: Bot, user_id: int) -> bool:
 
 # ------------------------------------------------------- VAQT FORMATLARI
 def format_srt_time(seconds: float) -> str:
-    """SRT: HH:MM:SS,mmm  (masalan 00:01:05,320)"""
     total_ms = max(0, int(round(seconds * 1000)))
     h, rem = divmod(total_ms, 3_600_000)
     m, rem = divmod(rem, 60_000)
@@ -272,7 +271,6 @@ def format_srt_time(seconds: float) -> str:
 
 
 def format_ass_time(seconds: float) -> str:
-    """ASS: H:MM:SS.cc  (ASS millisekund emas, santisekund ishlatadi)"""
     total_cs = max(0, int(round(seconds * 100)))
     h, rem = divmod(total_cs, 360_000)
     m, rem = divmod(rem, 6000)
@@ -280,9 +278,8 @@ def format_ass_time(seconds: float) -> str:
     return f"{h}:{m:02d}:{s:02d}.{cs:02d}"
 
 
-# ----------------------------------------- TOZA MATNNI AJRATIB OLISH (ASOSIY FIX)
+# ----------------------------------------- MATNNI TOZALASH
 def _get(obj: Any, *names: str, default: Any = None) -> Any:
-    """Obyekt (attribut) yoki dict'dan birinchi mavjud maydonni oladi."""
     for name in names:
         if isinstance(obj, dict):
             if obj.get(name) is not None:
@@ -295,8 +292,7 @@ def _get(obj: Any, *names: str, default: Any = None) -> Any:
 
 
 _HAS_ALNUM = re.compile(r"[^\W_]", re.UNICODE)
-_EVENT_TAG = re.compile(r"^[\(\[\*<].*[\)\]\*>]$")  # (musiqa), [shovqin], *kulgi*
-
+_EVENT_TAG = re.compile(r"^[\(\[\*<].*[\)\]\*>]$")
 
 _CYR = {
     "а": "a", "б": "b", "в": "v", "г": "g", "д": "d", "ж": "j", "з": "z", "и": "i", "й": "y", "к": "k",
@@ -308,7 +304,6 @@ _CYR_VOWELS = set("аеиоуўэюяё")
 
 
 def uz_cyr_to_latin(text: str) -> str:
-    """O'zbek kirill matnini lotinga o'giradi (ElevenLabs ba'zan kirillda qaytaradi)."""
     if not re.search(r"[\u0400-\u04FF]", text):
         return text
     out = []
@@ -334,11 +329,10 @@ def uz_cyr_to_latin(text: str) -> str:
 
 
 def clean_text(raw: Any) -> str:
-    """Faqat str qabul qiladi. Obyektni hech qachon str() qilmaydi."""
     if not isinstance(raw, str):
         return ""
     text = raw.replace("\\N", " ").replace("\\n", " ")
-    text = re.sub(r"[{}\\]", "", text)      # ASS override belgilarini olib tashlash
+    text = re.sub(r"[{}\\]", "", text)
     text = re.sub(r"\s+", " ", text).strip()
     if not text or _EVENT_TAG.match(text) or not _HAS_ALNUM.search(text):
         return ""
@@ -346,12 +340,6 @@ def clean_text(raw: Any) -> str:
 
 
 def extract_clean_words(transcript: Any, lang: Optional[str] = None) -> List[Dict[str, Any]]:
-    """
-    ElevenLabs javobidan [{'text', 'start', 'end'}, ...] ro'yxatini yasaydi.
-    - so'z matni `.text` da (Whisper uslubidagi `.word` ham qo'llab-quvvatlanadi)
-    - 'spacing' va 'audio_event' turlari tashlab yuboriladi
-    - bo'sh / faqat belgi / shovqin teglari filtrlanadi
-    """
     raw_words = _get(transcript, "words", default=[]) or []
     result: List[Dict[str, Any]] = []
 
@@ -382,7 +370,6 @@ def extract_clean_words(transcript: Any, lang: Optional[str] = None) -> List[Dic
 
 
 def group_into_chunks(words: List[Dict[str, Any]], max_words: int = 4, max_gap: float = 0.8, max_chars: int = 24) -> List[List[Dict[str, Any]]]:
-    """So'zlarni qisqa qatorlarga bo'ladi (pauza yoki tinish belgisida uziladi)."""
     chunks: List[List[Dict[str, Any]]] = []
     current: List[Dict[str, Any]] = []
     for w in words:
@@ -416,7 +403,6 @@ def _norm(name: str) -> str:
 
 
 def find_font_file(key: str) -> Optional[Path]:
-    """fonts/ papkasidan (yoki bot.py yonidagi papkadan) shrift faylini topadi."""
     opt = FONT_OPTIONS.get(key)
     if not opt:
         return None
@@ -431,7 +417,6 @@ def find_font_file(key: str) -> Optional[Path]:
 
 
 def read_font_family(path: Path) -> Optional[str]:
-    """TTF/OTF faylning 'name' jadvalidan haqiqiy family nomini o'qiydi (FFmpeg/libass aynan shu nom bilan qidiradi)."""
     try:
         data = path.read_bytes()
         base = 0
@@ -467,7 +452,6 @@ def read_font_family(path: Path) -> Optional[str]:
 
 
 def resolve_font(key: str) -> Tuple[str, bool, bool, Optional[Path]]:
-    """(family nomi, qalin tegi ishlatilsinmi, zich harf oralig'i, fayl). Shrift topilmasa Arial."""
     opt = FONT_OPTIONS.get(key)
     if opt:
         f = find_font_file(key)
@@ -481,7 +465,6 @@ def available_fonts() -> List[str]:
 
 
 async def ensure_fonts():
-    """Montserrat fayllari yo'q bo'lsa Google Fonts'dan yuklab oladi (bir marta)."""
     import aiohttp
     FONTS_DIR.mkdir(parents=True, exist_ok=True)
     for key, opt in FONT_OPTIONS.items():
@@ -499,30 +482,37 @@ async def ensure_fonts():
             dest.write_bytes(data)
             log.info(f"Shrift yuklandi: {dest.name}")
         except Exception as e:
-            log.warning(f"{dest.name} yuklanmadi ({e}). Xohlasangiz faylni qo'lda {FONTS_DIR} ichiga qo'ying.")
+            log.warning(f"{dest.name} yuklanmadi ({e}).")
 
 
-def _style_word(text: str, active: bool, anim_style: str, bold_ok: bool = True) -> str:
+# ----------------------------------------- HAR BIR USLUB UCHUN SO'Z FORMATI
+def _style_word(text: str, active: bool, anim_style: str, active_color: str, bold_ok: bool = True) -> str:
     b1, b0 = ("\\b1", "\\b0") if bold_ok else ("", "")
+
     if not active:
-        return f"{{\\c{BASE_COLOR}&{b0}}}{text}"
+        return f"{{\\c{BASE_COLOR}{b0}}}{text}"
+
+    # 1. MrBeast Style: O'lcham pop-up bo'lib (125%) darhol 100% ga qaytadi
     if anim_style == "mrbeast_style":
-        return (f"{{\\c{ACTIVE_COLOR}&{b1}\\t(0,90,\\fscx125\\fscy125)\\t(90,180,\\fscx100\\fscy100)}}"
-                f"{text}{{\\fscx100\\fscy100}}")
+        return f"{{\\c{active_color}{b1}\\t(0,90,\\fscx125\\fscy125)\\t(90,180,\\fscx100\\fscy100)}}{text}{{\\fscx100\\fscy100}}"
+
+    # 2. Active Bold / Regular: Faol so'z qalin va rangli bo'ladi
     if anim_style == "active_bold_regular":
-        return f"{{\\c{ACTIVE_COLOR}&{b1}}}{text}{{{b0}}}"
+        return f"{{\\c{active_color}{b1}}}{text}{{{b0}}}"
+
+    # 3. Active Word Highlight (Box): So'z atrofida qalinroq hoshiya / blok effekti
     if anim_style == "active_word_box":
-        return f"{{\\c&H00000000&\\3c{ACTIVE_COLOR}&\\bord7}}{text}{{\\bord3\\3c&H00000000&}}"
-    return f"{{\\c{ACTIVE_COLOR}&}}{text}"  # smooth_tracking
+        return f"{{\\c&H00000000&\\3c{active_color}\\bord8{b1}}}{text}{{\\bord3\\3c&H00000000&{b0}}}"
+
+    # 4. Smooth Tracking: Faol so'z rangli bo'ladi
+    return f"{{\\c{active_color}{b1}}}{text}{{{b0}}}"
 
 
 def scaled_font_size(font_size: int, video_w: int, video_h: int) -> int:
-    """Shrift o'lchami 1080 px asosida berilgan: video o'lchamiga moslaymiz."""
     return max(24, int(round(font_size * min(video_w, video_h) / 1080)))
 
 
 def max_chars_for(font_size: int, video_w: int, video_h: int) -> int:
-    """Bir qatorga sig'adigan taxminiy belgilar soni (qator ikkiga bo'linib ketmasligi uchun)."""
     fs = scaled_font_size(font_size, video_w, video_h)
     avail = video_w - 2 * 40
     return int(max(8, min(28, avail / (fs * 0.62) - 1)))
@@ -536,11 +526,14 @@ def generate_word_by_word_ass(
     video_w: int,
     video_h: int,
     font_key: str = DEFAULT_FONT_KEY,
+    color_key: str = DEFAULT_COLOR_KEY,
 ) -> int:
     font_name, bold_ok, tight, _ = resolve_font(font_key)
     font_size = scaled_font_size(font_size, video_w, video_h)
     base_sp = round(font_size * MONTSERRAT_SPACING, 1) if tight else 0.0
     bold_flag = -1 if bold_ok else 0
+    active_color = COLOR_OPTIONS.get(color_key, COLOR_OPTIONS["yellow"])["bgr"]
+
     header = f"""[Script Info]
 ScriptType: v4.00+
 PlayResX: {video_w}
@@ -555,26 +548,29 @@ Style: Default,{font_name},{font_size},{BASE_COLOR},&H000000FF,&H00000000,&H8000
 [Events]
 Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
 """
-    # After Effects "Tracking" animatori: harflar orasi keng -> normal, shu bilan birga paydo bo'lish.
-    if anim_style == "smooth_tracking":
-        wide, dur = font_size * 0.40, 480
-    else:
-        wide, dur = font_size * 0.25, 380
-    wide_sp = round(base_sp + wide, 1)
-    entrance = f"{{\\q2\\alpha&HFF&\\fsp{wide_sp}\\t(0,{dur},0.5,\\alpha&H00&\\fsp{base_sp})}}"
-
     dialogues: List[str] = []
+
     for chunk in chunks:
+        chunk_start = chunk[0]["start"]
+        chunk_end = chunk[-1]["end"]
+        chunk_duration_ms = max(200, int((chunk_end - chunk_start) * 1000))
+
         for i, active_word in enumerate(chunk):
             start = active_word["start"]
             end = chunk[i + 1]["start"] if i + 1 < len(chunk) else active_word["end"]
             if end <= start:
                 end = start + 0.1
 
-            parts = [_style_word(w["text"], j == i, anim_style, bold_ok) for j, w in enumerate(chunk)]
+            parts = [_style_word(w["text"], j == i, anim_style, active_color, bold_ok) for j, w in enumerate(chunk)]
             text = " ".join(parts)
-            if i == 0:
-                text = entrance + text   # qator paydo bo'lganda tracking animatsiyasi
+
+            # Smooth Tracking: harflar zichlikdan silliq yoyiladi
+            if anim_style == "smooth_tracking":
+                t_start = max(0, int((start - chunk_start) * 1000))
+                t_end = min(chunk_duration_ms, int((end - chunk_start) * 1000))
+                wide_sp = round(base_sp + font_size * 0.22, 1)
+                text = f"{{\\fsp{base_sp}\\t({t_start},{t_end},\\fsp{wide_sp})}}" + text
+
             dialogues.append(
                 f"Dialogue: 0,{format_ass_time(start)},{format_ass_time(end)},Default,,0,0,0,,{text}"
             )
@@ -596,7 +592,6 @@ async def _run(cmd: List[str], cwd: Optional[Path] = None) -> Tuple[int, str]:
 
 
 async def get_video_resolution(video_path: Path) -> Tuple[int, int]:
-    """imageio-ffmpeg ichida ffprobe yo'q, shuning uchun `ffmpeg -i` chiqishini o'qiymiz."""
     _, err = await _run([FFMPEG_PATH, "-hide_banner", "-i", str(video_path)])
     m = re.search(r"Video:.*?,\s*(\d{2,5})x(\d{2,5})", err)
     if not m:
@@ -614,19 +609,14 @@ async def extract_audio(video: Path, audio: Path):
     )
     if code != 0:
         log.error(f"Audio ajratishda xato: {err[-800:]}")
-        raise RuntimeError("Videodan audio ajratib bo'lmadi (ovoz yo'li yo'q bo'lishi mumkin).")
+        raise RuntimeError("Videodan audio ajratib bo'lmadi.")
 
 
 def _ff_escape(path: str) -> str:
-    """Filtergraph ichidagi yo'l uchun escape."""
     return path.replace("\\", "/").replace(":", "\\:").replace("'", "\\'")
 
 
 async def burn_subtitles_to_video(input_video: Path, ass_name: str, output_video: Path, work_dir: Path, font_key: str = DEFAULT_FONT_KEY):
-    """
-    ASS faylga faqat NISBIY nom beriladi va FFmpeg work_dir ichida ishga tushadi:
-    shunda Windows `C:\\...` va bo'sh joy/ikki nuqta muammolari chiqmaydi.
-    """
     vf = f"subtitles={ass_name}"
     font_file = resolve_font(font_key)[3]
     if font_file:
@@ -754,7 +744,6 @@ async def handle_video(message: Message, bot: Bot):
         await message.answer("❌ Video hajmi 50 MB dan oshmasligi kerak.")
         return
 
-    # Eski sessiya papkasi qolib ketgan bo'lsa tozalaymiz
     old = db_get_session(user_id)
     if old:
         shutil.rmtree(old["dir_path"], ignore_errors=True)
@@ -771,7 +760,7 @@ async def handle_video(message: Message, bot: Bot):
     except Exception as e:
         shutil.rmtree(user_dir, ignore_errors=True)
         log.error(f"Yuklab olishda xatolik: {e}")
-        await message.answer("❌ Videoni yuklab olib bo'lmadi (Telegram cheklovi: ~20 MB gacha bo'lishi mumkin).")
+        await message.answer("❌ Videoni yuklab olib bo'lmadi.")
         return
 
     db_save_session(user_id, sid, message.video.file_id, str(input_video), str(user_dir))
@@ -780,13 +769,12 @@ async def handle_video(message: Message, bot: Bot):
     for key, (name, _) in LANG_OPTIONS.items():
         builder.row(InlineKeyboardButton(text=name, callback_data=f"lang:{key}:{sid}"))
     await message.reply(
-        "✨ Videongiz qabul qilindi!\n\n🗣 Videodagi <b>nutq tilini</b> tanlang (aniqlik uchun muhim):",
+        "✨ Videongiz qabul qilindi!\n\n🗣 Videodagi <b>nutq tilini</b> tanlang:",
         reply_markup=builder.as_markup(),
     )
 
 
 async def load_session(callback: CallbackQuery, bot: Bot, sid: str) -> Optional[Dict[str, Any]]:
-    """Sessiyani bazadan oladi. Video fayl yo'qolgan bo'lsa (masalan, server qayta ishga tushsa) Telegram'dan qayta yuklaydi."""
     user_id = callback.from_user.id
     sess = db_get_session(user_id)
     if not sess or sess["sid"] != sid:
@@ -802,7 +790,7 @@ async def load_session(callback: CallbackQuery, bot: Bot, sid: str) -> Optional[
             log.error(f"Videoni qayta yuklab bo'lmadi: {e}")
             shutil.rmtree(sess["dir_path"], ignore_errors=True)
             db_delete_session(user_id)
-            await callback.answer("Videoni qayta yuklab bo'lmadi. Iltimos, videoni qaytadan yuboring.", show_alert=True)
+            await callback.answer("Videoni qayta yuklab bo'lmadi. Iltimos, qaytadan yuboring.", show_alert=True)
             return None
     return sess
 
@@ -844,6 +832,25 @@ async def callback_anim_style(callback: CallbackQuery, bot: Bot):
     db_update_session(callback.from_user.id, anim_style=style_key)
 
     builder = InlineKeyboardBuilder()
+    for c_key, c_info in COLOR_OPTIONS.items():
+        builder.row(InlineKeyboardButton(text=c_info["label"], callback_data=f"color:{c_key}:{sid}"))
+    await callback.message.edit_text("🎨 Faol so'z <b>rangini</b> tanlang:", reply_markup=builder.as_markup())
+    await callback.answer()
+
+
+@router.callback_query(F.data.startswith("color:"))
+async def callback_color(callback: CallbackQuery, bot: Bot):
+    parsed = _parse_cb(callback.data)
+    if not parsed or parsed[0] not in COLOR_OPTIONS:
+        await callback.answer("Noma'lum rang.", show_alert=True)
+        return
+    color_key, sid = parsed
+    sess = await load_session(callback, bot, sid)
+    if not sess:
+        return
+    db_update_session(callback.from_user.id, color_key=color_key)
+
+    builder = InlineKeyboardBuilder()
     fonts = available_fonts()
     for key in fonts:
         builder.row(InlineKeyboardButton(text=FONT_OPTIONS[key]["label"], callback_data=f"font:{key}:{sid}"))
@@ -868,13 +875,14 @@ async def callback_font_family(callback: CallbackQuery, bot: Bot):
     builder = InlineKeyboardBuilder()
     for skey, (name, _) in FONT_SIZES.items():
         builder.row(InlineKeyboardButton(text=name, callback_data=f"size:{skey}:{sid}"))
-    await callback.message.edit_text("📱 Endi subtitr <b>shrift o'lchamini</b> tanlang:", reply_markup=builder.as_markup())
+    await callback.message.edit_text("📱 Subtitr <b>o'lchamini</b> tanlang:", reply_markup=builder.as_markup())
     await callback.answer()
 
 
 @router.callback_query(F.data.startswith("size:"))
 async def callback_font_size(callback: CallbackQuery, bot: Bot):
     user_id = callback.from_user.id
+    username = callback.from_user.username or ""
     parsed = _parse_cb(callback.data)
     if not parsed or parsed[0] not in FONT_SIZES:
         await callback.answer("Noma'lum o'lcham.", show_alert=True)
@@ -889,7 +897,10 @@ async def callback_font_size(callback: CallbackQuery, bot: Bot):
     if not session:
         return
 
-    if get_user_credits(user_id) <= 0 and not is_user_pro(user_id):
+    # Balans tekshiruvini to'g'rilash (username uzatilib bazadan aniq olinadi)
+    user_credits = get_user_credits(user_id, username)
+    user_is_pro = is_user_pro(user_id)
+    if user_credits <= 0 and not user_is_pro:
         await callback.answer(NO_CREDITS_TEXT, show_alert=True)
         return
 
@@ -897,10 +908,12 @@ async def callback_font_size(callback: CallbackQuery, bot: Bot):
     await callback.answer()
 
     font_size = FONT_SIZES[size_key][1]
-    font_key = session["font_key"] or DEFAULT_FONT_KEY
-    anim_style = session["anim_style"] or "mrbeast_style"
+    font_key = session.get("font_key") or DEFAULT_FONT_KEY
+    anim_style = session.get("anim_style") or "mrbeast_style"
+    color_key = session.get("color_key") or DEFAULT_COLOR_KEY
     lang_key = session.get("lang") or "uzb"
     lang_code = LANG_OPTIONS.get(lang_key, LANG_OPTIONS["uzb"])[1]
+
     input_video = Path(session["video_path"])
     user_dir = Path(session["dir_path"])
     output_video = user_dir / "output.mp4"
@@ -921,15 +934,14 @@ async def callback_font_size(callback: CallbackQuery, bot: Bot):
                 try:
                     kwargs: Dict[str, Any] = dict(model_id=model, tag_audio_events=False, timestamps_granularity="word")
                     if lang_code:
-                        kwargs["language_code"] = lang_code   # tilni aniq berish — eng muhim aniqlik omili
+                        kwargs["language_code"] = lang_code
                     with open(audio_path, "rb") as f:
                         return el_client.speech_to_text.convert(file=f, **kwargs)
-                except Exception as e:  # model yoki parametr qo'llab-quvvatlanmasa keyingisiga o'tamiz
+                except Exception as e:
                     last_err = e
                     log.warning(f"STT {model} xatosi: {e}")
-            raise last_err  # type: ignore[misc]
+            raise last_err
 
-        # Bloklovchi so'rov botni qotirib qo'ymasligi uchun alohida oqimda
         transcript = await asyncio.to_thread(_transcribe)
 
         words = extract_clean_words(transcript, lang_code)
@@ -939,13 +951,13 @@ async def callback_font_size(callback: CallbackQuery, bot: Bot):
 
         chunks = group_into_chunks(words, max_chars=max_chars_for(font_size, v_width, v_height))
         write_srt(chunks, srt_path)
-        generate_word_by_word_ass(chunks, ass_path, anim_style, font_size, v_width, v_height, font_key)
+        generate_word_by_word_ass(chunks, ass_path, anim_style, font_size, v_width, v_height, font_key, color_key)
 
         await burn_subtitles_to_video(input_video, ass_name, output_video, user_dir, font_key)
 
-        if not is_user_pro(user_id):
+        if not user_is_pro:
             deduct_user_credit(user_id)
-        remaining = get_user_credits(user_id)
+        remaining = get_user_credits(user_id, username)
 
         await bot.send_video(
             chat_id=user_id,
@@ -953,7 +965,7 @@ async def callback_font_size(callback: CallbackQuery, bot: Bot):
             width=v_width,
             height=v_height,
             supports_streaming=True,
-            caption=f"🔥 Subtitr Tayyor!\n\n💳 Qolgan balans: {remaining} ta video",
+            caption=f"🔥 Subtitr Tayyor!\n\n💳 Qolgan balans: {remaining if not user_is_pro else '♾ Cheksiz'} ta video",
             reply_markup=get_main_keyboard(),
         )
         await bot.send_document(chat_id=user_id, document=FSInputFile(srt_path), caption="📄 SRT fayl")
@@ -977,10 +989,10 @@ async def cmd_sub_styles(message: Message):
         "Subtitr uslublarini tanlash:\n\n"
         "Hozirda quyidagi animatsiya uslublari mavjud:\n"
         "1. MrBeast Pop-up\n"
-        "2. Smooth Text Tracking (Fade)\n"
+        "2. Smooth Text Tracking (Yoyilish)\n"
         "3. Active Bold / Regular\n"
         "4. Active Word Highlight (Box)\n\n"
-        "Video yuborganingizdan so'ng uslubni tanlashingiz mumkin.",
+        "Video yuborganingizdan so'ng uslub va rangni tanlashingiz mumkin.",
         reply_markup=get_main_keyboard(),
     )
 
@@ -1057,19 +1069,13 @@ async def cmd_terms(message: Message):
     await message.answer(
         "Foydalanish shartlari va Ommaviy Oferta:\n\n"
         "1. Umumiy qoidalar:\n"
-        "Ushbu shartnoma Auto Subtitles boti orqali taqdim etiladigan xizmatlardan foydalanish qoidalarini belgilaydi. "
-        "Botdan foydalanishni boshlagan har bir shaxs ushbu shartlarga to'liq rozilik bildirgan hisoblanadi.\n\n"
+        "Ushbu shartnoma Auto Subtitles boti orqali taqdim etiladigan xizmatlardan foydalanish qoidalarini belgilaydi.\n\n"
         "2. Xizmatlar mazmuni:\n"
-        "Bot foydalanuvchilar tomonidan yuborilgan videolarga sun'iy intellekt yordamida avtomatik subtitrlar "
-        "(taglavhalar) qo'shib berish xizmatini ko'rsatadi.\n\n"
+        "Bot foydalanuvchilar tomonidan yuborilgan videolarga sun'iy intellekt yordamida avtomatik subtitrlar qo'shib beradi.\n\n"
         "3. To'lovlar va tariflar:\n"
-        "Xizmatlar pullik va bepul asosda taqdim etiladi. PRO tariflar uchun qilingan to'lovlar raqamli xizmat "
-        "ko'rsatilganligi sababli qaytarilmaydi.\n\n"
+        "Xizmatlar pullik va bepul asosda taqdim etiladi.\n\n"
         "4. Foydalanuvchi mas'uliyati:\n"
-        "Foydalanuvchi yuklayotgan videolari O'zbekiston Respublikasi qonunchiligiga zid kelmasligini, mualliflik "
-        "huquqlarini buzmasligini va boshqalarning huquqlarini poymol qilmasligini kafolatlaydi.\n\n"
-        "5. Maxfiylik:\n"
-        "Foydalanuvchining shaxsiy ma'lumotlari xavfsiz saqlanadi va uchinchi shaxslarga berilmaydi.",
+        "Foydalanuvchi yuklayotgan videolari qonunchilikka zid kelmasligini kafolatlaydi.",
         reply_markup=get_main_keyboard(),
     )
 
