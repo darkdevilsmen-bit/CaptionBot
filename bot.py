@@ -61,21 +61,34 @@ DB_FILE = DATA_DIR / "database.db"
 STT_MODEL = os.getenv("STT_MODEL", "scribe_v2")
 INITIAL_CREDITS = 1
 
+# Instagram Reels & Mahalliy kanallarda ko'p uchraydigan urg'u beriladigan so'zlar
+HEADLIGHT_WORDS = {
+    "chirchiq", "chirchiqda", "chirchiqning", "chirchiqliklar",
+    "toshkent", "toshkentda", "diqqat", "ogohlantirish", "yangilik",
+    "bomba", "daxshat", "zo'r", "vapshe", "vapsheyam", "shok",
+    "tekin", "skidka", "aksiya", "arzon", "narxi", "admin", "obuna",
+    "muammo", "qaror", "hokimiyat", "yo'l", "reels", "video", "prosto",
+    "albatta", "qarang", "tezkor", "rossiya", "dollar", "super"
+}
+
 ANIMATION_STYLES = {
+    "smooth_tracking": "✨ Smooth Tracking + Fade Out",
     "mrbeast_style": "🟢 MrBeast Pop-up",
-    "smooth_tracking": "✨ Smooth Text Tracking (Yoyilish)",
     "active_bold_regular": "🔥 Active Bold / Regular",
     "active_word_box": "⬛ Active Word Highlight (Box)",
 }
 
 COLOR_OPTIONS = {
-    "white": {"label": "⚪ Oq", "bgr": "&H00FFFFFF&"},
+    "white": {"label": "⚪ Oq (Standart)", "bgr": "&H00FFFFFF&"},
     "yellow": {"label": "🟡 Sariq", "bgr": "&H0000FFFF&"},
     "green": {"label": "🟢 MrBeast Yashil", "bgr": "&H0032FF00&"},
     "cyan": {"label": "🔵 Moviy / Cyan", "bgr": "&H00FFFF00&"},
     "pink": {"label": "🌸 Pushti / Qizil", "bgr": "&H005020FF&"},
 }
-DEFAULT_COLOR_KEY = "yellow"
+DEFAULT_COLOR_KEY = "white"
+
+ACTIVE_SPOKEN_COLOR = "&H0000FFFF&"   # Aytilayotgan vaqtda aniq sariq yonadi
+HEADLIGHT_COLOR = "&H0032FF00&"       # Instagram reels urg'u so'zlari uchun neon yashil
 
 FONT_SIZES = {
     "small": ("🔽 Kichik (70)", 70),
@@ -84,7 +97,7 @@ FONT_SIZES = {
     "xlarge": ("🔥 Juda katta (115)", 115),
 }
 
-MONTSERRAT_SPACING = -0.03
+MONTSERRAT_SPACING = -0.02
 
 _GF = "https://github.com/google/fonts/raw/main/ofl/montserrat/static/"
 FONT_OPTIONS = {
@@ -110,8 +123,6 @@ TARIFFS = [
     {"emoji": "🥈", "name": "1 OYLIK PRO", "price": "49 000 so'm"},
     {"emoji": "👑", "name": "VIP UMRBOD", "price": "149 000 so'm"},
 ]
-
-BASE_COLOR = "&H00FFFFFF&"
 
 router = Router()
 el_client = ElevenLabs(api_key=ELEVENLABS_API_KEY)
@@ -211,7 +222,7 @@ def db_save_session(user_id: int, sid: str, file_id: str, video_path: str, dir_p
         conn.execute(
             "INSERT OR REPLACE INTO sessions (user_id, sid, file_id, video_path, dir_path, anim_style, font_key, font_size, color_key, created, lang) "
             "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-            (user_id, sid, file_id, video_path, dir_path, "mrbeast_style", DEFAULT_FONT_KEY, 85, DEFAULT_COLOR_KEY, time.time(), "uzb"),
+            (user_id, sid, file_id, video_path, dir_path, "smooth_tracking", DEFAULT_FONT_KEY, 85, DEFAULT_COLOR_KEY, time.time(), "uzb"),
         )
         conn.commit()
 
@@ -370,7 +381,7 @@ def extract_clean_words(transcript: Any, lang: Optional[str] = None) -> List[Dic
     return result
 
 
-def group_into_chunks(words: List[Dict[str, Any]], max_words: int = 4, max_gap: float = 0.8, max_chars: int = 24) -> List[List[Dict[str, Any]]]:
+def group_into_chunks(words: List[Dict[str, Any]], max_words: int = 3, max_gap: float = 0.65, max_chars: int = 20) -> List[List[Dict[str, Any]]]:
     chunks: List[List[Dict[str, Any]]] = []
     current: List[Dict[str, Any]] = []
     for w in words:
@@ -485,27 +496,36 @@ async def ensure_fonts():
             log.warning(f"{dest.name} yuklanmadi ({e}).")
 
 
-# ----------------------------------------- SO'Z FORMATLASH (LAG VA SAKRASHLARSIZ)
-def _style_word(text: str, active: bool, anim_style: str, active_color: str, bold_ok: bool = True) -> str:
+# ----------------------- SO'ZNI FORMATLASH VA ANIMATSIYA
+def _format_word(word_text: str, state: str, anim_style: str, chosen_color: str, bold_ok: bool = True) -> str:
     b1, b0 = ("\\b1", "\\b0") if bold_ok else ("", "")
+    clean_w = re.sub(r"[^\w]", "", word_text.lower())
+    is_headlight = clean_w in HEADLIGHT_WORDS
 
-    if not active:
-        return f"{{\\c{BASE_COLOR}{b0}}}{text}"
+    # 1. Hali aytilmagan so'zlar: o'z o'lchamida va asosiy rangda (masalan, oq)
+    if state == "future":
+        return f"{{\\c{chosen_color}\\fscx100\\fscy100{b0}}}{word_text}"
 
-    # 1. MrBeast Style: pop-up (faqat faol so'z 125% ga sakrab o'z holiga qaytadi)
+    # 2. Aytib bo'lingan eski so'zlar: normal 100% holatga qaytgan, tanlangan rangda
+    if state == "past":
+        color = HEADLIGHT_COLOR if is_headlight else chosen_color
+        return f"{{\\c{color}\\fscx100\\fscy100{b1 if is_headlight else b0}}}{word_text}"
+
+    # 3. Ayni damda aytilayotgan so'z: sariq va biroz kattaroq (112%)
+    active_color = HEADLIGHT_COLOR if is_headlight else ACTIVE_SPOKEN_COLOR
+
     if anim_style == "mrbeast_style":
-        return f"{{\\c{active_color}{b1}\\t(0,80,\\fscx125\\fscy125)\\t(80,160,\\fscx100\\fscy100)}}{text}{{\\fscx100\\fscy100}}"
+        return (f"{{\\c{active_color}{b1}\\t(0,70,\\fscx120\\fscy120)\\t(70,140,\\fscx112\\fscy112)}}"
+                f"{word_text}{{\\fscx112\\fscy112}}")
 
-    # 2. Active Bold / Regular: faol so'z qalin va rangli
-    if anim_style == "active_bold_regular":
-        return f"{{\\c{active_color}{b1}}}{text}{{{b0}}}"
-
-    # 3. Highlight Box: faol so'z orqasida aniq ramka/highlight
     if anim_style == "active_word_box":
-        return f"{{\\c&H00000000&\\3c{active_color}\\bord8{b1}}}{text}{{\\bord3\\3c&H00000000&{b0}}}"
+        return f"{{\\c&H00000000&\\3c{active_color}\\bord8\\fscx112\\fscy112{b1}}}{word_text}{{\\bord3\\3c&H00000000&\\fscx100\\fscy100{b0}}}"
 
-    # 4. Smooth Tracking rejimida faol so'z rang bilan yurgiziladi (matn qotib qolmasligi uchun)
-    return f"{{\\c{active_color}{b1}}}{text}{{{b0}}}"
+    if anim_style == "active_bold_regular":
+        return f"{{\\c{active_color}\\fscx112\\fscy112{b1}}}{word_text}{{\\fscx100\\fscy100{b0}}}"
+
+    # smooth_tracking: so'z kattalashadi va silliq ranglanadi
+    return f"{{\\c{active_color}\\fscx112\\fscy112{b1}}}{word_text}{{\\fscx100\\fscy100{b0}}}"
 
 
 def scaled_font_size(font_size: int, video_w: int, video_h: int) -> int:
@@ -515,7 +535,7 @@ def scaled_font_size(font_size: int, video_w: int, video_h: int) -> int:
 def max_chars_for(font_size: int, video_w: int, video_h: int) -> int:
     fs = scaled_font_size(font_size, video_w, video_h)
     avail = video_w - 2 * 40
-    return int(max(8, min(28, avail / (fs * 0.62) - 1)))
+    return int(max(8, min(24, avail / (fs * 0.62) - 1)))
 
 
 def generate_word_by_word_ass(
@@ -532,7 +552,7 @@ def generate_word_by_word_ass(
     font_size = scaled_font_size(font_size, video_w, video_h)
     base_sp = round(font_size * MONTSERRAT_SPACING, 1) if tight else 0.0
     bold_flag = -1 if bold_ok else 0
-    active_color = COLOR_OPTIONS.get(color_key, COLOR_OPTIONS["yellow"])["bgr"]
+    chosen_color = COLOR_OPTIONS.get(color_key, COLOR_OPTIONS["white"])["bgr"]
 
     header = f"""[Script Info]
 ScriptType: v4.00+
@@ -543,7 +563,7 @@ WrapStyle: 0
 
 [V4+ Styles]
 Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding
-Style: Default,{font_name},{font_size},{BASE_COLOR},&H000000FF,&H00000000,&H80000000,{bold_flag},0,0,0,100,100,{base_sp},0,1,3,0,2,40,40,{int(video_h * 0.12)},1
+Style: Default,{font_name},{font_size},{chosen_color},&H000000FF,&H00000000,&H80000000,{bold_flag},0,0,0,100,100,{base_sp},0,1,3,0,2,40,40,{int(video_h * 0.12)},1
 
 [Events]
 Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
@@ -553,25 +573,47 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
     for chunk in chunks:
         chunk_start = chunk[0]["start"]
         chunk_end = chunk[-1]["end"]
-        # Cho'zilish masofasi: siz aytgandek ixcham +3 piksel (harflar buzilib ketmaydi)
-        target_sp = round(base_sp + 3.0, 1)
-        total_dur_ms = max(200, int((chunk_end - chunk_start) * 1000))
+        total_dur_ms = max(250, int((chunk_end - chunk_start) * 1000))
+        target_sp = round(base_sp + 2.8, 1)   # Yoyilish miqdori: ixcham va o'ta tekis (+2.8 px)
 
-        for i, active_word in enumerate(chunk):
-            start = active_word["start"]
-            end = chunk[i + 1]["start"] if i + 1 < len(chunk) else active_word["end"]
+        for i, current_word in enumerate(chunk):
+            start = current_word["start"]
+            end = chunk[i + 1]["start"] if i + 1 < len(chunk) else current_word["end"]
             if end <= start:
                 end = start + 0.1
 
-            parts = [_style_word(w["text"], j == i, anim_style, active_color, bold_ok) for j, w in enumerate(chunk)]
-            text = " ".join(parts)
+            word_parts = []
+            for j, w in enumerate(chunk):
+                if j < i:
+                    state = "past"     # Aytib bo'lingan: normal o'lchamda, tanlangan rangda
+                elif j == i:
+                    state = "active"   # Aytilayotgan: sal kattaroq + sariq
+                else:
+                    state = "future"   # Aytilmagan: 100% o'lchamda, oq rangda
 
-            # Smooth Tracking (lag va qotishlarsiz, butun gap bo'yicha silliq kengayish)
+                word_parts.append(_format_word(w["text"], state, anim_style, chosen_color, bold_ok))
+
+            text = " ".join(word_parts)
+
+            # Smooth Tracking + Fade Out:
+            # Matn sakramasligi uchun joriy so'zning boshlanish (t1) va tugash (t2) nuqtalari proportsional olinadi
             if anim_style == "smooth_tracking":
                 t1 = int((start - chunk_start) * 1000)
                 t2 = int((end - chunk_start) * 1000)
-                # O'rtada animatsiya to'xtab qolmasligi uchun vaqt proportsional o'tadi
-                text = f"{{\\fsp{base_sp}\\t(0,{total_dur_ms},\\fsp{target_sp})}}" + text
+
+                # Qator boshidan oxirigacha silliq yoyilish qiymati:
+                sp1 = round(base_sp + (target_sp - base_sp) * (t1 / total_dur_ms), 2)
+                sp2 = round(base_sp + (target_sp - base_sp) * (t2 / total_dur_ms), 2)
+
+                dur_part = max(10, t2 - t1)
+                anim_prefix = f"{{\\fsp{sp1}\\t(0,{dur_part},\\fsp{sp2})}}"
+
+                # Fraza tugashiga yetganda (oxirgi so'zda) silliq Fade-Out (erib yo'qolish) qo'shiladi:
+                if i == len(chunk) - 1:
+                    fade_time = min(150, max(50, int(dur_part * 0.4)))
+                    anim_prefix = f"{{\\fad(0,{fade_time})}}" + anim_prefix
+
+                text = anim_prefix + text
 
             dialogues.append(
                 f"Dialogue: 0,{format_ass_time(start)},{format_ass_time(end)},Default,,0,0,0,,{text}"
@@ -842,7 +884,7 @@ async def callback_anim_style(callback: CallbackQuery, bot: Bot):
     builder = InlineKeyboardBuilder()
     for c_key, c_info in COLOR_OPTIONS.items():
         builder.row(InlineKeyboardButton(text=c_info["label"], callback_data=f"color:{c_key}:{sid}"))
-    await callback.message.edit_text("🎨 Faol so'z <b>rangini</b> tanlang:", reply_markup=builder.as_markup())
+    await callback.message.edit_text("🎨 Asosiy matn <b>rangini</b> tanlang (aytilayotgan so'z sariq bo'ladi):", reply_markup=builder.as_markup())
     await callback.answer()
 
 
@@ -916,7 +958,7 @@ async def callback_font_size(callback: CallbackQuery, bot: Bot):
 
     font_size = FONT_SIZES[size_key][1]
     font_key = session.get("font_key") or DEFAULT_FONT_KEY
-    anim_style = session.get("anim_style") or "mrbeast_style"
+    anim_style = session.get("anim_style") or "smooth_tracking"
     color_key = session.get("color_key") or DEFAULT_COLOR_KEY
     lang_key = session.get("lang") or "uzb"
     lang_code = LANG_OPTIONS.get(lang_key, LANG_OPTIONS["uzb"])[1]
@@ -955,7 +997,7 @@ async def callback_font_size(callback: CallbackQuery, bot: Bot):
             await status_msg.edit_text("❌ Videodan ovoz topilmadi yoki matnga o'girib bo'lmadi.")
             return
 
-        chunks = group_into_chunks(words, max_chars=max_chars_for(font_size, v_width, v_height))
+        chunks = group_into_chunks(words, max_words=3, max_chars=max_chars_for(font_size, v_width, v_height))
         write_srt(chunks, srt_path)
         generate_word_by_word_ass(chunks, ass_path, anim_style, font_size, v_width, v_height, font_key, color_key)
 
@@ -992,13 +1034,12 @@ async def callback_font_size(callback: CallbackQuery, bot: Bot):
 @router.message(F.text == "🎨 Subtitr uslublari")
 async def cmd_sub_styles(message: Message):
     await message.answer(
-        "Subtitr uslublarini tanlash:\n\n"
-        "Hozirda quyidagi animatsiya uslublari mavjud:\n"
-        "1. MrBeast Pop-up\n"
-        "2. Smooth Text Tracking (Yoyilish)\n"
-        "3. Active Bold / Regular\n"
-        "4. Active Word Highlight (Box)\n\n"
-        "Video yuborganingizdan so'ng uslub va rangni tanlashingiz mumkin.",
+        "Subtitr uslublari:\n\n"
+        "1. Smooth Tracking + Fade Out (Matn qotmasdan silliq yoyilib, oxirida chiroyli erib ketadi)\n"
+        "2. MrBeast Pop-up (Aytilayotgan so'z sakrab kattalashadi va sariq bo'ladi)\n"
+        "3. Active Bold / Regular (Aytilayotgan so'z qalin va sariq)\n"
+        "4. Active Word Highlight (Aytilayotgan so'z orqasida kontrast ramka)\n\n"
+        "Videongizdagi kalit so'zlar (Chirchiq, yangilik, diqqat va h.k.) avtomatik neon urg'u bilan ko'rsatiladi.",
         reply_markup=get_main_keyboard(),
     )
 
