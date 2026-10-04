@@ -403,7 +403,6 @@ def extract_clean_words(transcript: Any, lang: Optional[str] = None) -> List[Dic
 
         result.append({"text": text, "start": start, "end": end})
 
-    # 🟢 Yangilangan xavfsizlik filtri: bo'linib qolgan so'zlarni va harflarni birlashtirish
     fixed_result: List[Dict[str, Any]] = []
     i = 0
     while i < len(result):
@@ -1211,7 +1210,7 @@ async def cmd_contact_admin(message: Message):
         f"💬 Telegram: @{ADMIN_USERNAME}\n"
         f"📞 Telefon: <code>{ADMIN_PHONE}</code>\n{LINE}\n"
         "Savol, to'lov yoki muammo bo'lsa — yozing, tez javob beramiz.",
-        reply_markup=b.as_km() if hasattr(b, 'as_km') else b.as_markup(),
+        reply_markup=b.as_markup(),
     )
 
 
@@ -1230,7 +1229,9 @@ async def main():
     dp = Dispatcher(storage=MemoryStorage())
     dp.include_router(router)
 
-    await bot.set_my_commands([BotCommand(command="start", description="Botni ishga tushirish / Asosiy menyu")})
+    await bot.set_my_commands([
+        BotCommand(command="start", description="Botni ishga tushirish / Asosiy menyu")
+    ])
 
     log.info("Bot ishga tushdi...")
     await bot.delete_webhook(drop_pending_updates=True)
