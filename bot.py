@@ -146,7 +146,6 @@ async def check_subscription(bot: Bot, user_id: int) -> bool:
             return True
     except Exception as e:
         log.error(f"Obunani tekshirishda xatolik: {e}")
-        # Agar bot kanalga admin bo'lmasa yoki xatolik bo'lsa, bot to'xtab qolmasligi uchun True qaytarishi mumkin
         return True
     return False
 
@@ -306,37 +305,68 @@ async def show_styles(message: Message):
     await message.answer(text, reply_markup=builder.as_markup(), parse_mode="Markdown")
 
 
-@router.callback_query(F.data.startswith("set_") | F.data.startswith("anim_") | F.data.startswith("color_") | F.data.startswith("size_"))
-async def process_settings_callback(callback: CallbackQuery):
-    action = callback.data
+@router.callback_query(F.data == "set_anim")
+async def cb_set_anim(callback: CallbackQuery):
+    builder = InlineKeyboardBuilder()
+    # 4 ta animatsiya tugmasini har birini alohida qatorda qo'shamiz
+    builder.row(InlineKeyboardButton(text=ANIMATION_STYLES["mrbeast_style"], callback_data="anim_mrbeast_style"))
+    builder.row(InlineKeyboardButton(text=ANIMATION_STYLES["smooth_tracking"], callback_data="anim_smooth_tracking"))
+    builder.row(InlineKeyboardButton(text=ANIMATION_STYLES["active_bold_regular"], callback_data="anim_active_bold_regular"))
+    builder.row(InlineKeyboardButton(text=ANIMATION_STYLES["active_word_box"], callback_data="anim_active_word_box"))
+    
+    await callback.message.edit_text("Kerakli animatsiya uslubini tanlang:", reply_markup=builder.as_markup())
+    await callback.answer()
+
+
+@router.callback_query(F.data == "set_color")
+async def cb_set_color(callback: CallbackQuery):
+    builder = InlineKeyboardBuilder()
+    for k, v in TEXT_COLORS.items():
+        builder.row(InlineKeyboardButton(text=v[0], callback_data=f"color_{k}"))
+    await callback.message.edit_text("Rangni tanlang:", reply_markup=builder.as_markup())
+    await callback.answer()
+
+
+@router.callback_query(F.data == "set_size")
+async def cb_set_size(callback: CallbackQuery):
+    builder = InlineKeyboardBuilder()
+    for k, v in FONT_SIZES.items():
+        builder.row(InlineKeyboardButton(text=v[0], callback_data=f"size_{k}"))
+    await callback.message.edit_text("O'lchamni tanlang:", reply_markup=builder.as_markup())
+    await callback.answer()
+
+
+@router.callback_query(F.data.startswith("anim_"))
+async def cb_anim_choice(callback: CallbackQuery):
     user_id = callback.from_user.id
     session = USER_SESSIONS.setdefault(user_id, {"anim": "mrbeast_style", "color": "yellow", "size": "normal"})
-    
-    builder = InlineKeyboardBuilder()
-    if action == "set_anim":
-        for k, v in ANIMATION_STYLES.items():
-            builder.row(InlineKeyboardButton(text=v, callback_data=f"anim_{k}"))
-        await callback.message.edit_text("Uslubni tanlang:", reply_markup=builder.as_markup())
-    elif action == "set_color":
-        for k, v in TEXT_COLORS.items():
-            builder.row(InlineKeyboardButton(text=v[0], callback_data=f"color_{k}"))
-        await callback.message.edit_text("Rangni tanlang:", reply_markup=builder.as_markup())
-    elif action == "set_size":
-        for k, v in FONT_SIZES.items():
-            builder.row(InlineKeyboardButton(text=v[0], callback_data=f"size_{k}"))
-        await callback.message.edit_text("O'lchamni tanlang:", reply_markup=builder.as_markup())
-    elif action.startswith("anim_"):
-        session["anim"] = action.split("_", 1)[1]
+    anim_key = callback.data.split("_", 1)[1]
+    if anim_key in ANIMATION_STYLES:
+        session["anim"] = anim_key
         await callback.answer("Uslub saqlandi!")
-        await callback.message.edit_text(f"✅ Uslub muvaffaqiyatli o'zgardi: {ANIMATION_STYLES.get(session['anim'])}")
-    elif action.startswith("color_"):
-        session["color"] = action.split("_", 1)[1]
+        await callback.message.edit_text(f"✅ Uslub muvaffaqiyatli o'zgardi: {ANIMATION_STYLES[anim_key]}")
+
+
+@router.callback_query(F.data.startswith("color_"))
+async def cb_color_choice(callback: CallbackQuery):
+    user_id = callback.from_user.id
+    session = USER_SESSIONS.setdefault(user_id, {"anim": "mrbeast_style", "color": "yellow", "size": "normal"})
+    color_key = callback.data.split("_", 1)[1]
+    if color_key in TEXT_COLORS:
+        session["color"] = color_key
         await callback.answer("Rang saqlandi!")
-        await callback.message.edit_text(f"✅ Rang muvaffaqiyatli o'zgardi: {TEXT_COLORS.get(session['color'])[0]}")
-    elif action.startswith("size_"):
-        session["size"] = action.split("_", 1)[1]
+        await callback.message.edit_text(f"✅ Rang muvaffaqiyatli o'zgardi: {TEXT_COLORS[color_key][0]}")
+
+
+@router.callback_query(F.data.startswith("size_"))
+async def cb_size_choice(callback: CallbackQuery):
+    user_id = callback.from_user.id
+    session = USER_SESSIONS.setdefault(user_id, {"anim": "mrbeast_style", "color": "yellow", "size": "normal"})
+    size_key = callback.data.split("_", 1)[1]
+    if size_key in FONT_SIZES:
+        session["size"] = size_key
         await callback.answer("O'lcham saqlandi!")
-        await callback.message.edit_text(f"✅ O'lcham muvaffaqiyatli o'zgardi: {FONT_SIZES.get(session['size'])[0]}")
+        await callback.message.edit_text(f"✅ O'lcham muvaffaqiyatli o'zgardi: {FONT_SIZES[size_key][0]}")
 
 
 @router.message(F.text == "⚡ Auto Subtitr qo'yish")
