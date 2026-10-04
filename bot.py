@@ -146,6 +146,8 @@ async def check_subscription(bot: Bot, user_id: int) -> bool:
             return True
     except Exception as e:
         log.error(f"Obunani tekshirishda xatolik: {e}")
+        # Agar bot kanalga admin bo'lmasa yoki xatolik bo'lsa, bot to'xtab qolmasligi uchun True qaytarishi mumkin
+        return True
     return False
 
 
@@ -345,38 +347,40 @@ async def start_subtitling_flow(message: Message):
 @router.message(F.video)
 async def handle_video(message: Message, bot: Bot):
     user_id = message.from_user.id
+    log.info(f"Video qabul qilindi: user_id={user_id}")
     
-    if not await check_subscription(bot, user_id):
-        builder = InlineKeyboardBuilder()
-        builder.row(InlineKeyboardButton(text="Kanalni ko'rish", url=f"https://t.me/{REQUIRED_CHANNEL.lstrip('@')}"))
-        await message.answer(
-            f"🚀 Botdan foydalanish uchun kanalimizga obuna bo'ling: {REQUIRED_CHANNEL}",
-            reply_markup=builder.as_markup()
-        )
-        return
-        
-    credits = get_user_credits(user_id, message.from_user.username or "")
-    if credits <= 0 and not is_user_pro(user_id):
-        await message.answer("❌ Balansingizda urinishlar qolmadi. Iltimos, tarif sotib oling yoki admin bilan bog'laning.")
-        return
-
-    if message.video.file_size > MAX_VIDEO_BYTES:
-        await message.answer("❌ Video hajmi juda katta! Maksimal hajm: 50MB.")
-        return
-
-    status_msg = await message.answer("⏳ Video qabul qilindi, yuklab olinmoqda va qayta ishlanmoqda...")
-    
-    WORK_ROOT.mkdir(exist_ok=True)
-    task_id = str(uuid.uuid4())
-    task_dir = WORK_ROOT / task_id
-    task_dir.mkdir(exist_ok=True)
-    
-    input_video = task_dir / "input.mp4"
-    output_video = task_dir / "output.mp4"
-    audio_path = task_dir / "audio.mp3"
-    ass_path = task_dir / "subs.ass"
+    status_msg = await message.answer("⏳ Video qabul qilindi, jarayon boshlandi...")
     
     try:
+        if not await check_subscription(bot, user_id):
+            builder = InlineKeyboardBuilder()
+            builder.row(InlineKeyboardButton(text="Kanalni ko'rish", url=f"https://t.me/{REQUIRED_CHANNEL.lstrip('@')}"))
+            await status_msg.edit_text(
+                f"🚀 Botdan foydalanish uchun kanalimizga obuna bo'ling: {REQUIRED_CHANNEL}",
+                reply_markup=builder.as_markup()
+            )
+            return
+            
+        credits = get_user_credits(user_id, message.from_user.username or "")
+        if credits <= 0 and not is_user_pro(user_id):
+            await status_msg.edit_text("❌ Balansingizda urinishlar qolmadi. Iltimos, tarif sotib oling yoki admin bilan bog'laning.")
+            return
+
+        if message.video.file_size > MAX_VIDEO_BYTES:
+            await status_msg.edit_text("❌ Video hajmi juda katta! Maksimal hajm: 50MB.")
+            return
+
+        WORK_ROOT.mkdir(exist_ok=True)
+        task_id = str(uuid.uuid4())
+        task_dir = WORK_ROOT / task_id
+        task_dir.mkdir(exist_ok=True)
+        
+        input_video = task_dir / "input.mp4"
+        output_video = task_dir / "output.mp4"
+        audio_path = task_dir / "audio.mp3"
+        ass_path = task_dir / "subs.ass"
+        
+        await status_msg.edit_text("📥 Video yuklab olinmoqda...")
         file_info = await bot.get_file(message.video.file_id)
         await bot.download_file(file_info.file_path, destination=input_video)
         
@@ -423,7 +427,7 @@ async def handle_video(message: Message, bot: Bot):
         process = subprocess.run(cmd_render, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
         if process.returncode != 0:
             log.error(f"FFmpeg xatosi: {process.stderr}")
-            await status_msg.edit_text(f"❌ Render qilishda xatolik yuz berdi. (FFmpeg error)")
+            await status_msg.edit_text("❌ Render qilishda xatolik yuz berdi.")
             return
         
         if output_video.exists():
@@ -437,9 +441,13 @@ async def handle_video(message: Message, bot: Bot):
             
     except Exception as e:
         log.error(f"Video qayta ishlashda xato: {e}", exc_info=True)
-        await status_msg.edit_text(f"❌ Xatolik yuz berdi: {str(e)}")
+        try:
+            await status_msg.edit_text(f"❌ Xatolik yuz berdi: {str(e)}")
+        except Exception:
+            await message.answer(f"❌ Xatolik yuz berdi: {str(e)}")
     finally:
-        shutil.rmtree(task_dir, ignore_errors=True)
+        if 'task_dir' in locals() and task_dir.exists():
+            shutil.rmtree(task_dir, ignore_errors=True)
 
 
 async def main():
