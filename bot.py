@@ -28,10 +28,12 @@ from aiogram.types import (
     ReplyKeyboardMarkup,
 )
 from aiogram.utils.keyboard import InlineKeyboardBuilder
+
 try:
     from aiogram.types import CopyTextButton
 except Exception:
     CopyTextButton = None
+
 from elevenlabs.client import ElevenLabs
 import imageio_ffmpeg
 
@@ -483,21 +485,26 @@ async def ensure_fonts():
             log.warning(f"{dest.name} yuklanmadi ({e}).")
 
 
+# ----------------------------------------- SO'Z FORMATLASH (LAG VA SAKRASHLARSIZ)
 def _style_word(text: str, active: bool, anim_style: str, active_color: str, bold_ok: bool = True) -> str:
     b1, b0 = ("\\b1", "\\b0") if bold_ok else ("", "")
 
     if not active:
         return f"{{\\c{BASE_COLOR}{b0}}}{text}"
 
+    # 1. MrBeast Style: pop-up (faqat faol so'z 125% ga sakrab o'z holiga qaytadi)
     if anim_style == "mrbeast_style":
-        return f"{{\\c{active_color}{b1}\\t(0,90,\\fscx125\\fscy125)\\t(90,180,\\fscx100\\fscy100)}}{text}{{\\fscx100\\fscy100}}"
+        return f"{{\\c{active_color}{b1}\\t(0,80,\\fscx125\\fscy125)\\t(80,160,\\fscx100\\fscy100)}}{text}{{\\fscx100\\fscy100}}"
 
+    # 2. Active Bold / Regular: faol so'z qalin va rangli
     if anim_style == "active_bold_regular":
         return f"{{\\c{active_color}{b1}}}{text}{{{b0}}}"
 
+    # 3. Highlight Box: faol so'z orqasida aniq ramka/highlight
     if anim_style == "active_word_box":
         return f"{{\\c&H00000000&\\3c{active_color}\\bord8{b1}}}{text}{{\\bord3\\3c&H00000000&{b0}}}"
 
+    # 4. Smooth Tracking rejimida faol so'z rang bilan yurgiziladi (matn qotib qolmasligi uchun)
     return f"{{\\c{active_color}{b1}}}{text}{{{b0}}}"
 
 
@@ -546,7 +553,9 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
     for chunk in chunks:
         chunk_start = chunk[0]["start"]
         chunk_end = chunk[-1]["end"]
-        chunk_duration_ms = max(200, int((chunk_end - chunk_start) * 1000))
+        # Cho'zilish masofasi: siz aytgandek ixcham +3 piksel (harflar buzilib ketmaydi)
+        target_sp = round(base_sp + 3.0, 1)
+        total_dur_ms = max(200, int((chunk_end - chunk_start) * 1000))
 
         for i, active_word in enumerate(chunk):
             start = active_word["start"]
@@ -557,11 +566,12 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
             parts = [_style_word(w["text"], j == i, anim_style, active_color, bold_ok) for j, w in enumerate(chunk)]
             text = " ".join(parts)
 
+            # Smooth Tracking (lag va qotishlarsiz, butun gap bo'yicha silliq kengayish)
             if anim_style == "smooth_tracking":
-                t_start = max(0, int((start - chunk_start) * 1000))
-                t_end = min(chunk_duration_ms, int((end - chunk_start) * 1000))
-                wide_sp = round(base_sp + font_size * 0.22, 1)
-                text = f"{{\\fsp{base_sp}\\t({t_start},{t_end},\\fsp{wide_sp})}}" + text
+                t1 = int((start - chunk_start) * 1000)
+                t2 = int((end - chunk_start) * 1000)
+                # O'rtada animatsiya to'xtab qolmasligi uchun vaqt proportsional o'tadi
+                text = f"{{\\fsp{base_sp}\\t(0,{total_dur_ms},\\fsp{target_sp})}}" + text
 
             dialogues.append(
                 f"Dialogue: 0,{format_ass_time(start)},{format_ass_time(end)},Default,,0,0,0,,{text}"
@@ -605,7 +615,6 @@ async def extract_audio(video: Path, audio: Path):
 
 
 def _escape_ass_filter_path(p: Path) -> str:
-    """Windows va Linux uchun FFmpeg filtergraph yo'llarini xatosiz formatlash"""
     s = str(p.resolve()).replace("\\", "/")
     s = s.replace(":", "\\:").replace("'", "\\'")
     return s
@@ -775,7 +784,6 @@ async def load_session(callback: CallbackQuery, bot: Bot, sid: str) -> Optional[
     user_id = callback.from_user.id
     sess = db_get_session(user_id)
     
-    # Agar sessiya bazada bo'lmasa, eskirgan deb ogohlantiramiz
     if not sess:
         await callback.answer("Bu tugma eskirgan. Iltimos, videoni qaytadan yuboring.", show_alert=True)
         return None
@@ -951,7 +959,6 @@ async def callback_font_size(callback: CallbackQuery, bot: Bot):
         write_srt(chunks, srt_path)
         generate_word_by_word_ass(chunks, ass_path, anim_style, font_size, v_width, v_height, font_key, color_key)
 
-        # To'liq tuzatilgan FFmpeg subtitle yo'li orqali montaj
         await burn_subtitles_to_video(input_video, ass_path, output_video, font_key)
 
         if not user_is_pro:
