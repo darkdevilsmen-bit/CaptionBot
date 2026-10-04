@@ -160,15 +160,40 @@ def format_ass_time(seconds: float) -> str:
     return f"{hours}:{mins:02d}:{secs:02d}.{centis:02d}"
 
 
-def generate_word_by_word_ass(words: List[Any], ass_path: Path, anim_style: str, text_color_hex: str, font_size: int) -> int:
+def get_video_resolution(video_path: Path) -> tuple:
+    """Videoning asl kenglik va balandligini FFprobe orqali aniqlash"""
+    try:
+        cmd = [
+            FFMPEG_PATH.replace("ffmpeg", "ffprobe"),
+            "-v", "error",
+            "-select_streams", "v:0",
+            "-show_entries", "stream=width,height",
+            "-of", "csv=p=0",
+            str(video_path)
+        ]
+        # ffprobe topilmasa ffmpeg orqali ham aniqlash mumkin, standart o'lcham 1080x1920
+        result = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, timeout=5)
+        if result.returncode == 0:
+            parts = result.strip().split(',')
+            if len(parts) == 2:
+                return int(parts[0]), int(parts[1])
+    except Exception:
+        pass
+    return 1080, 1920
+
+
+def generate_word_by_word_ass(words: List[Any], ass_path: Path, anim_style: str, text_color_hex: str, font_size: int, video_w: int, video_h: int) -> int:
+    # Videoning o'lchamlari PlayResX va PlayResY ga yoziladi, shunda kadr siljimaydi va o'lcham buzilmaydi
     header = f"""[Script Info]
 ScriptType: v4.00+
+PlayResX: {video_w}
+PlayResY: {video_h}
 ScaledBorderAndShadow: yes
 WrapStyle: 2
 
 [V4+ Styles]
 Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding
-Style: Default,Arial,{font_size},{text_color_hex},&H000000FF,&H00000000,&H80000000,-1,0,0,0,100,100,0,0,1,3,0,2,10,10,50,1
+Style: Default,Arial,{font_size},{text_color_hex},&H000000FF,&H00000000,&H80000000,-1,0,0,0,100,100,0,0,1,3,0,2,10,10,80,1
 
 [Events]
 Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
@@ -210,8 +235,13 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
             
             if anim_style == "mrbeast_style":
                 animated_word = f"{{\\t(0,100,\\fscx120\\fscy120)\\t(100,200,\\fscx100\\fscy100)}}{highlighted_word}"
+            elif anim_style == "smooth_tracking":
+                animated_word = f"{{\\fad(100,100)}}{highlighted_word}"
+            elif anim_style == "active_bold_regular":
+                animated_word = f"{{\\b1}}{highlighted_word}{{\\b0}}"
             else:
                 animated_word = highlighted_word
+                
             line_parts.append(animated_word)
 
         text_content = " ".join(line_parts)
@@ -419,6 +449,9 @@ async def callback_font_size(callback: CallbackQuery, bot: Bot):
     status_msg = await callback.message.edit_text("✨ Subtitrlar tayyorlanmoqda, iltimos kuting...")
     
     try:
+        # Videoning asl o'lchamlarini aniqlash
+        v_width, v_height = get_video_resolution(input_video)
+
         with open(input_video, "rb") as audio_file:
             transcript = el_client.speech_to_text.convert(
                 file=audio_file,
@@ -440,7 +473,9 @@ async def callback_font_size(callback: CallbackQuery, bot: Bot):
             ass_path=ass_path,
             anim_style=session["anim_style"],
             text_color_hex=session["color"],
-            font_size=session["font_size"]
+            font_size=session["font_size"],
+            video_w=v_width,
+            video_h=v_height
         )
         
         await burn_subtitles_to_video(input_video, ass_path, output_video)
