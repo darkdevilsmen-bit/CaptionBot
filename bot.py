@@ -39,6 +39,8 @@ ADMIN_ID = 7662888182
 ADMIN_USERNAME = "Captions_Admin"
 ADMIN_PHONE = "+998 (93) 495-10-89"
 
+REQUIRED_CHANNEL = "@Auto_Captions" 
+
 CARD_NUMBER = "5614686505428600"
 CARD_HOLDER = "Toshpulatov Shoxrux"
 
@@ -135,6 +137,16 @@ def deduct_user_credit(user_id: int) -> bool:
             conn.commit()
             return True
         return False
+
+
+async def check_subscription(bot: Bot, user_id: int) -> bool:
+    try:
+        member = await bot.get_chat_member(chat_id=REQUIRED_CHANNEL, user_id=user_id)
+        if member.status in ["member", "administrator", "creator"]:
+            return True
+    except Exception as e:
+        log.error(f"Obunani tekshirishda xatolik: {e}")
+    return False
 
 
 def format_ass_time(seconds: float) -> str:
@@ -334,6 +346,15 @@ async def start_subtitling_flow(message: Message):
 async def handle_video(message: Message, bot: Bot):
     user_id = message.from_user.id
     
+    if not await check_subscription(bot, user_id):
+        builder = InlineKeyboardBuilder()
+        builder.row(InlineKeyboardButton(text="Kanalni ko'rish", url=f"https://t.me/{REQUIRED_CHANNEL.lstrip('@')}"))
+        await message.answer(
+            f"🚀 Botdan foydalanish uchun kanalimizga obuna bo'ling: {REQUIRED_CHANNEL}",
+            reply_markup=builder.as_markup()
+        )
+        return
+        
     credits = get_user_credits(user_id, message.from_user.username or "")
     if credits <= 0 and not is_user_pro(user_id):
         await message.answer("❌ Balansingizda urinishlar qolmadi. Iltimos, tarif sotib oling yoki admin bilan bog'laning.")
@@ -411,9 +432,8 @@ async def handle_video(message: Message, bot: Bot):
             await status_msg.edit_text("❌ Videoni render qilishda xatolik yuz berdi.")
             
     except Exception as e:
-    defective_msg = f"❌ Xatolik yuz berdi: {str(e)}"
-    log.error(f"Video qayta ishlashda xato: {e}")
-    await status_msg.edit_text(defective_msg)
+        log.error(f"Video qayta ishlashda xato: {e}")
+        await status_msg.edit_text(f"❌ Xatolik yuz berdi: {str(e)}")
     finally:
         shutil.rmtree(task_dir, ignore_errors=True)
 
