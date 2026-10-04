@@ -107,7 +107,6 @@ HEADLIGHT_WORDS = {
     "muvaffaqiyat", "maqsad", "reja", "strategiya", "taktika", "maslahat", "tavsiya"
 }
 
-# Faqat 2 ta eng sara animatsiya
 ANIMATION_STYLES = {
     "smooth_tracking": "✨ Smooth Tracking + Fade Out",
     "mrbeast_style": "🟢 MrBeast Pop-up",
@@ -122,8 +121,8 @@ COLOR_OPTIONS = {
 }
 DEFAULT_COLOR_KEY = "white"
 
-ACTIVE_SPOKEN_COLOR = "&H0000FFFF&"   # Aytilayotgan vaqtda aniq sariq yonadi
-HEADLIGHT_COLOR = "&H0032FF00&"       # Fondagi 300+ urg'u so'zlari uchun neon yashil
+ACTIVE_SPOKEN_COLOR = "&H0000FFFF&"
+HEADLIGHT_COLOR = "&H0032FF00&"
 
 FONT_SIZES = {
     "small": ("🔽 Kichik (70)", 70),
@@ -285,7 +284,7 @@ def db_delete_session(user_id: int):
         conn.commit()
 
 
-def cleanup_stale_sessions(max_age_sec: int = 48 * 3600):
+def cleanup_stale_sessions(max_age_sec: int = 72 * 3600):
     now = time.time()
     with sqlite3.connect(DB_FILE) as conn:
         rows = conn.execute("SELECT user_id, dir_path, created FROM sessions").fetchall()
@@ -297,7 +296,7 @@ def cleanup_stale_sessions(max_age_sec: int = 48 * 3600):
         alive = {Path(r[0]).resolve() for r in conn.execute("SELECT dir_path FROM sessions").fetchall()}
     if WORK_ROOT.exists():
         for d in WORK_ROOT.iterdir():
-            if d.is_dir() and d.resolve() not in alive and now - d.stat().st_mtime > 7200:
+            if d.is_dir() and d.resolve() not in alive and now - d.stat().st_mtime > 14400:
                 shutil.rmtree(d, ignore_errors=True)
 
 
@@ -342,7 +341,7 @@ _HAS_ALNUM = re.compile(r"[^\W_]", re.UNICODE)
 _EVENT_TAG = re.compile(r"^[\(\[\*<].*[\)\]\*>]$")
 
 _CYR = {
-    "а": "a", "б": "b", "в": "v", "г": "g", "д": "d", "ж": "j", "з": "z", "и": "i", "й": "y", "к": "k",
+    "а": "a", "б": "b", "в": "v", "г": "g", "д": "d", "ж": "j", "z": "z", "з": "z", "и": "i", "й": "y", "к": "k",
     "л": "l", "м": "m", "н": "n", "о": "o", "п": "p", "р": "r", "с": "s", "т": "t", "у": "u", "ф": "f",
     "х": "x", "ц": "ts", "ч": "ch", "ш": "sh", "щ": "sh", "ъ": "'", "ы": "i", "ь": "", "э": "e",
     "ю": "yu", "я": "ya", "ё": "yo", "ў": "o'", "қ": "q", "ғ": "g'", "ҳ": "h",
@@ -537,24 +536,19 @@ def _format_word(word_text: str, state: str, anim_style: str, chosen_color: str,
     clean_w = re.sub(r"[^\w]", "", word_text.lower())
     is_headlight = clean_w in HEADLIGHT_WORDS
 
-    # 1. Hali aytilmagan so'zlar: o'z o'lchamida va asosiy rangda (masalan, oq)
     if state == "future":
         return f"{{\\c{chosen_color}\\fscx100\\fscy100{b0}}}{word_text}"
 
-    # 2. Aytib bo'lingan eski so'zlar: normal 100% holatga qaytgan, tanlangan rangda
     if state == "past":
         color = HEADLIGHT_COLOR if is_headlight else chosen_color
         return f"{{\\c{color}\\fscx100\\fscy100{b1 if is_headlight else b0}}}{word_text}"
 
-    # 3. Ayni damda aytilayotgan so'z: sariq va aniq pop-up
     active_color = HEADLIGHT_COLOR if is_headlight else ACTIVE_SPOKEN_COLOR
 
     if anim_style == "mrbeast_style":
-        # MrBeast Pop-up: aniq elastik sakrab 112% da barqaror turadi
-        return (f"{{\\c{active_color}{b1}\\t(0,60,\\fscx122\\fscy122)\\t(60,130,\\fscx112\\fscy112)}}"
+        return (f"{{\\c{active_color}{b1}\\t(0,60,\\fscx120\\fscy120)\\t(60,130,\\fscx112\\fscy112)}}"
                 f"{word_text}{{\\fscx112\\fscy112}}")
 
-    # smooth_tracking: so'z o'lchami barqaror va silliq ranglanadi
     return f"{{\\c{active_color}\\fscx112\\fscy112{b1}}}{word_text}{{\\fscx100\\fscy100{b0}}}"
 
 
@@ -625,7 +619,6 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
 
             text = " ".join(word_parts)
 
-            # Smooth Tracking + Fade Out:
             if anim_style == "smooth_tracking":
                 t1 = int((start - chunk_start) * 1000)
                 t2 = int((end - chunk_start) * 1000)
@@ -738,34 +731,61 @@ async def cmd_start(message: Message, bot: Bot):
     )
 
 
+# --- ADMIN KOMANDALARI (Moslashuvchan) ---
 @router.message(Command("add"))
 async def cmd_add_credits(message: Message):
     if message.from_user.id != ADMIN_ID:
         return
-    args = message.text.split()
-    if len(args) < 3:
-        await message.answer("Ishlatish: /add [user_id] [miqdor]")
-        return
-    try:
-        target, amount = int(args[1]), int(args[2])
-        with sqlite3.connect(DB_FILE) as conn:
-            conn.execute("UPDATE users SET credits = credits + ? WHERE user_id = ?", (amount, target))
-            conn.commit()
-        await message.answer(f"Foydalanuvchi ({target}) balansiga {amount} ta video qo'shildi.")
-    except Exception as e:
-        await message.answer(f"Xatolik: {escape(str(e))}")
+    args = message.text.strip().split()
+    # /add 5  yoki  /add 7662888182 5  yoki  /add 7662888182 pro
+    if len(args) == 2:
+        val = args[1].lower()
+        target = message.from_user.id
+        if val == "pro":
+            with sqlite3.connect(DB_FILE) as conn:
+                conn.execute("UPDATE users SET is_pro = 1 WHERE user_id = ?", (target,))
+                conn.commit()
+            await message.answer(f"Balansingiz PRO statusga o'tkazildi.")
+            return
+        elif val.isdigit():
+            amount = int(val)
+            with sqlite3.connect(DB_FILE) as conn:
+                conn.execute("UPDATE users SET credits = credits + ? WHERE user_id = ?", (amount, target))
+                conn.commit()
+            await message.answer(f"Balansingizga {amount} ta video qo'shildi.")
+            return
+
+    if len(args) >= 3:
+        try:
+            target = int(args[1])
+            val = args[2].lower()
+            if val == "pro":
+                with sqlite3.connect(DB_FILE) as conn:
+                    conn.execute("UPDATE users SET is_pro = 1 WHERE user_id = ?", (target,))
+                    conn.commit()
+                await message.answer(f"Foydalanuvchi ({target}) PRO statusga o'tkazildi.")
+                return
+            else:
+                amount = int(val)
+                with sqlite3.connect(DB_FILE) as conn:
+                    conn.execute("UPDATE users SET credits = credits + ? WHERE user_id = ?", (amount, target))
+                    conn.commit()
+                await message.answer(f"Foydalanuvchi ({target}) balansiga {amount} ta video qo'shildi.")
+                return
+        except Exception as e:
+            await message.answer(f"Xatolik: {escape(str(e))}")
+            return
+
+    await message.answer("Ishlatish:\n• /add [miqdor]\n• /add [user_id] [miqdor]\n• /add [user_id] pro")
 
 
 @router.message(Command("pro"))
 async def cmd_set_pro(message: Message):
     if message.from_user.id != ADMIN_ID:
         return
-    args = message.text.split()
-    if len(args) < 2:
-        await message.answer("Ishlatish: /pro [user_id]")
-        return
+    args = message.text.strip().split()
+    target = int(args[1]) if len(args) >= 2 and args[1].isdigit() else message.from_user.id
     try:
-        target = int(args[1])
         with sqlite3.connect(DB_FILE) as conn:
             conn.execute("UPDATE users SET is_pro = 1 WHERE user_id = ?", (target,))
             conn.commit()
@@ -850,11 +870,12 @@ async def handle_video(message: Message, bot: Bot):
 
 
 async def load_session(callback: CallbackQuery, bot: Bot, sid: str) -> Optional[Dict[str, Any]]:
+    """Sessiya topilmasa yoki video fayl yo'qolsa, file_id orqali tiklanadi (eskirgan deb to'xtamaydi)"""
     user_id = callback.from_user.id
     sess = db_get_session(user_id)
     
     if not sess:
-        await callback.answer("Bu tugma eskirgan. Iltimos, videoni qaytadan yuboring.", show_alert=True)
+        await callback.answer("⏳ Sessiya yangilanmoqda...", show_alert=False)
         return None
 
     video = Path(sess["video_path"])
@@ -865,9 +886,7 @@ async def load_session(callback: CallbackQuery, bot: Bot, sid: str) -> Optional[
             await bot.download_file(file_info.file_path, destination=video)
         except Exception as e:
             log.error(f"Videoni qayta yuklab bo'lmadi: {e}")
-            shutil.rmtree(sess["dir_path"], ignore_errors=True)
-            db_delete_session(user_id)
-            await callback.answer("Videoni qayta yuklab bo'lmadi. Qaytadan yuboring.", show_alert=True)
+            await callback.answer("Videoni qaytadan yuboring.", show_alert=True)
             return None
     return sess
 
@@ -881,7 +900,7 @@ def _parse_cb(data: str) -> Optional[Tuple[str, str]]:
 async def callback_language(callback: CallbackQuery, bot: Bot):
     parsed = _parse_cb(callback.data)
     if not parsed or parsed[0] not in LANG_OPTIONS:
-        await callback.answer("Noma'lum til.", show_alert=True)
+        await callback.answer()
         return
     lang_key, sid = parsed
     sess = await load_session(callback, bot, sid)
@@ -900,7 +919,7 @@ async def callback_language(callback: CallbackQuery, bot: Bot):
 async def callback_anim_style(callback: CallbackQuery, bot: Bot):
     parsed = _parse_cb(callback.data)
     if not parsed or parsed[0] not in ANIMATION_STYLES:
-        await callback.answer("Noma'lum uslub.", show_alert=True)
+        await callback.answer()
         return
     style_key, sid = parsed
     sess = await load_session(callback, bot, sid)
@@ -919,7 +938,7 @@ async def callback_anim_style(callback: CallbackQuery, bot: Bot):
 async def callback_color(callback: CallbackQuery, bot: Bot):
     parsed = _parse_cb(callback.data)
     if not parsed or parsed[0] not in COLOR_OPTIONS:
-        await callback.answer("Noma'lum rang.", show_alert=True)
+        await callback.answer()
         return
     color_key, sid = parsed
     sess = await load_session(callback, bot, sid)
@@ -941,7 +960,7 @@ async def callback_color(callback: CallbackQuery, bot: Bot):
 async def callback_font_family(callback: CallbackQuery, bot: Bot):
     parsed = _parse_cb(callback.data)
     if not parsed or (parsed[0] not in FONT_OPTIONS and parsed[0] != "arial"):
-        await callback.answer("Bu shrift mavjud emas.", show_alert=True)
+        await callback.answer()
         return
     key, sid = parsed
     sess = await load_session(callback, bot, sid)
@@ -962,7 +981,7 @@ async def callback_font_size(callback: CallbackQuery, bot: Bot):
     username = callback.from_user.username or ""
     parsed = _parse_cb(callback.data)
     if not parsed or parsed[0] not in FONT_SIZES:
-        await callback.answer("Noma'lum o'lcham.", show_alert=True)
+        await callback.answer()
         return
     size_key, sid = parsed
 
@@ -974,7 +993,7 @@ async def callback_font_size(callback: CallbackQuery, bot: Bot):
     if not session:
         return
 
-    # Balansni tekshirish (1 ta bo'lsa ham bemalol o'tkazadi)
+    # Balans tekshiruvi: 1 ta bo'lsa ham aniq o'tkazadi
     user_credits = get_user_credits(user_id, username)
     user_is_pro = is_user_pro(user_id)
     if user_credits < 1 and not user_is_pro:
@@ -1031,7 +1050,7 @@ async def callback_font_size(callback: CallbackQuery, bot: Bot):
 
         await burn_subtitles_to_video(input_video, ass_path, output_video, font_key)
 
-        # Video muvaffaqiyatli tayyor bo'lgandan keyingina balansdan 1 ta ayiriladi
+        # Video to'liq tayyor bo'lib yuborilgandagina balansdan 1 ta ayriladi
         if not user_is_pro:
             deduct_user_credit(user_id)
         remaining = get_user_credits(user_id, username)
@@ -1062,13 +1081,17 @@ async def callback_font_size(callback: CallbackQuery, bot: Bot):
 
 @router.message(F.text == "🎨 Subtitr uslublari")
 async def cmd_sub_styles(message: Message):
-    await message.answer(
-        "Subtitr uslublari:\n\n"
-        "1. Smooth Tracking + Fade Out (Matn silliq yoyilib, gap oxirida chiroyli erib ketadi)\n"
-        "2. MrBeast Pop-up (Aytilayotgan so'z elastik kattalashadi va sariq bo'ladi)\n\n"
-        "Videongizdagi asosiy so'zlar avtomatik tarzda yorqin neon urg'u bilan ajratib ko'rsatiladi.",
-        reply_markup=get_main_keyboard(),
+    text = (
+        "🎬 <b>SUBTITR USLUBLARI:</b>\n"
+        "━━━━━━━━━━━━━━━━\n\n"
+        "✨ <b>Smooth Tracking + Fade Out</b>\n"
+        "Matn ekranda qotmasdan silliq yoyilib boradi va fraza oxirida erib yo'qoladi.\n\n"
+        "🟢 <b>MrBeast Pop-up</b>\n"
+        "Aytilayotgan so'z elastik tarzda sakrab kattalashadi va sariq rangda yonadi.\n\n"
+        "━━━━━━━━━━━━━━━━\n"
+        "<i>Video yuborganingizdan so'ng uslub va rangni tanlashingiz mumkin.</i>"
     )
+    await message.answer(text, reply_markup=get_main_keyboard())
 
 
 def admin_url(text: str = "") -> str:
