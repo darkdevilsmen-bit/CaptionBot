@@ -31,7 +31,7 @@ import imageio_ffmpeg
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
 log = logging.getLogger(__name__)
 
-# ================= ASOSIY SOZLAMALAR =================
+# --- SOZLAMALAR ---
 BOT_TOKEN = "8933394511:AAH4jiabi75UgDni40C2rfge8-4uDv7kzwE"
 ELEVENLABS_API_KEY = "sk_2645eb8c6ab7457d5661f30bc9935e8107560bec586b14c8"
 ADMIN_ID = 7662888182
@@ -47,20 +47,20 @@ WORK_ROOT = Path("temp_processing")
 DB_FILE = Path("database.db")
 INITIAL_CREDITS = 1
 
+# 4 TA ASL ANIMATSIYA USLUBLARI (O'ZGARISHLARSIZ)
 ANIMATION_STYLES = {
     "mrbeast_style": "🟢 Komika Axis Pop-up (MrBeast)",
-    "smooth_tracking": "✨ Neon Porlash (Glow)",
-    "active_bold_regular": "🔥 Active Bold (Olov rang)",
-    "active_word_box": "⬛ Active Word Box (Sariq fon)"
+    "smooth_tracking": "✨ Smooth Text Tracking (Fade)",
+    "active_bold_regular": "🔥 Active Bold / Regular",
+    "active_word_box": "⬛ Active Word Highlight (Box)"
 }
 
 FONT_SIZES = {
-    "small": ("🔽 Kichik (70)", 70),
-    "normal": ("📱 Normal (85)", 85),
-    "large": ("📈 Katta (100)", 100),
-    "xlarge": ("🔥 Juda katta (115)", 115)
+    "small": ("🔽 Kichik", 45),
+    "normal": ("📱 Normal", 60),
+    "large": ("📈 Katta", 75),
+    "xlarge": ("🔥 Juda katta", 90)
 }
-# =====================================================
 
 router = Router()
 el_client = ElevenLabs(api_key=ELEVENLABS_API_KEY)
@@ -91,55 +91,19 @@ def init_db():
                 joined_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             )
         """)
-        # Sessiyalarni bazada saqlash — server qayta ishga tushsa ham eskirib qolmaydi
         cursor.execute("""
-            CREATE TABLE IF NOT EXISTS user_sessions (
-                user_id INTEGER PRIMARY KEY,
-                video_path TEXT,
-                dir_path TEXT,
-                raw_w INTEGER,
-                raw_h INTEGER,
-                raw_dur INTEGER,
-                anim_style TEXT DEFAULT 'mrbeast_style',
-                font_size INTEGER DEFAULT 85,
-                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            CREATE TABLE IF NOT EXISTS video_tasks (
+                task_id TEXT PRIMARY KEY,
+                user_id INTEGER,
+                file_id TEXT,
+                video_w INTEGER,
+                video_h INTEGER,
+                duration INTEGER,
+                anim_style TEXT,
+                font_size INTEGER,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             )
         """)
-        conn.commit()
-
-
-def save_session(user_id: int, video_path: str, dir_path: str, raw_w: int, raw_h: int, raw_dur: int):
-    with sqlite3.connect(DB_FILE) as conn:
-        cursor = conn.cursor()
-        cursor.execute("""
-            INSERT OR REPLACE INTO user_sessions (user_id, video_path, dir_path, raw_w, raw_h, raw_dur, updated_at)
-            VALUES (?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
-        """, (user_id, video_path, dir_path, raw_w, raw_h, raw_dur))
-        conn.commit()
-
-
-def update_session(user_id: int, **kwargs):
-    fields = ", ".join([f"{k} = ?" for k in kwargs.keys()])
-    values = list(kwargs.values()) + [user_id]
-    with sqlite3.connect(DB_FILE) as conn:
-        cursor = conn.cursor()
-        cursor.execute(f"UPDATE user_sessions SET {fields} WHERE user_id = ?", values)
-        conn.commit()
-
-
-def get_session(user_id: int) -> dict:
-    with sqlite3.connect(DB_FILE) as conn:
-        conn.row_factory = sqlite3.Row
-        cursor = conn.cursor()
-        cursor.execute("SELECT * FROM user_sessions WHERE user_id = ?", (user_id,))
-        row = cursor.fetchone()
-        return dict(row) if row else None
-
-
-def delete_session(user_id: int):
-    with sqlite3.connect(DB_FILE) as conn:
-        cursor = conn.cursor()
-        cursor.execute("DELETE FROM user_sessions WHERE user_id = ?", (user_id,))
         conn.commit()
 
 
@@ -184,7 +148,7 @@ async def check_subscription(bot: Bot, user_id: int) -> bool:
         if member.status in ["member", "administrator", "creator"]:
             return True
     except Exception as e:
-        log.error(f"Obuna tekshirishda xatolik: {e}")
+        log.error(f"Obuna tekshirish xatosi: {e}")
     return False
 
 
@@ -198,93 +162,80 @@ def format_ass_time(seconds: float) -> str:
     return f"{hours}:{mins:02d}:{secs:02d}.{centis:02d}"
 
 
-def get_video_metadata(video_path: Path, fallback_w: int = 1080, fallback_h: int = 1920, fallback_dur: int = 0) -> Tuple[int, int, int]:
-    """Videoning aniq o'lchami va vaqtini aniqlash"""
+def get_exact_video_dimensions(video_path: Path) -> Tuple[int, int, int]:
+    """Videoni kesmasdan (crop qilmasdan) aniq eni va bo'yini oladi"""
     try:
         cmd = [
-            "ffprobe",
-            "-v", "error",
-            "-select_streams", "v:0",
-            "-show_entries", "stream=width,height,duration",
-            "-of", "json",
-            str(video_path)
+            FFMPEG_PATH,
+            "-i", str(video_path)
         ]
-        res = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, timeout=5)
-        if res.returncode == 0:
-            data = json.loads(res.stdout)
-            stream = data.get("streams", [{}])[0]
-            w = int(stream.get("width", fallback_w))
-            h = int(stream.get("height", fallback_h))
-            d_val = stream.get("duration")
-            d = int(float(d_val)) if d_val else fallback_dur
-            return w, h, d
-    except Exception:
-        pass
-
-    try:
-        cmd = [FFMPEG_PATH, "-i", str(video_path)]
-        res = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, timeout=5)
+        res = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, timeout=10)
         for line in res.stderr.splitlines():
             if "Video:" in line:
-                for token in line.split(','):
-                    token = token.strip()
-                    if 'x' in token:
-                        sub = token.split()[0]
-                        parts = sub.split('x')
+                for chunk in line.split(","):
+                    chunk = chunk.strip()
+                    if "x" in chunk:
+                        cand = chunk.split()[0]
+                        parts = cand.split("x")
                         if len(parts) == 2 and parts[0].isdigit() and parts[1].isdigit():
-                            return int(parts[0]), int(parts[1]), fallback_dur
-    except Exception:
-        pass
-
-    return fallback_w, fallback_h, fallback_dur
+                            return int(parts[0]), int(parts[1]), 0
+    except Exception as e:
+        log.error(f"O'lcham olishda xatolik: {e}")
+    return 1080, 1920, 0
 
 
 def generate_word_by_word_ass(words: List[Any], ass_path: Path, anim_style: str, font_size: int, video_w: int, video_h: int) -> int:
     """
-    Haqiqiy millisekundli karaoke animatsiyasi.
+    Subtitr matni ekranning o'rtasidan biroz pastroqda aniq ko'rinadigan qilib joylanadi.
+    MarginV video bo'yiga nisbatan avtomatik hisoblanadi (kadr tashqarisiga chiqib ketmaydi).
     """
+    margin_bottom = int(video_h * 0.18)
+    scaled_font_size = int(font_size * (video_w / 720.0))
+    if scaled_font_size < 30:
+        scaled_font_size = 30
+
     header = f"""[Script Info]
 ScriptType: v4.00+
 PlayResX: {video_w}
 PlayResY: {video_h}
 ScaledBorderAndShadow: yes
-WrapStyle: 2
+WrapStyle: 0
 
 [V4+ Styles]
 Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding
-Style: Default,Arial,{font_size},&H00FFFFFF,&H000000FF,&H00000000,&H80000000,-1,0,0,0,100,100,0,0,1,3,0,2,20,20,120,1
+Style: Default,Arial,{scaled_font_size},&H00FFFFFF,&H000000FF,&H00000000,&H80000000,-1,0,0,0,100,100,0,0,1,3,1,2,20,20,{margin_bottom},1
 
 [Events]
 Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
 """
     clean_words = []
     for w in words:
-        txt = getattr(w, 'word', None)
+        txt = getattr(w, "word", None)
         if txt is None and isinstance(w, dict):
-            txt = w.get('word', '')
+            txt = w.get("word", "")
         if txt is None:
             txt = str(w)
         txt = txt.strip()
         if not txt:
             continue
-        
-        st = getattr(w, 'start', None)
+
+        st = getattr(w, "start", None)
         if st is None and isinstance(w, dict):
-            st = w.get('start', 0.0)
+            st = w.get("start", 0.0)
         st = float(st or 0.0)
-        
-        et = getattr(w, 'end', None)
+
+        et = getattr(w, "end", None)
         if et is None and isinstance(w, dict):
-            et = w.get('end', st + 0.35)
+            et = w.get("end", st + 0.35)
         et = float(et or (st + 0.35))
-        
+
         clean_words.append({"word": txt, "start": st, "end": et})
 
     if not clean_words:
         return 0
 
     dialogues = []
-    chunk_size = 4
+    chunk_size = 3
     for i in range(0, len(clean_words), chunk_size):
         chunk = clean_words[i:i + chunk_size]
         if not chunk:
@@ -293,24 +244,24 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
         for active_idx, target_word in enumerate(chunk):
             w_start = target_word["start"]
             w_end = target_word["end"]
-            
+
             line_parts = []
             for j, item in enumerate(chunk):
                 word_text = item["word"]
                 if j == active_idx:
                     if anim_style == "mrbeast_style":
-                        formatted = f"{{\\c&H0000FFFF&\\t(0,70,\\fscx125\\fscy125)\\t(70,140,\\fscx100\\fscy100)}}{word_text}"
+                        formatted = f"{{\\c&H0000FFFF&\\t(0,70,\\fscx120\\fscy120)\\t(70,140,\\fscx100\\fscy100)}}{word_text}"
                     elif anim_style == "smooth_tracking":
-                        formatted = f"{{\\c&H0000FF00&\\bord4\\shad0}}{word_text}"
+                        formatted = f"{{\\fad(90,90)\\c&H00FFFF00&}}{word_text}"
                     elif anim_style == "active_bold_regular":
                         formatted = f"{{\\b1\\c&H000055FF&}}{word_text}{{\\b0}}"
                     elif anim_style == "active_word_box":
-                        formatted = f"{{\\c&H00000000&\\4c&H0000FFFF&\\bord4}}{word_text}"
+                        formatted = f"{{\\c&H00000000&\\4c&H0000FFFF&\\bord5}}{word_text}"
                     else:
                         formatted = f"{{\\c&H0000FFFF&}}{word_text}"
                 else:
                     formatted = f"{{\\c&H00FFFFFF&}}{word_text}"
-                
+
                 line_parts.append(formatted)
 
             text_content = " ".join(line_parts)
@@ -322,9 +273,12 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
 
 
 async def burn_subtitles_to_video(input_video: Path, ass_path: Path, output_video: Path):
+    """
+    Videoni qirqmaydi (crop qilmaydi) va hajmini me'yorda saqlaydi.
+    """
     clean_ass = str(ass_path).replace("\\", "/").replace(":", "\\:")
-    vf_filter = f"subtitles='{clean_ass}',scale=trunc(iw/2)*2:trunc(ih/2)*2,setsar=1"
-    
+    vf_filter = f"subtitles='{clean_ass}'"
+
     cmd = [
         FFMPEG_PATH,
         "-y",
@@ -332,11 +286,9 @@ async def burn_subtitles_to_video(input_video: Path, ass_path: Path, output_vide
         "-vf", vf_filter,
         "-c:v", "libx264",
         "-preset", "veryfast",
-        "-crf", "24",
+        "-crf", "23",
         "-pix_fmt", "yuv420p",
-        "-c:a", "aac",
-        "-b:a", "128k",
-        "-movflags", "+faststart",
+        "-c:a", "copy",
         str(output_video)
     ]
     process = await asyncio.create_subprocess_exec(
@@ -346,8 +298,8 @@ async def burn_subtitles_to_video(input_video: Path, ass_path: Path, output_vide
     )
     stdout, stderr = await process.communicate()
     if process.returncode != 0:
-        log.error(f"FFmpeg error: {stderr.decode('utf-8', errors='ignore')}")
-        raise RuntimeError("Videoga subtitr yopishtirishda xatolik yuz berdi.")
+        log.error(f"FFmpeg xatosi: {stderr.decode('utf-8', errors='ignore')}")
+        raise RuntimeError("Subtitr yopishtirishda xatolik yuz berdi.")
 
 
 @router.message(CommandStart())
@@ -355,7 +307,7 @@ async def cmd_start(message: Message, bot: Bot):
     user_id = message.from_user.id
     username = message.from_user.username or ""
     get_user_credits(user_id, username)
-    
+
     if REQUIRED_CHANNEL and not await check_subscription(bot, user_id):
         builder = InlineKeyboardBuilder()
         builder.row(InlineKeyboardButton(text="📢 Kanalga obuna bo'lish", url=f"https://t.me/{REQUIRED_CHANNEL.replace('@', '')}"))
@@ -423,14 +375,14 @@ async def callback_check_sub(callback: CallbackQuery, bot: Bot):
             reply_markup=get_main_keyboard()
         )
     else:
-        await callback.message.answer("Siz hali kanalga obuna bo'lmadingiz! Iltimos, obuna bo'lib qayta tekshiring.")
+        await callback.message.answer("Siz hali kanalga obuna bo'lmadingiz! Iltimos, kanalga kiring va obuna bo'ling.")
 
 
 @router.message(F.text == "⚡ Auto Subtitr qo'yish")
 async def cmd_auto_subtitles(message: Message):
     user_id = message.from_user.id
     credits = get_user_credits(user_id, message.from_user.username or "")
-    
+
     if credits <= 0 and not is_user_pro(user_id):
         await message.answer(
             "Balansingizda video yaratish uchun urinishlar qolmadi.\n\n"
@@ -438,7 +390,7 @@ async def cmd_auto_subtitles(message: Message):
             reply_markup=get_main_keyboard()
         )
         return
-        
+
     await message.answer(
         "Marhamat, subtitr qo'shilishi kerak bo'lgan videoni yuboring.\n\n"
         "(Video formati MP4, hajmi 50 MB dan oshmasligi kerak)",
@@ -450,7 +402,7 @@ async def cmd_auto_subtitles(message: Message):
 async def handle_video(message: Message, bot: Bot):
     user_id = message.from_user.id
     credits = get_user_credits(user_id, message.from_user.username or "")
-    
+
     if credits <= 0 and not is_user_pro(user_id):
         await message.answer(
             "Balansingizda video yaratish uchun urinishlar qolmadi.\n\n"
@@ -459,157 +411,152 @@ async def handle_video(message: Message, bot: Bot):
         )
         return
 
-    # Eski sessiya bo'lsa papkasini tozalab yangilaymiz
-    old_session = get_session(user_id)
-    if old_session and old_session.get("dir_path"):
-        shutil.rmtree(old_session["dir_path"], ignore_errors=True)
+    # Unikal vazifa ID (Tugmalar aynan shu vazifaga bog'lanadi, sessiya eskirib qolmaydi)
+    task_id = str(int(time.time() * 1000))[-8:]
+    w = message.video.width or 1080
+    h = message.video.height or 1920
+    dur = message.video.duration or 0
 
-    user_dir = WORK_ROOT / f"user_{user_id}_{int(time.time())}"
-    user_dir.mkdir(parents=True, exist_ok=True)
-    input_video = user_dir / "input.mp4"
-    
-    status_dl = await message.reply("⏳ Video qabul qilinmoqda...")
-    file_info = await bot.get_file(message.video.file_id)
-    await bot.download_file(file_info.file_path, destination=input_video)
-    
-    init_w = message.video.width or 1080
-    init_h = message.video.height or 1920
-    init_dur = message.video.duration or 0
+    with sqlite3.connect(DB_FILE) as conn:
+        cursor = conn.cursor()
+        cursor.execute("""
+            INSERT OR REPLACE INTO video_tasks (task_id, user_id, file_id, video_w, video_h, duration, anim_style, font_size)
+            VALUES (?, ?, ?, ?, ?, ?, 'mrbeast_style', 60)
+        """, (task_id, user_id, message.video.file_id, w, h, dur))
+        conn.commit()
 
-    save_session(user_id, str(input_video), str(user_dir), init_w, init_h, init_dur)
-    
     builder = InlineKeyboardBuilder()
     for key, name in ANIMATION_STYLES.items():
-        builder.row(InlineKeyboardButton(text=name, callback_data=f"anim_{key}"))
-        
-    await status_dl.delete()
+        builder.row(InlineKeyboardButton(text=name, callback_data=f"a:{task_id}:{key}"))
+
     await message.answer(
         "✨ Videongiz qabul qilindi!\n\nSubtitr uchun **animatsiya uslubini** tanlang:",
         reply_markup=builder.as_markup()
     )
 
 
-@router.callback_query(F.data.startswith("anim_"))
+@router.callback_query(F.data.startswith("a:"))
 async def callback_anim_style(callback: CallbackQuery):
     await callback.answer()
-    user_id = callback.from_user.id
-    session = get_session(user_id)
-    
-    if not session or not Path(session["video_path"]).exists():
-        await callback.message.answer("⚠️ Sessiya eskirgan yoki fayl topilmadi. Iltimos, videoni qaytadan yuboring.")
-        return
-        
-    style_key = callback.data.replace("anim_", "")
-    update_session(user_id, anim_style=style_key)
-    
+    _, task_id, style_key = callback.data.split(":")
+
+    with sqlite3.connect(DB_FILE) as conn:
+        cursor = conn.cursor()
+        cursor.execute("UPDATE video_tasks SET anim_style = ? WHERE task_id = ?", (style_key, task_id))
+        conn.commit()
+
     builder = InlineKeyboardBuilder()
-    for key, (name, val) in FONT_SIZES.items():
-        builder.row(InlineKeyboardButton(text=name, callback_data=f"size_{key}"))
-        
-    try:
-        await callback.message.edit_text(
-            "📱 Endi subtitr **shrift o'lchamini** tanlang:",
-            reply_markup=builder.as_markup()
-        )
-    except Exception:
-        await callback.message.answer(
-            "📱 Endi subtitr **shrift o'lchamini** tanlang:",
-            reply_markup=builder.as_markup()
-        )
+    for key, (name, _) in FONT_SIZES.items():
+        builder.row(InlineKeyboardButton(text=name, callback_data=f"s:{task_id}:{key}"))
+
+    await callback.message.edit_text(
+        "📱 Endi subtitr **shrift o'lchamini** tanlang:",
+        reply_markup=builder.as_markup()
+    )
 
 
-@router.callback_query(F.data.startswith("size_"))
+@router.callback_query(F.data.startswith("s:"))
 async def callback_font_size(callback: CallbackQuery, bot: Bot):
     await callback.answer()
-    user_id = callback.from_user.id
-    session = get_session(user_id)
-    
-    if not session or not Path(session["video_path"]).exists():
-        await callback.message.answer("⚠️ Sessiya eskirgan. Iltimos, videoni qaytadan yuboring.")
+    _, task_id, size_key = callback.data.split(":")
+
+    with sqlite3.connect(DB_FILE) as conn:
+        conn.row_factory = sqlite3.Row
+        cursor = conn.cursor()
+        cursor.execute("SELECT * FROM video_tasks WHERE task_id = ?", (task_id,))
+        task = cursor.fetchone()
+
+    if not task:
+        await callback.message.answer("⚠️ Vazifa topilmadi. Iltimos videoni qaytadan yuboring.")
         return
 
-    size_key = callback.data.replace("size_", "")
-    chosen_font_size = FONT_SIZES.get(size_key, ("Normal", 85))[1]
-    
-    input_video = Path(session["video_path"])
-    user_dir = Path(session["dir_path"])
-    output_video = user_dir / "output.mp4"
-    ass_path = user_dir / "subs.ass"
-    
-    status_msg = await callback.message.edit_text("✨ Subtitrlar tayyorlanmoqda, iltimos kuting...")
-    
-    try:
-        # Videoning haqiqiy o'lchamlari va davomiyligi
-        v_width, v_height, v_dur = get_video_metadata(
-            input_video,
-            session["raw_w"],
-            session["raw_h"],
-            session["raw_dur"]
-        )
+    chosen_font_size = FONT_SIZES.get(size_key, ("Normal", 60))[1]
+    user_id = task["user_id"]
 
+    status_msg = await callback.message.edit_text("⏳ Video yuklab olinmoqda va tahlil qilinmoqda...")
+
+    task_dir = WORK_ROOT / f"task_{task_id}"
+    task_dir.mkdir(parents=True, exist_ok=True)
+    input_video = task_dir / "input.mp4"
+    output_video = task_dir / "output.mp4"
+    ass_path = task_dir / "subs.ass"
+
+    try:
+        file_obj = await bot.get_file(task["file_id"])
+        await bot.download_file(file_obj.file_path, destination=input_video)
+
+        # Aniq o'lcham
+        real_w, real_h, _ = get_exact_video_dimensions(input_video)
+        if real_w == 0 or real_h == 0:
+            real_w = task["video_w"]
+            real_h = task["video_h"]
+
+        await status_msg.edit_text("🎙 Ovoz tahlil qilinmoqda...")
         with open(input_video, "rb") as audio_file:
             transcript = el_client.speech_to_text.convert(
                 file=audio_file,
                 model_id="scribe_v1",
                 tag_audio_events=False
             )
-        
+
         words = getattr(transcript, "words", [])
         if not words and isinstance(transcript, dict):
             words = transcript.get("words", [])
-            
+
         if not words:
-            await status_msg.edit_text("❌ Videodan ovoz topilmadi yoki matnga o'girib bo'lmadi.")
-            shutil.rmtree(user_dir, ignore_errors=True)
-            delete_session(user_id)
+            await status_msg.edit_text("❌ Videodan ovoz aniqlanmadi.")
+            shutil.rmtree(task_dir, ignore_errors=True)
             return
-            
+
+        await status_msg.edit_text("✨ Subtitrlar animatsiya bilan yozilmoqda...")
         generate_word_by_word_ass(
             words=words,
             ass_path=ass_path,
-            anim_style=session["anim_style"],
+            anim_style=task["anim_style"],
             font_size=chosen_font_size,
-            video_w=v_width,
-            video_h=v_height
+            video_w=real_w,
+            video_h=real_h
         )
-        
+
         await burn_subtitles_to_video(input_video, ass_path, output_video)
-        
+
         if not is_user_pro(user_id):
             deduct_user_credit(user_id)
-            
-        remaining_credits = get_user_credits(user_id)
-        
+
+        remaining = get_user_credits(user_id)
+
         await bot.send_video(
             chat_id=user_id,
             video=FSInputFile(output_video),
-            width=v_width,
-            height=v_height,
-            duration=v_dur,
+            width=real_w,
+            height=real_h,
+            duration=task["duration"],
             supports_streaming=True,
-            caption=f"🔥 Subtitr Tayyor!\n\n💳 Qolgan balans: {remaining_credits} ta video",
+            caption=f"🔥 Subtitr Tayyor!\n\n💳 Qolgan balans: {remaining} ta video",
             reply_markup=get_main_keyboard()
         )
         await status_msg.delete()
-        
+
     except Exception as e:
-        log.error(f"Video qayta ishlashda xatolik: {e}")
+        log.error(f"Xatolik: {e}")
         await status_msg.edit_text(f"❌ Xatolik yuz berdi: {e}")
     finally:
-        shutil.rmtree(user_dir, ignore_errors=True)
-        delete_session(user_id)
+        shutil.rmtree(task_dir, ignore_errors=True)
+        with sqlite3.connect(DB_FILE) as conn:
+            cursor = conn.cursor()
+            cursor.execute("DELETE FROM video_tasks WHERE task_id = ?", (task_id,))
+            conn.commit()
 
 
 @router.message(F.text == "🎨 Subtitr uslublari")
 async def cmd_sub_styles(message: Message):
     styles_text = (
-        "Subtitr uslublarini tanlash:\n\n"
-        "Hozirda quyidagi animatsiya uslublari mavjud:\n"
-        "1. 🟢 Komika Axis Pop-up (MrBeast uslubi - aytilayotgan so'z sakraydi va sariq bo'ladi)\n"
-        "2. ✨ Neon Porlash (Aktiv so'z yashil neon bo'lib ajraladi)\n"
-        "3. 🔥 Active Bold (Aktiv so'z olov rangda qalinlashadi)\n"
-        "4. ⬛ Active Word Box (Aktiv so'z orqasida sariq fon chiqadi)\n\n"
-        "Video yuborganingizdan so'ng uslubni tanlashingiz mumkin."
+        "Subtitr uslublari:\n\n"
+        "1. 🟢 Komika Axis Pop-up (MrBeast uslubi)\n"
+        "2. ✨ Smooth Text Tracking (Fade)\n"
+        "3. 🔥 Active Bold / Regular\n"
+        "4. ⬛ Active Word Highlight (Box)\n\n"
+        "Video yuborganingizda tugmalar orqali tanlashingiz mumkin."
     )
     await message.answer(styles_text, reply_markup=get_main_keyboard())
 
@@ -677,16 +624,16 @@ async def main():
     if not WORK_ROOT.exists():
         WORK_ROOT.mkdir(parents=True)
     init_db()
-    
+
     session = AiohttpSession()
     bot = Bot(token=BOT_TOKEN, session=session)
     dp = Dispatcher(storage=MemoryStorage())
     dp.include_router(router)
-    
+
     await bot.set_my_commands([
         BotCommand(command="start", description="Botni ishga tushirish / Asosiy menyu")
     ])
-    
+
     log.info("Bot ishga tushdi...")
     await bot.delete_webhook(drop_pending_updates=True)
     await dp.start_polling(bot)
