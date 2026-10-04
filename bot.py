@@ -32,12 +32,9 @@ logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(
 log = logging.getLogger(__name__)
 
 # --- SOZLAMALAR ---
-# Kalitlarni KODGA YOZMANG: muhit o'zgaruvchisi (environment variable) orqali bering.
-#   export BOT_TOKEN="..."
-#   export ELEVENLABS_API_KEY="..."
-BOT_TOKEN = os.environ["8933394511:AAFJB8PAaNwHC3w0TpKvDrkRoRm-cIwkxEM"]
-ELEVENLABS_API_KEY = os.environ["sk_2645eb8c6ab7457d5661f30bc9935e8107560bec586b14c8
-"]
+# Kalitlar shu yerda yozilgan. Xohlasangiz muhit o'zgaruvchisi (BOT_TOKEN / ELEVENLABS_API_KEY) bilan almashtirish mumkin.
+BOT_TOKEN = os.getenv("BOT_TOKEN", "8933394511:AAFJB8PAaNwHC3w0TpKvDrkRoRm-cIwkxEM")
+ELEVENLABS_API_KEY = os.getenv("ELEVENLABS_API_KEY", "sk_2645eb8c6ab7457d5661f30bc9935e8107560bec586b14c8")
 
 ADMIN_ID = 7662888182
 ADMIN_USERNAME = "Captions_Admin"
@@ -49,7 +46,7 @@ CARD_HOLDER = "Toshpulatov Shoxrux"
 
 MAX_VIDEO_BYTES = 50 * 1024 * 1024
 WORK_ROOT = Path("temp_processing")
-FONTS_DIR = Path(".").resolve()
+FONTS_DIR = Path("fonts").resolve()   # shriftlar shu papkada saqlanadi (Montserrat o'zi yuklanadi)
 DB_FILE = Path("database.db")
 INITIAL_CREDITS = 1
 
@@ -65,6 +62,18 @@ FONT_SIZES = {
     "normal": ("📱 Normal (85)", 85),
     "large": ("📈 Katta (100)", 100),
     "xlarge": ("🔥 Juda katta (115)", 115),
+}
+
+# Montserrat uchun harflar orasi biroz zichroq (manfiy = zichroq). Font o'lchamiga nisbatan.
+MONTSERRAT_SPACING = -0.03
+
+_GF = "https://github.com/google/fonts/raw/main/ofl/montserrat/static/"
+# key: (tugmadagi nom, ASS family nomi, fayl nomida bo'lishi kerak so'zlar, yuklash URL, qalin(\\b) ishlatish mumkinmi)
+FONT_OPTIONS = {
+    "mont_xb": ("💪 Montserrat ExtraBold", "Montserrat ExtraBold", ("montserrat", "extrabold"), _GF + "Montserrat-ExtraBold.ttf", False),
+    "mont_black": ("⚫ Montserrat Black", "Montserrat Black", ("montserrat", "black"), _GF + "Montserrat-Black.ttf", False),
+    "komika": ("🟢 Komika Axis", "Komika Axis", ("komika",), None, True),
+    "arial": ("🔤 Arial (standart)", "Arial", (), None, True),
 }
 
 BASE_COLOR = "&H00FFFFFF"    # oq (BGR formatda)
@@ -229,7 +238,7 @@ def extract_clean_words(transcript: Any) -> List[Dict[str, Any]]:
     return result
 
 
-def group_into_chunks(words: List[Dict[str, Any]], max_words: int = 4, max_gap: float = 0.8) -> List[List[Dict[str, Any]]]:
+def group_into_chunks(words: List[Dict[str, Any]], max_words: int = 4, max_gap: float = 0.8, max_chars: int = 24) -> List[List[Dict[str, Any]]]:
     """So'zlarni qisqa qatorlarga bo'ladi (pauza yoki tinish belgisida uziladi)."""
     chunks: List[List[Dict[str, Any]]] = []
     current: List[Dict[str, Any]] = []
@@ -237,7 +246,8 @@ def group_into_chunks(words: List[Dict[str, Any]], max_words: int = 4, max_gap: 
         if current:
             gap = w["start"] - current[-1]["end"]
             ends_sentence = current[-1]["text"][-1] in ".!?…"
-            if len(current) >= max_words or gap > max_gap or ends_sentence:
+            too_long = sum(len(x["text"]) + 1 for x in current) + len(w["text"]) > max_chars
+            if len(current) >= max_words or gap > max_gap or ends_sentence or too_long:
                 chunks.append(current)
                 current = []
         current.append(w)
@@ -258,21 +268,54 @@ def write_srt(chunks: List[List[Dict[str, Any]]], srt_path: Path) -> int:
     return len(chunks)
 
 
-def _find_font_name() -> str:
-    for p in FONTS_DIR.glob("*.[to]tf"):
-        if "komika" in p.name.lower():
-            return "Komika Axis"
-    return "Arial"
+def find_font_file(key: str) -> Optional[Path]:
+    """fonts/ papkasidan (yoki bot.py yonidan) shrift faylini topadi. Arial doim 'mavjud' (None qaytadi, lekin ok)."""
+    _, _, tokens, _, _ = FONT_OPTIONS[key]
+    if not tokens:
+        return None
+    for folder in (FONTS_DIR, Path(".").resolve()):
+        if not folder.exists():
+            continue
+        for f in folder.iterdir():
+            n = f.name.lower()
+            if f.suffix.lower() in (".ttf", ".otf") and "italic" not in n and all(t in n.replace("_", "").replace("-", "") for t in tokens):
+                return f
+    return None
 
 
-def _style_word(text: str, active: bool, anim_style: str, first_in_chunk: bool) -> str:
+def font_available(key: str) -> bool:
+    return key == "arial" or find_font_file(key) is not None
+
+
+async def ensure_fonts():
+    """Montserrat fayllari yo'q bo'lsa Google Fonts'dan yuklab oladi (bir marta)."""
+    import aiohttp
+    FONTS_DIR.mkdir(parents=True, exist_ok=True)
+    for key, (_, _, _, url, _) in FONT_OPTIONS.items():
+        if not url or find_font_file(key):
+            continue
+        dest = FONTS_DIR / url.rsplit("/", 1)[-1]
+        try:
+            async with aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=60)) as sess:
+                async with sess.get(url) as resp:
+                    data = await resp.read()
+            if resp.status != 200 or len(data) < 50_000 or data[:4] not in (b"\x00\x01\x00\x00", b"OTTO", b"true"):
+                raise RuntimeError(f"noto'g'ri javob (status={resp.status}, {len(data)} bayt)")
+            dest.write_bytes(data)
+            log.info(f"Shrift yuklandi: {dest.name}")
+        except Exception as e:
+            log.warning(f"{dest.name} yuklanmadi ({e}). Faylni qo'lda {FONTS_DIR} ichiga qo'ying.")
+
+
+def _style_word(text: str, active: bool, anim_style: str, bold_ok: bool = True) -> str:
+    b1, b0 = ("\\b1", "\\b0") if bold_ok else ("", "")
     if not active:
-        return f"{{\\c{BASE_COLOR}&\\b0}}{text}"
+        return f"{{\\c{BASE_COLOR}&{b0}}}{text}"
     if anim_style == "mrbeast_style":
-        return (f"{{\\c{ACTIVE_COLOR}&\\b1\\t(0,90,\\fscx125\\fscy125)\\t(90,180,\\fscx100\\fscy100)}}"
+        return (f"{{\\c{ACTIVE_COLOR}&{b1}\\t(0,90,\\fscx125\\fscy125)\\t(90,180,\\fscx100\\fscy100)}}"
                 f"{text}{{\\fscx100\\fscy100}}")
     if anim_style == "active_bold_regular":
-        return f"{{\\c{ACTIVE_COLOR}&\\b1}}{text}{{\\b0}}"
+        return f"{{\\c{ACTIVE_COLOR}&{b1}}}{text}{{{b0}}}"
     if anim_style == "active_word_box":
         return f"{{\\c&H00000000&\\3c{ACTIVE_COLOR}&\\bord7}}{text}{{\\bord3\\3c&H00000000&}}"
     return f"{{\\c{ACTIVE_COLOR}&}}{text}"  # smooth_tracking
@@ -285,18 +328,25 @@ def generate_word_by_word_ass(
     font_size: int,
     video_w: int,
     video_h: int,
+    font_key: str = "mont_xb",
 ) -> int:
-    font_name = _find_font_name()
+    _, font_name, _, _, bold_ok = FONT_OPTIONS[font_key]
+    if not font_available(font_key):
+        font_name, bold_ok = "Arial", True
+    # Shrift o'lchami 1080 px asosida berilgan: video o'lchamiga moslaymiz
+    font_size = max(24, int(round(font_size * min(video_w, video_h) / 1080)))
+    spacing = round(font_size * MONTSERRAT_SPACING, 1) if font_name.startswith("Montserrat") else 0
+    bold_flag = -1 if bold_ok else 0
     header = f"""[Script Info]
 ScriptType: v4.00+
 PlayResX: {video_w}
 PlayResY: {video_h}
 ScaledBorderAndShadow: yes
-WrapStyle: 2
+WrapStyle: 0
 
 [V4+ Styles]
 Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding
-Style: Default,{font_name},{font_size},{BASE_COLOR},&H000000FF,&H00000000,&H80000000,-1,0,0,0,100,100,0,0,1,3,0,2,40,40,{int(video_h * 0.12)},1
+Style: Default,{font_name},{font_size},{BASE_COLOR},&H000000FF,&H00000000,&H80000000,{bold_flag},0,0,0,100,100,{spacing},0,1,3,0,2,40,40,{int(video_h * 0.12)},1
 
 [Events]
 Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
@@ -310,7 +360,7 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
                 end = start + 0.1
 
             parts = [
-                _style_word(w["text"], j == i, anim_style, first_in_chunk=(i == 0))
+                _style_word(w["text"], j == i, anim_style, bold_ok)
                 for j, w in enumerate(chunk)
             ]
             text = " ".join(parts)
@@ -363,14 +413,15 @@ def _ff_escape(path: str) -> str:
     return path.replace("\\", "/").replace(":", "\\:").replace("'", "\\'")
 
 
-async def burn_subtitles_to_video(input_video: Path, ass_name: str, output_video: Path, work_dir: Path):
+async def burn_subtitles_to_video(input_video: Path, ass_name: str, output_video: Path, work_dir: Path, font_key: str = "arial"):
     """
     ASS faylga faqat NISBIY nom beriladi va FFmpeg work_dir ichida ishga tushadi:
     shunda Windows `C:\\...` va bo'sh joy/ikki nuqta muammolari chiqmaydi.
     """
     vf = f"subtitles={ass_name}"
-    if any("komika" in p.name.lower() for p in FONTS_DIR.glob("*.[to]tf")):
-        vf += f":fontsdir='{_ff_escape(str(FONTS_DIR))}'"
+    font_file = find_font_file(font_key)
+    if font_file:
+        vf += f":fontsdir='{_ff_escape(str(font_file.parent))}'"
 
     cmd = [
         FFMPEG_PATH, "-y",
@@ -512,6 +563,7 @@ async def handle_video(message: Message, bot: Bot):
         "video_path": str(input_video),
         "dir_path": str(user_dir),
         "anim_style": "mrbeast_style",
+        "font_key": "mont_xb",
         "font_size": 85,
     }
 
@@ -538,8 +590,29 @@ async def callback_anim_style(callback: CallbackQuery):
     USER_SESSIONS[user_id]["anim_style"] = style_key
 
     builder = InlineKeyboardBuilder()
-    for key, (name, _) in FONT_SIZES.items():
-        builder.row(InlineKeyboardButton(text=name, callback_data=f"size_{key}"))
+    for key, (name, *_rest) in FONT_OPTIONS.items():
+        if font_available(key):
+            builder.row(InlineKeyboardButton(text=name, callback_data=f"font_{key}"))
+    await callback.message.edit_text(
+        "🔠 Subtitr <b>shriftini</b> tanlang:", reply_markup=builder.as_markup()
+    )
+
+
+@router.callback_query(F.data.startswith("font_"))
+async def callback_font_family(callback: CallbackQuery):
+    user_id = callback.from_user.id
+    if user_id not in USER_SESSIONS:
+        await callback.answer("Sessiya eskirgan. Iltimos videoni qaytadan yuboring.", show_alert=True)
+        return
+    key = callback.data.replace("font_", "")
+    if key not in FONT_OPTIONS or not font_available(key):
+        await callback.answer("Bu shrift mavjud emas.", show_alert=True)
+        return
+    USER_SESSIONS[user_id]["font_key"] = key
+
+    builder = InlineKeyboardBuilder()
+    for skey, (name, _) in FONT_SIZES.items():
+        builder.row(InlineKeyboardButton(text=name, callback_data=f"size_{skey}"))
     await callback.message.edit_text(
         "📱 Endi subtitr <b>shrift o'lchamini</b> tanlang:", reply_markup=builder.as_markup()
     )
@@ -593,9 +666,9 @@ async def callback_font_size(callback: CallbackQuery, bot: Bot):
 
         chunks = group_into_chunks(words)
         write_srt(chunks, srt_path)
-        generate_word_by_word_ass(chunks, ass_path, session["anim_style"], font_size, v_width, v_height)
+        generate_word_by_word_ass(chunks, ass_path, session["anim_style"], font_size, v_width, v_height, session["font_key"])
 
-        await burn_subtitles_to_video(input_video, ass_name, output_video, user_dir)
+        await burn_subtitles_to_video(input_video, ass_name, output_video, user_dir, session["font_key"] if font_available(session["font_key"]) else "arial")
 
         if not is_user_pro(user_id):
             deduct_user_credit(user_id)
@@ -700,6 +773,7 @@ async def cmd_contact_admin(message: Message):
 async def main():
     WORK_ROOT.mkdir(parents=True, exist_ok=True)
     init_db()
+    await ensure_fonts()
 
     bot = Bot(
         token=BOT_TOKEN,
