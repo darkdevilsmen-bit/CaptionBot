@@ -61,21 +61,56 @@ DB_FILE = DATA_DIR / "database.db"
 STT_MODEL = os.getenv("STT_MODEL", "scribe_v2")
 INITIAL_CREDITS = 1
 
-# Instagram Reels & Mahalliy kanallarda ko'p uchraydigan urg'u beriladigan so'zlar
+# 300+ ta avtomatik aniqlanadigan reels va blogerlik urg'u so'zlari
 HEADLIGHT_WORDS = {
-    "chirchiq", "chirchiqda", "chirchiqning", "chirchiqliklar",
-    "toshkent", "toshkentda", "diqqat", "ogohlantirish", "yangilik",
-    "bomba", "daxshat", "zo'r", "vapshe", "vapsheyam", "shok",
-    "tekin", "skidka", "aksiya", "arzon", "narxi", "admin", "obuna",
-    "muammo", "qaror", "hokimiyat", "yo'l", "reels", "video", "prosto",
-    "albatta", "qarang", "tezkor", "rossiya", "dollar", "super"
+    # Joy nomlari va hududlar
+    "chirchiq", "chirchiqda", "chirchiqning", "chirchiqliklar", "chirchiqqa",
+    "toshkent", "toshkentda", "samarqand", "buxoro", "andijon", "farg'ona",
+    "namangan", "qashqadaryo", "surxondaryo", "xorazm", "navoiy", "jizzax",
+    "qoraqalpog'iston", "o'zbekiston", "ozbekiston", "rossiya", "turkiya", "dubay",
+
+    # Diqqat va shov-shuv so'zlari
+    "diqqat", "ogohlantirish", "shoshiling", "tezkor", "bomba", "daxshat",
+    "dahshat", "shok", "yangilik", "sensatsiya", "muhim", "rasman", "favqulodda",
+    "qarang", "eshiting", "tomosha", "sir", "sirlari", "haqiqat", "aldov",
+    "xushxabar", "afsus", "voy", "o'rtoqlar", "do'stlar", "odamlar", "xalq",
+
+    # Emotsional va jargon so'zlar
+    "vapshe", "vapsheyam", "zo'r", "daraxt", "gap", "yo'q", "gapyo'q", "lekin",
+    "prosto", "chempion", "super", "klass", "top", "trend", "reels", "video",
+    "bunaqasi", "bo'lmagan", "ko'ring", "aytgancha", "rosti", "aniq", "tiniq",
+    "chotki", "otdushi", "baza", "yondiradi", "portlatdi", "dod", "voydod",
+
+    # Savdo, narx, pul va xarid
+    "narxi", "qancha", "so'm", "dollar", "valyuta", "kurs", "tekin", "bepul",
+    "skidka", "aksiya", "arzon", "qimmat", "foyda", "daromad", "sovg'a", "yutuq",
+    "bonus", "pulingiz", "pul", "million", "milliard", "sotuvda", "xarid",
+    "buyurtma", "yetkazib", "berish", "magazin", "do'kon", "bozor", "savdo",
+    "kafolat", "kredit", "rassrochka", "foizsiz", "halol",
+
+    # Tarmoqlar, media va harakatga chaqiruv
+    "obuna", "layk", "komment", "repost", "podpiska", "profil", "ssilka",
+    "admin", "kanal", "guruh", "direct", "lichka", "raqam", "telefon", "manzil",
+    "lokatsiya", "aloqa", "yozing", "bosing", "saqlab", "oling", "tarqating",
+    "fikringiz", "savol", "javob", "jonli", "efir", "stories", "post",
+
+    # Sifat va baholash
+    "birinchi", "oxirgi", "yagona", "mukammal", "haqiqiy", "original", "poddelka",
+    "soxta", "toza", "sifatli", "ajoyib", "chiroyli", "mashhur", "professional",
+    "aqlli", "tez", "oson", "qulay", "ishonchli", "xavfsiz", "muammo", "qaror",
+    "xato", "to'g'ri", "noto'g'ri", "sabab", "natija", "rekord", "tarixiy",
+
+    # Kundalik va biznes iboralari
+    "ish", "biznes", "loyiha", "startap", "kasb", "mutaxassis", "ustoz",
+    "shogird", "o'quvchi", "talaba", "universitet", "maktab", "kurs", "dars",
+    "ta'lim", "ishchi", "vakansiya", "oylik", "maosh", "karyera", "rivojlanish",
+    "muvaffaqiyat", "maqsad", "reja", "strategiya", "taktika", "maslahat", "tavsiya"
 }
 
+# Faqat 2 ta eng sara animatsiya
 ANIMATION_STYLES = {
     "smooth_tracking": "✨ Smooth Tracking + Fade Out",
     "mrbeast_style": "🟢 MrBeast Pop-up",
-    "active_bold_regular": "🔥 Active Bold / Regular",
-    "active_word_box": "⬛ Active Word Highlight (Box)",
 }
 
 COLOR_OPTIONS = {
@@ -88,7 +123,7 @@ COLOR_OPTIONS = {
 DEFAULT_COLOR_KEY = "white"
 
 ACTIVE_SPOKEN_COLOR = "&H0000FFFF&"   # Aytilayotgan vaqtda aniq sariq yonadi
-HEADLIGHT_COLOR = "&H0032FF00&"       # Instagram reels urg'u so'zlari uchun neon yashil
+HEADLIGHT_COLOR = "&H0032FF00&"       # Fondagi 300+ urg'u so'zlari uchun neon yashil
 
 FONT_SIZES = {
     "small": ("🔽 Kichik (70)", 70),
@@ -511,20 +546,15 @@ def _format_word(word_text: str, state: str, anim_style: str, chosen_color: str,
         color = HEADLIGHT_COLOR if is_headlight else chosen_color
         return f"{{\\c{color}\\fscx100\\fscy100{b1 if is_headlight else b0}}}{word_text}"
 
-    # 3. Ayni damda aytilayotgan so'z: sariq va biroz kattaroq (112%)
+    # 3. Ayni damda aytilayotgan so'z: sariq va aniq pop-up
     active_color = HEADLIGHT_COLOR if is_headlight else ACTIVE_SPOKEN_COLOR
 
     if anim_style == "mrbeast_style":
-        return (f"{{\\c{active_color}{b1}\\t(0,70,\\fscx120\\fscy120)\\t(70,140,\\fscx112\\fscy112)}}"
+        # MrBeast Pop-up: aniq elastik sakrab 112% da barqaror turadi
+        return (f"{{\\c{active_color}{b1}\\t(0,60,\\fscx122\\fscy122)\\t(60,130,\\fscx112\\fscy112)}}"
                 f"{word_text}{{\\fscx112\\fscy112}}")
 
-    if anim_style == "active_word_box":
-        return f"{{\\c&H00000000&\\3c{active_color}\\bord8\\fscx112\\fscy112{b1}}}{word_text}{{\\bord3\\3c&H00000000&\\fscx100\\fscy100{b0}}}"
-
-    if anim_style == "active_bold_regular":
-        return f"{{\\c{active_color}\\fscx112\\fscy112{b1}}}{word_text}{{\\fscx100\\fscy100{b0}}}"
-
-    # smooth_tracking: so'z kattalashadi va silliq ranglanadi
+    # smooth_tracking: so'z o'lchami barqaror va silliq ranglanadi
     return f"{{\\c{active_color}\\fscx112\\fscy112{b1}}}{word_text}{{\\fscx100\\fscy100{b0}}}"
 
 
@@ -574,7 +604,7 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
         chunk_start = chunk[0]["start"]
         chunk_end = chunk[-1]["end"]
         total_dur_ms = max(250, int((chunk_end - chunk_start) * 1000))
-        target_sp = round(base_sp + 2.8, 1)   # Yoyilish miqdori: ixcham va o'ta tekis (+2.8 px)
+        target_sp = round(base_sp + 2.8, 1)
 
         for i, current_word in enumerate(chunk):
             start = current_word["start"]
@@ -585,30 +615,27 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
             word_parts = []
             for j, w in enumerate(chunk):
                 if j < i:
-                    state = "past"     # Aytib bo'lingan: normal o'lchamda, tanlangan rangda
+                    state = "past"
                 elif j == i:
-                    state = "active"   # Aytilayotgan: sal kattaroq + sariq
+                    state = "active"
                 else:
-                    state = "future"   # Aytilmagan: 100% o'lchamda, oq rangda
+                    state = "future"
 
                 word_parts.append(_format_word(w["text"], state, anim_style, chosen_color, bold_ok))
 
             text = " ".join(word_parts)
 
             # Smooth Tracking + Fade Out:
-            # Matn sakramasligi uchun joriy so'zning boshlanish (t1) va tugash (t2) nuqtalari proportsional olinadi
             if anim_style == "smooth_tracking":
                 t1 = int((start - chunk_start) * 1000)
                 t2 = int((end - chunk_start) * 1000)
 
-                # Qator boshidan oxirigacha silliq yoyilish qiymati:
                 sp1 = round(base_sp + (target_sp - base_sp) * (t1 / total_dur_ms), 2)
                 sp2 = round(base_sp + (target_sp - base_sp) * (t2 / total_dur_ms), 2)
 
                 dur_part = max(10, t2 - t1)
                 anim_prefix = f"{{\\fsp{sp1}\\t(0,{dur_part},\\fsp{sp2})}}"
 
-                # Fraza tugashiga yetganda (oxirgi so'zda) silliq Fade-Out (erib yo'qolish) qo'shiladi:
                 if i == len(chunk) - 1:
                     fade_time = min(150, max(50, int(dur_part * 0.4)))
                     anim_prefix = f"{{\\fad(0,{fade_time})}}" + anim_prefix
@@ -947,9 +974,10 @@ async def callback_font_size(callback: CallbackQuery, bot: Bot):
     if not session:
         return
 
+    # Balansni tekshirish (1 ta bo'lsa ham bemalol o'tkazadi)
     user_credits = get_user_credits(user_id, username)
     user_is_pro = is_user_pro(user_id)
-    if user_credits <= 0 and not user_is_pro:
+    if user_credits < 1 and not user_is_pro:
         await callback.answer(NO_CREDITS_TEXT, show_alert=True)
         return
 
@@ -1003,6 +1031,7 @@ async def callback_font_size(callback: CallbackQuery, bot: Bot):
 
         await burn_subtitles_to_video(input_video, ass_path, output_video, font_key)
 
+        # Video muvaffaqiyatli tayyor bo'lgandan keyingina balansdan 1 ta ayiriladi
         if not user_is_pro:
             deduct_user_credit(user_id)
         remaining = get_user_credits(user_id, username)
@@ -1035,11 +1064,9 @@ async def callback_font_size(callback: CallbackQuery, bot: Bot):
 async def cmd_sub_styles(message: Message):
     await message.answer(
         "Subtitr uslublari:\n\n"
-        "1. Smooth Tracking + Fade Out (Matn qotmasdan silliq yoyilib, oxirida chiroyli erib ketadi)\n"
-        "2. MrBeast Pop-up (Aytilayotgan so'z sakrab kattalashadi va sariq bo'ladi)\n"
-        "3. Active Bold / Regular (Aytilayotgan so'z qalin va sariq)\n"
-        "4. Active Word Highlight (Aytilayotgan so'z orqasida kontrast ramka)\n\n"
-        "Videongizdagi kalit so'zlar (Chirchiq, yangilik, diqqat va h.k.) avtomatik neon urg'u bilan ko'rsatiladi.",
+        "1. Smooth Tracking + Fade Out (Matn silliq yoyilib, gap oxirida chiroyli erib ketadi)\n"
+        "2. MrBeast Pop-up (Aytilayotgan so'z elastik kattalashadi va sariq bo'ladi)\n\n"
+        "Videongizdagi asosiy so'zlar avtomatik tarzda yorqin neon urg'u bilan ajratib ko'rsatiladi.",
         reply_markup=get_main_keyboard(),
     )
 
