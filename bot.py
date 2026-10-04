@@ -48,13 +48,7 @@ MAX_VIDEO_BYTES = 50 * 1024 * 1024
 WORK_ROOT = Path("temp_processing")
 FONTS_DIR = Path(".")
 DB_FILE = Path("database.db")
-INITIAL_CREDITS = 0  # Boshlang'ich balans 0 ta video
-
-VIDEO_LANGS = {
-    "uz": "🇺🇿 O'zbekcha",
-    "ru": "🇷🇺 Ruscha",
-    "en": "🇬🇧 Inglizcha",
-}
+INITIAL_CREDITS = 0
 
 ANIMATION_STYLES = {
     "mrbeast_style": "🟢 Komika Axis Pop-up (MrBeast)",
@@ -263,7 +257,6 @@ async def cmd_start(message: Message, bot: Bot):
     )
 
 
-# --- ADMIN KOMANDALARI (/add va /pro) ---
 @router.message(Command("add"))
 async def cmd_add_credits(message: Message):
     if message.from_user.id != ADMIN_ID:
@@ -336,7 +329,7 @@ async def cmd_auto_subtitles(message: Message):
     )
 
 
-# --- VIDEO KELGANDA QABUL QILISH (HANDLER) ---
+# --- VIDEO KELGANDA UNI SAQLASH VA SOZLAMALARNI SO'RASH ---
 @router.message(F.video)
 async def handle_video(message: Message, bot: Bot):
     user_id = message.from_user.id
@@ -350,20 +343,72 @@ async def handle_video(message: Message, bot: Bot):
         )
         return
 
-    status_msg = await message.answer("✨ Subtitrlar tayyorlanmoqda, iltimos kuting...")
+    user_dir = WORK_ROOT / str(uuid.uuid4())
+    user_dir.mkdir(parents=True, exist_ok=True)
+    input_video = user_dir / "input.mp4"
+    
+    file_info = await bot.get_file(message.video.file_id)
+    await bot.download_file(file_info.file_path, destination=input_video)
+    
+    USER_SESSIONS[user_id] = {
+        "video_path": str(input_video),
+        "dir_path": str(user_dir),
+        "anim_style": "mrbeast_style",
+        "font_size": 85,
+        "color": "&H00FFFFFF"
+    }
+    
+    # Animatsiya va shrift uslublarini tanlash uchun inline tugmalar
+    builder = InlineKeyboardBuilder()
+    for key, name in ANIMATION_STYLES.items():
+        builder.row(InlineKeyboardButton(text=name, callback_data=f"anim_{key}"))
+        
+    await message.answer(
+        "✨ Videongiz qabul qilindi!\n\nSubtitr uchun **animatsiya uslubini** tanlang:",
+        reply_markup=builder.as_markup()
+    )
+
+
+@router.callback_query(F.data.startswith("anim_"))
+async def callback_anim_style(callback: CallbackQuery):
+    user_id = callback.from_user.id
+    if user_id not in USER_SESSIONS:
+        await callback.answer("Sessiya eskirgan. Iltimos videoni qaytadan yuboring.", show_alert=True)
+        return
+        
+    style_key = callback.data.replace("anim_", "")
+    USER_SESSIONS[user_id]["anim_style"] = style_key
+    
+    # Shrift o'lchamini tanlash uchun tugmalar
+    builder = InlineKeyboardBuilder()
+    for key, (name, val) in FONT_SIZES.items():
+        builder.row(InlineKeyboardButton(text=name, callback_data=f"size_{key}"))
+        
+    await callback.message.edit_text(
+        "📱 Endi subtitr **shrift o'lchamini** tanlang:",
+        reply_markup=builder.as_markup()
+    )
+
+
+@router.callback_query(F.data.startswith("size_"))
+async def callback_font_size(callback: CallbackQuery, bot: Bot):
+    user_id = callback.from_user.id
+    if user_id not in USER_SESSIONS:
+        await callback.answer("Sessiya eskirgan. Iltimos videoni qaytadan yuboring.", show_alert=True)
+        return
+        
+    size_key = callback.data.replace("size_", "")
+    USER_SESSIONS[user_id]["font_size"] = FONT_SIZES[size_key][1]
+    
+    session = USER_SESSIONS[user_id]
+    input_video = Path(session["video_path"])
+    user_dir = Path(session["dir_path"])
+    output_video = user_dir / "output.mp4"
+    ass_path = user_dir / "subs.ass"
+    
+    status_msg = await callback.message.edit_text("✨ Subtitrlar tayyorlanmoqda, iltimos kuting...")
     
     try:
-        user_dir = WORK_ROOT / str(uuid.uuid4())
-        user_dir.mkdir(parents=True, exist_ok=True)
-        
-        input_video = user_dir / "input.mp4"
-        output_video = user_dir / "output.mp4"
-        ass_path = user_dir / "subs.ass"
-        
-        file_info = await bot.get_file(message.video.file_id)
-        await bot.download_file(file_info.file_path, destination=input_video)
-        
-        # ElevenLabs orqali ovozni matnga o'girish va subtitr yasash
         with open(input_video, "rb") as audio_file:
             transcript = el_client.speech_to_text.convert(
                 file=audio_file,
@@ -380,9 +425,9 @@ async def handle_video(message: Message, bot: Bot):
         generate_word_by_word_ass(
             words=words,
             ass_path=ass_path,
-            anim_style="mrbeast_style",
-            text_color_hex="&H00FFFFFF",
-            font_size=85
+            anim_style=session["anim_style"],
+            text_color_hex=session["color"],
+            font_size=session["font_size"]
         )
         
         await burn_subtitles_to_video(input_video, ass_path, output_video)
@@ -392,13 +437,15 @@ async def handle_video(message: Message, bot: Bot):
             
         remaining_credits = get_user_credits(user_id)
         
-        await message.answer_video(
+        await bot.send_video(
+            chat_id=user_id,
             video=FSInputFile(output_video),
             caption=f"🔥 Subtitr Tayyor!\n\n💳 Qolgan balans: {remaining_credits} ta video",
             reply_markup=get_main_keyboard()
         )
         await status_msg.delete()
         shutil.rmtree(user_dir, ignore_errors=True)
+        del USER_SESSIONS[user_id]
         
     except Exception as e:
         log.error(f"Video qayta ishlashda xatolik: {e}")
