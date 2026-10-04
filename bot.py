@@ -8,6 +8,7 @@ import sqlite3
 import asyncio
 import logging
 from html import escape
+from urllib.parse import quote
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
@@ -27,6 +28,10 @@ from aiogram.types import (
     ReplyKeyboardMarkup,
 )
 from aiogram.utils.keyboard import InlineKeyboardBuilder
+try:
+    from aiogram.types import CopyTextButton  # aiogram >= 3.13
+except Exception:  # eski versiyada yo'q
+    CopyTextButton = None
 from elevenlabs.client import ElevenLabs
 import imageio_ffmpeg
 
@@ -35,7 +40,7 @@ log = logging.getLogger(__name__)
 
 # --- SOZLAMALAR ---
 # Kalitlar shu yerda yozilgan. Xohlasangiz muhit o'zgaruvchisi (BOT_TOKEN / ELEVENLABS_API_KEY) bilan almashtirish mumkin.
-BOT_TOKEN = os.getenv("BOT_TOKEN", "8933394511:AAFJB8PAaNwHC3w0TpKvDrkRoRm-cIwkxEM")
+BOT_TOKEN = os.getenv("BOT_TOKEN", "8933394511:AAEQ5atljKHskaCTG2UINuIiXPHHogNkqMM")
 ELEVENLABS_API_KEY = os.getenv("ELEVENLABS_API_KEY", "sk_2645eb8c6ab7457d5661f30bc9935e8107560bec586b14c8")
 
 ADMIN_ID = 7662888182
@@ -49,7 +54,11 @@ CARD_HOLDER = "Toshpulatov Shoxrux"
 MAX_VIDEO_BYTES = 50 * 1024 * 1024
 WORK_ROOT = Path("temp_processing")
 FONTS_DIR = Path("fonts").resolve()   # shriftlar shu papkada saqlanadi (Montserrat o'zi yuklanadi)
-DB_FILE = Path("database.db")
+# Railway'da bazani deploy'dan keyin yo'qotmaslik uchun Volume ulang va DATA_DIR=/data qo'ying.
+DATA_DIR = Path(os.getenv("DATA_DIR", "."))
+DATA_DIR.mkdir(parents=True, exist_ok=True)
+DB_FILE = DATA_DIR / "database.db"
+STT_MODEL = os.getenv("STT_MODEL", "scribe_v2")   # xato bersa avtomatik scribe_v1 ga tushadi
 INITIAL_CREDITS = 1
 
 ANIMATION_STYLES = {
@@ -83,6 +92,20 @@ FONT_OPTIONS = {
                    "url": _GF + "Montserrat-Black.ttf", "bold_ok": False, "tight": True},
 }
 DEFAULT_FONT_KEY = "the_bold"
+
+# Nutq tili (ElevenLabs ISO-639-3 kodlari). Tilni aniq berish aniqlikni keskin oshiradi.
+LANG_OPTIONS = {
+    "uzb": ("🇺🇿 O'zbekcha", "uzb"),
+    "rus": ("🇷🇺 Ruscha", "rus"),
+    "eng": ("🇬🇧 Inglizcha", "eng"),
+    "auto": ("🌐 Avto aniqlash", None),
+}
+
+# PRO tariflar — narxlarni shu yerdan o'zgartiring
+TARIFFS = [
+    {"emoji": "🥈", "name": "1 OYLIK PRO", "price": "49 000 so'm"},
+    {"emoji": "👑", "name": "VIP UMRBOD", "price": "149 000 so'm"},
+]
 
 BASE_COLOR = "&H00FFFFFF"    # oq (BGR formatda)
 ACTIVE_COLOR = "&H0000FFFF"  # sariq
@@ -132,10 +155,15 @@ def init_db():
                 anim_style TEXT,
                 font_key TEXT,
                 font_size INTEGER,
-                created REAL
+                created REAL,
+                lang TEXT
             )
             """
         )
+        try:
+            conn.execute("ALTER TABLE sessions ADD COLUMN lang TEXT")
+        except sqlite3.OperationalError:
+            pass  # ustun allaqachon bor
         conn.commit()
 
 
@@ -171,15 +199,15 @@ def deduct_user_credit(user_id: int) -> bool:
 
 # ---------------------------------------------------- SESSIYALAR (bazada)
 # Sessiya bazada saqlanadi, shuning uchun bot qayta ishga tushsa ham tugmalar ishlayveradi.
-_SESSION_COLS = {"anim_style", "font_key", "font_size"}
+_SESSION_COLS = {"anim_style", "font_key", "font_size", "lang"}
 
 
 def db_save_session(user_id: int, sid: str, file_id: str, video_path: str, dir_path: str):
     with sqlite3.connect(DB_FILE) as conn:
         conn.execute(
-            "INSERT OR REPLACE INTO sessions (user_id, sid, file_id, video_path, dir_path, anim_style, font_key, font_size, created) "
-            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
-            (user_id, sid, file_id, video_path, dir_path, "mrbeast_style", DEFAULT_FONT_KEY, 85, time.time()),
+            "INSERT OR REPLACE INTO sessions (user_id, sid, file_id, video_path, dir_path, anim_style, font_key, font_size, created, lang) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            (user_id, sid, file_id, video_path, dir_path, "mrbeast_style", DEFAULT_FONT_KEY, 85, time.time(), "uzb"),
         )
         conn.commit()
 
@@ -270,6 +298,41 @@ _HAS_ALNUM = re.compile(r"[^\W_]", re.UNICODE)
 _EVENT_TAG = re.compile(r"^[\(\[\*<].*[\)\]\*>]$")  # (musiqa), [shovqin], *kulgi*
 
 
+_CYR = {
+    "а": "a", "б": "b", "в": "v", "г": "g", "д": "d", "ж": "j", "з": "z", "и": "i", "й": "y", "к": "k",
+    "л": "l", "м": "m", "н": "n", "о": "o", "п": "p", "р": "r", "с": "s", "т": "t", "у": "u", "ф": "f",
+    "х": "x", "ц": "ts", "ч": "ch", "ш": "sh", "щ": "sh", "ъ": "'", "ы": "i", "ь": "", "э": "e",
+    "ю": "yu", "я": "ya", "ё": "yo", "ў": "o'", "қ": "q", "ғ": "g'", "ҳ": "h",
+}
+_CYR_VOWELS = set("аеиоуўэюяё")
+
+
+def uz_cyr_to_latin(text: str) -> str:
+    """O'zbek kirill matnini lotinga o'giradi (ElevenLabs ba'zan kirillda qaytaradi)."""
+    if not re.search(r"[\u0400-\u04FF]", text):
+        return text
+    out = []
+    prev = ""
+    for ch in text:
+        low = ch.lower()
+        if low == "е":
+            lat = "ye" if (not prev or prev.lower() in _CYR_VOWELS or not prev.isalpha() or prev in "ъЪ") else "e"
+        elif low in _CYR:
+            lat = _CYR[low]
+        else:
+            lat = ch
+            out.append(lat)
+            prev = ch
+            continue
+        out.append(lat.capitalize() if ch.isupper() and lat else lat)
+        prev = ch
+    res = "".join(out)
+    letters = [c for c in text if c.isalpha()]
+    if len(letters) > 1 and all(c.isupper() for c in letters):
+        res = res.upper()
+    return res
+
+
 def clean_text(raw: Any) -> str:
     """Faqat str qabul qiladi. Obyektni hech qachon str() qilmaydi."""
     if not isinstance(raw, str):
@@ -282,7 +345,7 @@ def clean_text(raw: Any) -> str:
     return text
 
 
-def extract_clean_words(transcript: Any) -> List[Dict[str, Any]]:
+def extract_clean_words(transcript: Any, lang: Optional[str] = None) -> List[Dict[str, Any]]:
     """
     ElevenLabs javobidan [{'text', 'start', 'end'}, ...] ro'yxatini yasaydi.
     - so'z matni `.text` da (Whisper uslubidagi `.word` ham qo'llab-quvvatlanadi)
@@ -298,6 +361,8 @@ def extract_clean_words(transcript: Any) -> List[Dict[str, Any]]:
             continue
 
         text = clean_text(_get(w, "text", "word"))
+        if text and lang == "uzb":
+            text = uz_cyr_to_latin(text)
         if not text:
             continue
 
@@ -451,6 +516,18 @@ def _style_word(text: str, active: bool, anim_style: str, bold_ok: bool = True) 
     return f"{{\\c{ACTIVE_COLOR}&}}{text}"  # smooth_tracking
 
 
+def scaled_font_size(font_size: int, video_w: int, video_h: int) -> int:
+    """Shrift o'lchami 1080 px asosida berilgan: video o'lchamiga moslaymiz."""
+    return max(24, int(round(font_size * min(video_w, video_h) / 1080)))
+
+
+def max_chars_for(font_size: int, video_w: int, video_h: int) -> int:
+    """Bir qatorga sig'adigan taxminiy belgilar soni (qator ikkiga bo'linib ketmasligi uchun)."""
+    fs = scaled_font_size(font_size, video_w, video_h)
+    avail = video_w - 2 * 40
+    return int(max(8, min(28, avail / (fs * 0.62) - 1)))
+
+
 def generate_word_by_word_ass(
     chunks: List[List[Dict[str, Any]]],
     ass_path: Path,
@@ -461,9 +538,8 @@ def generate_word_by_word_ass(
     font_key: str = DEFAULT_FONT_KEY,
 ) -> int:
     font_name, bold_ok, tight, _ = resolve_font(font_key)
-    # Shrift o'lchami 1080 px asosida berilgan: video o'lchamiga moslaymiz
-    font_size = max(24, int(round(font_size * min(video_w, video_h) / 1080)))
-    spacing = round(font_size * MONTSERRAT_SPACING, 1) if tight else 0
+    font_size = scaled_font_size(font_size, video_w, video_h)
+    base_sp = round(font_size * MONTSERRAT_SPACING, 1) if tight else 0.0
     bold_flag = -1 if bold_ok else 0
     header = f"""[Script Info]
 ScriptType: v4.00+
@@ -474,11 +550,19 @@ WrapStyle: 0
 
 [V4+ Styles]
 Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding
-Style: Default,{font_name},{font_size},{BASE_COLOR},&H000000FF,&H00000000,&H80000000,{bold_flag},0,0,0,100,100,{spacing},0,1,3,0,2,40,40,{int(video_h * 0.12)},1
+Style: Default,{font_name},{font_size},{BASE_COLOR},&H000000FF,&H00000000,&H80000000,{bold_flag},0,0,0,100,100,{base_sp},0,1,3,0,2,40,40,{int(video_h * 0.12)},1
 
 [Events]
 Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
 """
+    # After Effects "Tracking" animatori: harflar orasi keng -> normal, shu bilan birga paydo bo'lish.
+    if anim_style == "smooth_tracking":
+        wide, dur = font_size * 0.40, 480
+    else:
+        wide, dur = font_size * 0.25, 380
+    wide_sp = round(base_sp + wide, 1)
+    entrance = f"{{\\q2\\alpha&HFF&\\fsp{wide_sp}\\t(0,{dur},0.5,\\alpha&H00&\\fsp{base_sp})}}"
+
     dialogues: List[str] = []
     for chunk in chunks:
         for i, active_word in enumerate(chunk):
@@ -487,13 +571,10 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
             if end <= start:
                 end = start + 0.1
 
-            parts = [
-                _style_word(w["text"], j == i, anim_style, bold_ok)
-                for j, w in enumerate(chunk)
-            ]
+            parts = [_style_word(w["text"], j == i, anim_style, bold_ok) for j, w in enumerate(chunk)]
             text = " ".join(parts)
-            if anim_style == "smooth_tracking" and i == 0:
-                text = "{\\fad(120,0)}" + text
+            if i == 0:
+                text = entrance + text   # qator paydo bo'lganda tracking animatsiyasi
             dialogues.append(
                 f"Dialogue: 0,{format_ass_time(start)},{format_ass_time(end)},Default,,0,0,0,,{text}"
             )
@@ -529,7 +610,7 @@ async def get_video_resolution(video_path: Path) -> Tuple[int, int]:
 
 async def extract_audio(video: Path, audio: Path):
     code, err = await _run(
-        [FFMPEG_PATH, "-y", "-i", str(video), "-vn", "-ac", "1", "-ar", "16000", "-b:a", "64k", str(audio)]
+        [FFMPEG_PATH, "-y", "-i", str(video), "-vn", "-ac", "1", "-ar", "16000", "-af", "highpass=f=70,loudnorm=I=-16:TP=-1.5:LRA=11", "-c:a", "pcm_s16le", str(audio)]
     )
     if code != 0:
         log.error(f"Audio ajratishda xato: {err[-800:]}")
@@ -555,9 +636,9 @@ async def burn_subtitles_to_video(input_video: Path, ass_name: str, output_video
         FFMPEG_PATH, "-y",
         "-i", str(input_video.resolve()),
         "-vf", vf,
-        "-c:v", "libx264", "-preset", "fast", "-crf", "23",
+        "-c:v", "libx264", "-preset", "fast", "-crf", "16", "-profile:v", "high",
         "-pix_fmt", "yuv420p",
-        "-c:a", "aac", "-b:a", "128k",
+        "-c:a", "aac", "-b:a", "192k",
         "-movflags", "+faststart",
         str(output_video.resolve()),
     ]
@@ -696,10 +777,10 @@ async def handle_video(message: Message, bot: Bot):
     db_save_session(user_id, sid, message.video.file_id, str(input_video), str(user_dir))
 
     builder = InlineKeyboardBuilder()
-    for key, name in ANIMATION_STYLES.items():
-        builder.row(InlineKeyboardButton(text=name, callback_data=f"anim:{key}:{sid}"))
+    for key, (name, _) in LANG_OPTIONS.items():
+        builder.row(InlineKeyboardButton(text=name, callback_data=f"lang:{key}:{sid}"))
     await message.reply(
-        "✨ Videongiz qabul qilindi!\n\nSubtitr uchun <b>animatsiya uslubini</b> tanlang:",
+        "✨ Videongiz qabul qilindi!\n\n🗣 Videodagi <b>nutq tilini</b> tanlang (aniqlik uchun muhim):",
         reply_markup=builder.as_markup(),
     )
 
@@ -729,6 +810,25 @@ async def load_session(callback: CallbackQuery, bot: Bot, sid: str) -> Optional[
 def _parse_cb(data: str) -> Optional[Tuple[str, str]]:
     parts = data.split(":", 2)
     return (parts[1], parts[2]) if len(parts) == 3 else None
+
+
+@router.callback_query(F.data.startswith("lang:"))
+async def callback_language(callback: CallbackQuery, bot: Bot):
+    parsed = _parse_cb(callback.data)
+    if not parsed or parsed[0] not in LANG_OPTIONS:
+        await callback.answer("Noma'lum til.", show_alert=True)
+        return
+    lang_key, sid = parsed
+    sess = await load_session(callback, bot, sid)
+    if not sess:
+        return
+    db_update_session(callback.from_user.id, lang=lang_key)
+
+    builder = InlineKeyboardBuilder()
+    for key, name in ANIMATION_STYLES.items():
+        builder.row(InlineKeyboardButton(text=name, callback_data=f"anim:{key}:{sid}"))
+    await callback.message.edit_text("🎬 Subtitr uchun <b>animatsiya uslubini</b> tanlang:", reply_markup=builder.as_markup())
+    await callback.answer()
 
 
 @router.callback_query(F.data.startswith("anim:"))
@@ -799,10 +899,12 @@ async def callback_font_size(callback: CallbackQuery, bot: Bot):
     font_size = FONT_SIZES[size_key][1]
     font_key = session["font_key"] or DEFAULT_FONT_KEY
     anim_style = session["anim_style"] or "mrbeast_style"
+    lang_key = session.get("lang") or "uzb"
+    lang_code = LANG_OPTIONS.get(lang_key, LANG_OPTIONS["uzb"])[1]
     input_video = Path(session["video_path"])
     user_dir = Path(session["dir_path"])
     output_video = user_dir / "output.mp4"
-    audio_path = user_dir / "audio.mp3"
+    audio_path = user_dir / "audio.wav"
     ass_name = "subs.ass"
     ass_path = user_dir / ass_name
     srt_path = user_dir / "subs.srt"
@@ -814,23 +916,28 @@ async def callback_font_size(callback: CallbackQuery, bot: Bot):
         await extract_audio(input_video, audio_path)
 
         def _transcribe():
-            with open(audio_path, "rb") as f:
-                return el_client.speech_to_text.convert(
-                    file=f,
-                    model_id="scribe_v1",
-                    tag_audio_events=False,
-                    timestamps_granularity="word",
-                )
+            last_err: Optional[Exception] = None
+            for model in dict.fromkeys([STT_MODEL, "scribe_v1"]):
+                try:
+                    kwargs: Dict[str, Any] = dict(model_id=model, tag_audio_events=False, timestamps_granularity="word")
+                    if lang_code:
+                        kwargs["language_code"] = lang_code   # tilni aniq berish — eng muhim aniqlik omili
+                    with open(audio_path, "rb") as f:
+                        return el_client.speech_to_text.convert(file=f, **kwargs)
+                except Exception as e:  # model yoki parametr qo'llab-quvvatlanmasa keyingisiga o'tamiz
+                    last_err = e
+                    log.warning(f"STT {model} xatosi: {e}")
+            raise last_err  # type: ignore[misc]
 
         # Bloklovchi so'rov botni qotirib qo'ymasligi uchun alohida oqimda
         transcript = await asyncio.to_thread(_transcribe)
 
-        words = extract_clean_words(transcript)
+        words = extract_clean_words(transcript, lang_code)
         if not words:
             await status_msg.edit_text("❌ Videodan ovoz topilmadi yoki matnga o'girib bo'lmadi.")
             return
 
-        chunks = group_into_chunks(words)
+        chunks = group_into_chunks(words, max_chars=max_chars_for(font_size, v_width, v_height))
         write_srt(chunks, srt_path)
         generate_word_by_word_ass(chunks, ass_path, anim_style, font_size, v_width, v_height, font_key)
 
@@ -843,6 +950,9 @@ async def callback_font_size(callback: CallbackQuery, bot: Bot):
         await bot.send_video(
             chat_id=user_id,
             video=FSInputFile(output_video),
+            width=v_width,
+            height=v_height,
+            supports_streaming=True,
             caption=f"🔥 Subtitr Tayyor!\n\n💳 Qolgan balans: {remaining} ta video",
             reply_markup=get_main_keyboard(),
         )
@@ -875,35 +985,71 @@ async def cmd_sub_styles(message: Message):
     )
 
 
+def admin_url(text: str = "") -> str:
+    base = f"https://t.me/{ADMIN_USERNAME}"
+    return base + (f"?text={quote(text)}" if text else "")
+
+
+LINE = "━━━━━━━━━━━━━━━━"
+
+
+def pro_text() -> str:
+    tariffs = "\n".join(f"{t['emoji']} <b>{escape(t['name'])}</b> — <b>{escape(t['price'])}</b>" for t in TARIFFS)
+    return (
+        f"💎 <b>AVTO SUBTITR — PRO TARIFLAR</b>\n{LINE}\n\n"
+        "✅ Cheklovsiz videolar\n"
+        "✅ 2K Ultra HD sifat va mukammal shriftlar\n"
+        "✅ Barcha premium animatsiyalar\n"
+        "✅ Tezkor ishlov berish\n\n"
+        f"{LINE}\n{tariffs}\n{LINE}\n\n"
+        f"💳 <b>To'lov uchun karta</b> (bosib nusxalang):\n<code>{CARD_NUMBER}</code>\n"
+        f"👤 {escape(CARD_HOLDER)}\n\n"
+        "📨 To'lovdan so'ng chekni adminga yuboring — PRO shu zahoti yoqiladi."
+    )
+
+
+def pro_keyboard(user_id: int):
+    b = InlineKeyboardBuilder()
+    for t in TARIFFS:
+        b.row(InlineKeyboardButton(
+            text=f"{t['emoji']} {t['name']} — {t['price']}",
+            url=admin_url(f"Salom! {t['name']} tarifini olmoqchiman. Mening ID: {user_id}"),
+        ))
+    if CopyTextButton is not None:
+        b.row(InlineKeyboardButton(text="📋 Karta raqamini nusxalash", copy_text=CopyTextButton(text=CARD_NUMBER)))
+    b.row(InlineKeyboardButton(text="👨‍💻 Adminga chek yuborish", url=admin_url(f"Salom! To'lov qildim. Mening ID: {user_id}")))
+    return b.as_markup()
+
+
 @router.message(F.text == "💳 Balans")
 async def cmd_balance(message: Message):
     user_id = message.from_user.id
     credits = get_user_credits(user_id, message.from_user.username or "")
-    pro_status = "PRO Tarif (Cheksiz)" if is_user_pro(user_id) else "Standard (Bepul)"
-    await message.answer(
-        f"Sizning balansingiz:\n\n"
-        f"ID: {user_id}\n"
-        f"Qolgan urinishlar: {credits} ta video\n"
-        f"Status: {pro_status}",
-        reply_markup=get_main_keyboard(),
+    pro = is_user_pro(user_id)
+    status = "👑 PRO (cheksiz)" if pro else "🆓 Standard (bepul)"
+    left = "♾ Cheksiz" if pro else f"{credits} ta video"
+    text = (
+        f"💳 <b>SIZNING BALANSINGIZ</b>\n{LINE}\n"
+        f"🆔 ID: <code>{user_id}</code>\n"
+        f"🎬 Qolgan videolar: <b>{left}</b>\n"
+        f"⭐ Status: <b>{status}</b>\n{LINE}"
     )
+    b = InlineKeyboardBuilder()
+    if not pro:
+        b.row(InlineKeyboardButton(text="💎 PRO tarifga o'tish", callback_data="pro_info"))
+    b.row(InlineKeyboardButton(text="👨‍💻 Admin bilan bog'lanish", url=admin_url()))
+    await message.answer(text, reply_markup=b.as_markup())
+
+
+@router.callback_query(F.data == "pro_info")
+async def callback_pro_info(callback: CallbackQuery):
+    await callback.message.answer(pro_text(), reply_markup=pro_keyboard(callback.from_user.id))
+    await callback.answer()
 
 
 @router.message(F.text == "💎 PRO Tariflar")
 async def cmd_pro_tariffs(message: Message):
-    text = (
-        "AVTO SUBTITR — PRO TARIFLAR\n\n"
-        "Nima uchun PRO ga o'tish kerak?\n"
-        "• Cheklovsiz videolar va tezkor ishlov berish\n"
-        "• 2K Ultra HD sifat va mukammal shriftlar\n"
-        "• Barcha turdagi premium animatsiyalar\n\n"
-        "1 Oylik PRO: 49,000 so'm\n"
-        "VIP Umrbod (Lifetime): 149,000 so'm\n\n"
-        f"To'lov uchun karta (bosib nusxalash mumkin):\n<code>{CARD_NUMBER}</code>\n"
-        f"Karta egasi: {escape(CARD_HOLDER)}\n\n"
-        f"To'lovni amalga oshirgach, chekni darhol adminga yuboring: @{ADMIN_USERNAME}"
-    )
-    await message.answer(text, reply_markup=get_main_keyboard())
+    await message.answer(pro_text(), reply_markup=pro_keyboard(message.from_user.id))
 
 
 @router.message(F.text == "📜 Oferta")
@@ -930,11 +1076,14 @@ async def cmd_terms(message: Message):
 
 @router.message(F.text == "👨‍💻 Admin bilan bog'lanish")
 async def cmd_contact_admin(message: Message):
+    b = InlineKeyboardBuilder()
+    b.row(InlineKeyboardButton(text="💬 Telegram'da yozish", url=admin_url(f"Salom! Yordam kerak. Mening ID: {message.from_user.id}")))
     await message.answer(
-        f"Texnik yordam va Admin:\n\n"
-        f"Murojaat uchun: @{ADMIN_USERNAME}\n"
-        f"Telefon raqam: {ADMIN_PHONE}",
-        reply_markup=get_main_keyboard(),
+        f"👨‍💻 <b>TEXNIK YORDAM VA ADMIN</b>\n{LINE}\n"
+        f"💬 Telegram: @{ADMIN_USERNAME}\n"
+        f"📞 Telefon: <code>{ADMIN_PHONE}</code>\n{LINE}\n"
+        "Savol, to'lov yoki muammo bo'lsa — yozing, tez javob beramiz.",
+        reply_markup=b.as_markup(),
     )
 
 
