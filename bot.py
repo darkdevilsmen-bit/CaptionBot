@@ -158,7 +158,7 @@ def get_main_keyboard() -> ReplyKeyboardMarkup:
         [KeyboardButton(text="⚡ Auto Subtitr qo'yish")],
         [KeyboardButton(text="🎨 Subtitr uslublari"), KeyboardButton(text="💳 Balans")],
         [KeyboardButton(text="💎 PRO Tariflar"), KeyboardButton(text="📜 Oferta")],
-        [KeyboardButton(text="👨‍‍💻 Admin bilan bog'lanish")],
+        [KeyboardButton(text="👨‍💻 Admin bilan bog'lanish")],
     ]
     return ReplyKeyboardMarkup(keyboard=keyboard, resize_keyboard=True)
 
@@ -383,13 +383,13 @@ def extract_clean_words(transcript: Any, lang: Optional[str] = None) -> List[Dic
 
         text = clean_text(_get(w, "text", "word"))
         
-        # 🟢 Apostroflarni va ortiqcha bo'shliqlarni yo'q qilish (O RTOQLAR xatosini oldini olish uchun)
-        text = text.replace("'", "").replace("‘", "").replace("’", "")
-        if text and text.count(' ') > 0:
-            text = re.sub(r'\s+', '', text)
-
         if text and lang == "uzb":
             text = uz_cyr_to_latin(text)
+
+        # 🟢 MUHIM: "O" yoki "G" harfidan keyin probel kelsa va keyingi qism kichik harf bo'lsa birlashtiramiz,
+        # yoki umuman so'z ichidagi noto'g'ri bo'shliqlarni olib tashlaymiz
+        text = text.replace("  ", " ").strip()
+        
         if not text:
             continue
 
@@ -405,7 +405,30 @@ def extract_clean_words(transcript: Any, lang: Optional[str] = None) -> List[Dic
 
         result.append({"text": text, "start": start, "end": end})
 
-    return result
+    # 🟢 Alohida qolib ketgan "O" yoki "G" ni keyingi so'z bilan birlashtiruvchi xavfsizlik filtri
+    fixed_result: List[Dict[str, Any]] = []
+    i = 0
+    while i < len(result):
+        curr = result[i]
+        curr_text = curr["text"]
+        
+        # Agar so'z yolg'iz o'zi "O" yoki "G" bo'lsa va undan keyingi so'z mavjud bo'lsa
+        if curr_text in ("O", "G", "o", "g") and i + 1 < len(result):
+            nxt = result[i + 1]
+            # Ularni bitta so'zga birlashtiramiz (masalan: "O" + "rtoqlar" -> "O'rtoqlar" yoki "Ortoqlar")
+            combined_text = curr_text + "'" + nxt["text"]
+            fixed_result.append({
+                "text": combined_text,
+                "start": curr["start"],
+                "end": nxt["end"]
+            })
+            i += 2
+            continue
+            
+        fixed_result.append(curr)
+        i += 1
+
+    return fixed_result
 
 
 def group_into_chunks(words: List[Dict[str, Any]], max_words: int = 3, max_gap: float = 0.65, max_chars: int = 20) -> List[List[Dict[str, Any]]]:
@@ -1172,7 +1195,7 @@ async def cmd_terms(message: Message):
     )
 
 
-@router.message(F.text == "👨‍💻 Admin bilan bog'lanish")
+@router.message(F.text == "👨‍‍💻 Admin bilan bog'lanish")
 async def cmd_contact_admin(message: Message):
     b = InlineKeyboardBuilder()
     b.row(InlineKeyboardButton(text="💬 Telegram'da yozish", url=admin_url(f"Salom! Yordam kerak. Mening ID: {message.from_user.id}")))
