@@ -49,6 +49,9 @@ WORK_ROOT = Path("temp_processing")
 DB_FILE = Path("database.db")
 INITIAL_CREDITS = 1
 
+# Shrifts nomi (Komika Axis ishlatilishi uchun tizimda o'rnatilgan bo'lishi kerak)
+FONT_NAME = "Komika Axis"
+
 ANIMATION_STYLES = {
     "mrbeast_style": "🟢 Komika Axis Pop-up (MrBeast)",
     "smooth_tracking": "✨ Smooth Text Tracking (Fade)",
@@ -82,7 +85,7 @@ def get_main_keyboard() -> ReplyKeyboardMarkup:
         [KeyboardButton(text="⚡ Auto Subtitr qo'yish")],
         [KeyboardButton(text="🎨 Subtitr uslublari"), KeyboardButton(text="💳 Balans")],
         [KeyboardButton(text="💎 PRO Tariflar"), KeyboardButton(text="📜 Oferta")],
-        [KeyboardButton(text="👨‍‍💻 Admin bilan bog'lanish")]
+        [KeyboardButton(text="👨‍💻 Admin bilan bog'lanish")]
     ]
     return ReplyKeyboardMarkup(keyboard=keyboard, resize_keyboard=True)
 
@@ -191,7 +194,7 @@ WrapStyle: 2
 
 [V4+ Styles]
 Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding
-Style: Default,Arial,{font_size},{text_color_hex},&H000000FF,&H00000000,&H80000000,-1,0,0,0,100,100,0,0,1,3,1,2,10,10,40,1
+Style: Default,{FONT_NAME},{font_size},{text_color_hex},&H000000FF,&H00000000,&H80000000,-1,0,0,0,100,100,0,0,1,3,1,2,10,10,40,1
 
 [Events]
 Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
