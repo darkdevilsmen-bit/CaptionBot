@@ -49,20 +49,13 @@ MAX_VIDEO_BYTES = 50 * 1024 * 1024
 WORK_ROOT = Path("temp_processing")
 FONTS_DIR = Path(".")
 DB_FILE = Path("database.db")
-INITIAL_CREDITS = 1  # Yangi foydalanuvchiga 1 ta bepul video
+INITIAL_CREDITS = 1
 
 ANIMATION_STYLES = {
     "mrbeast_style": "🟢 Komika Axis Pop-up (MrBeast)",
     "smooth_tracking": "✨ Smooth Text Tracking (Fade)",
     "active_bold_regular": "🔥 Active Bold / Regular",
     "active_word_box": "⬛ Active Word Highlight (Box)"
-}
-
-TEXT_COLORS = {
-    "yellow": ("🟡 Sariq (Yorqin)", "&H0000FFFF"),
-    "white": ("⚪ Oq (Klassik)", "&H00FFFFFF"),
-    "green": ("🟢 Yashil (Neon)", "&H0000FF00"),
-    "cyan": ("🔵 Havorang", "&H00FFFF00")
 }
 
 FONT_SIZES = {
@@ -76,6 +69,7 @@ router = Router()
 el_client = ElevenLabs(api_key=ELEVENLABS_API_KEY)
 FFMPEG_PATH = imageio_ffmpeg.get_ffmpeg_exe()
 
+# Sessiyalar xotirada barqaror saqlanadi
 USER_SESSIONS: Dict[int, Dict[str, Any]] = {}
 
 
@@ -162,11 +156,6 @@ def format_ass_time(seconds: float) -> str:
 
 
 def get_video_metadata(video_path: Path, fallback_w: int = 1080, fallback_h: int = 1920, fallback_dur: int = 0) -> Tuple[int, int, int]:
-    """
-    FFmpeg / FFprobe orqali videoning haqiqiy o'lchami va davomiyligini aniqlaydi.
-    Hech qachon noto'g'ri o'lchamga sakrab ketmaydi.
-    """
-    # 1-usul: Tizimdagi ffprobe orqali JSON ko'rinishida olish
     try:
         cmd = [
             "ffprobe",
@@ -188,14 +177,9 @@ def get_video_metadata(video_path: Path, fallback_w: int = 1080, fallback_h: int
     except Exception:
         pass
 
-    # 2-usul: imageio_ffmpeg (FFMPEG_PATH) orqali stream parametrlarini o'qish
     try:
-        cmd = [
-            FFMPEG_PATH,
-            "-i", str(video_path)
-        ]
+        cmd = [FFMPEG_PATH, "-i", str(video_path)]
         res = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, timeout=5)
-        # stderr'dan 'Video: ..., 1080x1920' qatorini topish
         for line in res.stderr.splitlines():
             if "Video:" in line:
                 for token in line.split(','):
@@ -211,8 +195,12 @@ def get_video_metadata(video_path: Path, fallback_w: int = 1080, fallback_h: int
     return fallback_w, fallback_h, fallback_dur
 
 
-def generate_word_by_word_ass(words: List[Any], ass_path: Path, anim_style: str, text_color_hex: str, font_size: int, video_w: int, video_h: int) -> int:
-    # PlayResX va PlayResY videoning asl o'lchamiga moslanadi
+def generate_word_by_word_ass(words: List[Any], ass_path: Path, anim_style: str, font_size: int, video_w: int, video_h: int) -> int:
+    """
+    Haqiqiy karaoke/animatsiya:
+    Kadrda bir vaqtda 3-4 ta so'z ko'rinadi va gapirilayotgan so'z o'sha soniyada
+    ajralib (sakrab / sariq bo'lib / neon bo'lib) turadi.
+    """
     header = f"""[Script Info]
 ScriptType: v4.00+
 PlayResX: {video_w}
@@ -222,60 +210,76 @@ WrapStyle: 2
 
 [V4+ Styles]
 Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding
-Style: Default,Arial,{font_size},{text_color_hex},&H000000FF,&H00000000,&H80000000,-1,0,0,0,100,100,0,0,1,3,0,2,10,10,80,1
+Style: Default,Arial,{font_size},&H00FFFFFF,&H000000FF,&H00000000,&H80000000,-1,0,0,0,100,100,0,0,1,3,0,2,20,20,120,1
 
 [Events]
 Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
 """
-    dialogues = []
-    chunk_size = 5
-    for i in range(0, len(words), chunk_size):
-        chunk = words[i:i + chunk_size]
-        if not chunk:
+    clean_words = []
+    for w in words:
+        txt = getattr(w, 'word', None)
+        if txt is None and isinstance(w, dict):
+            txt = w.get('word', '')
+        if txt is None:
+            txt = str(w)
+        txt = txt.strip()
+        if not txt:
             continue
         
-        first_w = chunk[0]
-        start_t = getattr(first_w, 'start', None)
-        if start_t is None and isinstance(first_w, dict):
-            start_t = first_w.get('start', 0.0)
-        if start_t is None:
-            start_t = 0.0
+        st = getattr(w, 'start', None)
+        if st is None and isinstance(w, dict):
+            st = w.get('start', 0.0)
+        st = float(st or 0.0)
         
-        last_w = chunk[-1]
-        end_t = getattr(last_w, 'end', None)
-        if end_t is None and isinstance(last_w, dict):
-            end_t = last_w.get('end', start_t + 1.0)
-        if end_t is None:
-            end_t = start_t + 1.0
+        et = getattr(w, 'end', None)
+        if et is None and isinstance(w, dict):
+            et = w.get('end', st + 0.4)
+        et = float(et or (st + 0.4))
+        
+        clean_words.append({"word": txt, "start": st, "end": et})
 
-        line_parts = []
-        for j, w in enumerate(chunk):
-            w_text = getattr(w, 'word', None)
-            if w_text is None and isinstance(w, dict):
-                w_text = w.get('word', '')
-            if w_text is None:
-                w_text = str(w)
+    if not clean_words:
+        return 0
+
+    dialogues = []
+    chunk_size = 4
+    for i in range(0, len(clean_words), chunk_size):
+        chunk = clean_words[i:i + chunk_size]
+        if not chunk:
+            continue
+
+        # Har bir so'z gapirilayotgan alohida vaqt oralig'i uchun kadr chizamiz
+        for active_idx, target_word in enumerate(chunk):
+            w_start = target_word["start"]
+            w_end = target_word["end"]
             
-            w_text = w_text.strip()
-            if not w_text:
-                continue
-            
-            highlighted_word = f"{{\\c&H0000FFFF&}}{w_text}{{\\c{text_color_hex}&}}"
-            
-            if anim_style == "mrbeast_style":
-                animated_word = f"{{\\t(0,100,\\fscx120\\fscy120)\\t(100,200,\\fscx100\\fscy100)}}{highlighted_word}"
-            elif anim_style == "smooth_tracking":
-                animated_word = f"{{\\fad(100,100)}}{highlighted_word}"
-            elif anim_style == "active_bold_regular":
-                animated_word = f"{{\\b1}}{highlighted_word}{{\\b0}}"
-            else:
-                animated_word = highlighted_word
+            line_parts = []
+            for j, item in enumerate(chunk):
+                word_text = item["word"]
+                if j == active_idx:
+                    # Aktiv aytilayotgan so'zning animatsiyasi
+                    if anim_style == "mrbeast_style":
+                        # Sakrash va sariq rang
+                        formatted = f"{{\\c&H0000FFFF&\\t(0,80,\\fscx125\\fscy125)\\t(80,160,\\fscx100\\fscy100)}}{word_text}"
+                    elif anim_style == "smooth_tracking":
+                        # Neon yashil va porlash
+                        formatted = f"{{\\c&H0000FF00&\\bord5\\shad0}}{word_text}"
+                    elif anim_style == "active_bold_regular":
+                        # Qizil/olov rang va qalin
+                        formatted = f"{{\\b1\\c&H000080FF&}}{word_text}{{\\b0}}"
+                    elif anim_style == "active_word_box":
+                        # Oq fon (box) bilan qora matn
+                        formatted = f"{{\\c&H00000000&\\4c&H0000FFFF&\\bord4}}{word_text}"
+                    else:
+                        formatted = f"{{\\c&H0000FFFF&}}{word_text}"
+                else:
+                    # Hali aytilmagan yoki aytib bo'lingan oddiy oq so'z
+                    formatted = f"{{\\c&H00FFFFFF&}}{word_text}"
                 
-            line_parts.append(animated_word)
+                line_parts.append(formatted)
 
-        text_content = " ".join(line_parts)
-        if text_content:
-            dialogues.append(f"Dialogue: 0,{format_ass_time(start_t)},{format_ass_time(end_t)},Default,,0,0,0,,{text_content}")
+            text_content = " ".join(line_parts)
+            dialogues.append(f"Dialogue: 0,{format_ass_time(w_start)},{format_ass_time(w_end)},Default,,0,0,0,,{text_content}")
 
     with open(ass_path, "w", encoding="utf-8") as f:
         f.write(header + "\n".join(dialogues) + "\n")
@@ -283,12 +287,6 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
 
 
 async def burn_subtitles_to_video(input_video: Path, ass_path: Path, output_video: Path):
-    """
-    Subtitrni yopishtirish va video o'lchamini hamda hajmini qat'iy nazorat qilish:
-    - scale=trunc(iw/2)*2:trunc(ih/2)*2: eni va bo'yini juft songa keltiradi (H.264 talabi).
-    - setsar=1: Piksellar tomonlar nisbatini buzilishdan himoyalaydi.
-    - -crf 24: Statik/harakatsiz kadrlar uchun ortiqcha MB shishib ketishining oldini oladi.
-    """
     clean_ass = str(ass_path).replace("\\", "/").replace(":", "\\:")
     vf_filter = f"subtitles='{clean_ass}',scale=trunc(iw/2)*2:trunc(ih/2)*2,setsar=1"
     
@@ -425,14 +423,20 @@ async def handle_video(message: Message, bot: Bot):
         )
         return
 
-    user_dir = WORK_ROOT / str(uuid.uuid4())
+    # Oldingi sessiya bo'lsa tozalash
+    if user_id in USER_SESSIONS:
+        old_dir = Path(USER_SESSIONS[user_id].get("dir_path", ""))
+        if old_dir.exists():
+            shutil.rmtree(old_dir, ignore_errors=True)
+
+    user_dir = WORK_ROOT / f"user_{user_id}_{int(time.time())}"
     user_dir.mkdir(parents=True, exist_ok=True)
     input_video = user_dir / "input.mp4"
     
+    status_dl = await message.reply("⏳ Video yuklab olinmoqda...")
     file_info = await bot.get_file(message.video.file_id)
     await bot.download_file(file_info.file_path, destination=input_video)
     
-    # Telegram yuborgan boshlang'ich o'lchamlar
     init_w = message.video.width or 1080
     init_h = message.video.height or 1920
     init_dur = message.video.duration or 0
@@ -442,16 +446,17 @@ async def handle_video(message: Message, bot: Bot):
         "dir_path": str(user_dir),
         "anim_style": "mrbeast_style",
         "font_size": 85,
-        "color": "&H00FFFFFF",
         "raw_w": init_w,
         "raw_h": init_h,
-        "raw_dur": init_dur
+        "raw_dur": init_dur,
+        "processing": False
     }
     
     builder = InlineKeyboardBuilder()
     for key, name in ANIMATION_STYLES.items():
         builder.row(InlineKeyboardButton(text=name, callback_data=f"anim_{key}"))
         
+    await status_dl.delete()
     await message.answer(
         "✨ Videongiz qabul qilindi!\n\nSubtitr uchun **animatsiya uslubini** tanlang:",
         reply_markup=builder.as_markup()
@@ -460,9 +465,10 @@ async def handle_video(message: Message, bot: Bot):
 
 @router.callback_query(F.data.startswith("anim_"))
 async def callback_anim_style(callback: CallbackQuery):
+    await callback.answer()
     user_id = callback.from_user.id
     if user_id not in USER_SESSIONS:
-        await callback.answer("Sessiya eskirgan. Iltimos videoni qaytadan yuboring.", show_alert=True)
+        await callback.message.answer("Sessiya topilmadi. Iltimos videoni qaytadan yuboring.")
         return
         
     style_key = callback.data.replace("anim_", "")
@@ -472,23 +478,34 @@ async def callback_anim_style(callback: CallbackQuery):
     for key, (name, val) in FONT_SIZES.items():
         builder.row(InlineKeyboardButton(text=name, callback_data=f"size_{key}"))
         
-    await callback.message.edit_text(
-        "📱 Endi subtitr **shrift o'lchamini** tanlang:",
-        reply_markup=builder.as_markup()
-    )
+    try:
+        await callback.message.edit_text(
+            "📱 Endi subtitr **shrift o'lchamini** tanlang:",
+            reply_markup=builder.as_markup()
+        )
+    except Exception:
+        await callback.message.answer(
+            "📱 Endi subtitr **shrift o'lchamini** tanlang:",
+            reply_markup=builder.as_markup()
+        )
 
 
 @router.callback_query(F.data.startswith("size_"))
 async def callback_font_size(callback: CallbackQuery, bot: Bot):
+    await callback.answer()
     user_id = callback.from_user.id
     if user_id not in USER_SESSIONS:
-        await callback.answer("Sessiya eskirgan. Iltimos videoni qaytadan yuboring.", show_alert=True)
+        await callback.message.answer("Sessiya eskirgan. Iltimos videoni qaytadan yuboring.")
         return
         
-    size_key = callback.data.replace("size_", "")
-    USER_SESSIONS[user_id]["font_size"] = FONT_SIZES[size_key][1]
-    
     session = USER_SESSIONS[user_id]
+    if session.get("processing"):
+        return
+    session["processing"] = True
+
+    size_key = callback.data.replace("size_", "")
+    session["font_size"] = FONT_SIZES.get(size_key, ("Normal", 85))[1]
+    
     input_video = Path(session["video_path"])
     user_dir = Path(session["dir_path"])
     output_video = user_dir / "output.mp4"
@@ -497,7 +514,6 @@ async def callback_font_size(callback: CallbackQuery, bot: Bot):
     status_msg = await callback.message.edit_text("✨ Subtitrlar tayyorlanmoqda, iltimos kuting...")
     
     try:
-        # Videoning haqiqiy aniq o'lchamlari va davomiyligi
         v_width, v_height, v_dur = get_video_metadata(
             input_video,
             session.get("raw_w", 1080),
@@ -519,15 +535,13 @@ async def callback_font_size(callback: CallbackQuery, bot: Bot):
         if not words:
             await status_msg.edit_text("❌ Videodan ovoz topilmadi yoki matnga o'girib bo'lmadi.")
             shutil.rmtree(user_dir, ignore_errors=True)
-            if user_id in USER_SESSIONS:
-                del USER_SESSIONS[user_id]
+            USER_SESSIONS.pop(user_id, None)
             return
             
         generate_word_by_word_ass(
             words=words,
             ass_path=ass_path,
             anim_style=session["anim_style"],
-            text_color_hex=session["color"],
             font_size=session["font_size"],
             video_w=v_width,
             video_h=v_height
@@ -540,7 +554,6 @@ async def callback_font_size(callback: CallbackQuery, bot: Bot):
             
         remaining_credits = get_user_credits(user_id)
         
-        # Telegram formatni buzib qo'ymasligi uchun width, height va duration to'g'ridan-to'g'ri uzatiladi
         await bot.send_video(
             chat_id=user_id,
             video=FSInputFile(output_video),
@@ -557,10 +570,8 @@ async def callback_font_size(callback: CallbackQuery, bot: Bot):
         log.error(f"Video qayta ishlashda xatolik: {e}")
         await status_msg.edit_text(f"❌ Xatolik yuz berdi: {e}")
     finally:
-        # Fayllar xotirada qolib ketmasligi uchun tozalash
         shutil.rmtree(user_dir, ignore_errors=True)
-        if user_id in USER_SESSIONS:
-            del USER_SESSIONS[user_id]
+        USER_SESSIONS.pop(user_id, None)
 
 
 @router.message(F.text == "🎨 Subtitr uslublari")
@@ -568,10 +579,10 @@ async def cmd_sub_styles(message: Message):
     styles_text = (
         "Subtitr uslublarini tanlash:\n\n"
         "Hozirda quyidagi animatsiya uslublari mavjud:\n"
-        "1. Komika Axis Pop-up (MrBeast uslubi)\n"
-        "2. Smooth Text Tracking (Fade)\n"
-        "3. Active Bold / Regular\n"
-        "4. Active Word Highlight (Box)\n\n"
+        "1. 🟢 Komika Axis Pop-up (MrBeast uslubi - har bir so'z aytilganda sakraydi)\n"
+        "2. ✨ Smooth Text Tracking (Neon porlash bilan)\n"
+        "3. 🔥 Active Bold / Regular (Aytilayotgan so'z qalinlashadi)\n"
+        "4. ⬛ Active Word Highlight (Aktiv so'z sariq qutida ajraladi)\n\n"
         "Video yuborganingizdan so'ng uslubni tanlashingiz mumkin."
     )
     await message.answer(styles_text, reply_markup=get_main_keyboard())
