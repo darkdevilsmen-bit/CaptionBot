@@ -1,6 +1,4 @@
-aiogram
-aiohttp
-aiohttp-jinja2
-jinja2
+aiogram>=3.13,<4
 elevenlabs
 imageio-ffmpeg
+aiohttp
