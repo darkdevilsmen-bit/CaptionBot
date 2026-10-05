@@ -120,7 +120,6 @@ FONT_SIZES = {
 
 MONTSERRAT_SPACING = -0.02
 
-# Shriftlar ro'yxatidan Coolvetica, Bangers va Arial Bold olib tashlandi, faqat The Bold va Komika Axis qoldi
 FONT_OPTIONS = {
     "the_bold": {"label": "🅱 The Bold", "family": "The Bold Font", "tokens": ("thebold",), "bold_ok": False},
     "komika": {"label": "🟢 Komika Axis", "family": "Komika Axis", "tokens": ("komika",), "bold_ok": True},
@@ -393,44 +392,40 @@ def extract_clean_words(transcript: Any, lang: Optional[str] = None) -> List[Dic
 
         result.append({"text": text, "start": start, "end": end})
 
-    # Apostrofli so'zlardagi uzilishlar va probellarni xatosiz tozalash (alohida so'zlarni yopishtirib yubormasdan)
+    # Apostrofdagi probellarni tozalash va to'g'ri biriktirish
     cleaned_result: List[Dict[str, Any]] = []
-    for w in result:
-        t = w["text"]
-        t = t.replace("‘", "'").replace("’", "'").replace("`", "'")
-        t = re.sub(r"([oOgG])\s+(['‘’])", r"\1\2", t)
-        t = re.sub(r"([oOgG])\s+'", r"\1'", t)
-        w["text"] = t
-        cleaned_result.append(w)
-
-    # O'zbek tilidagi bo'lingan qismlarni (masalan, "ko" + "rasizmi" yoki "o" + "'rtoqlar") xavfsiz birlashtirish
-    final_words: List[Dict[str, Any]] = []
     i = 0
-    while i < len(cleaned_result):
-        curr = cleaned_result[i]
-        curr_text = curr["text"]
+    while i < len(result):
+        curr = result[i]
+        curr_text = curr["text"].replace("‘", "'").replace("’", "'").replace("`", "'")
         
-        while i + 1 < len(cleaned_result):
-            nxt = cleaned_result[i + 1]
+        while i + 1 < len(result):
+            nxt = result[i + 1]
             gap = nxt["start"] - curr["end"]
             
-            # Agar birinchi qism juda qisqa bo'lib (masalan 'o', 'g', 'ko') keyingisi apostrof bilan boshlansa yoki yaqin bo'lsa
-            is_apostrophe_part = curr_text.lower() in ("o", "g", "ko", "go") and nxt["text"].startswith("'")
-            is_close_fragment = gap < 0.25 and len(curr_text) <= 3 and not curr_text.endswith((".", "!", "?"))
+            # Agar qism apostrof bilan boshlansa yoki o'/g' bo'lagi uzilib qolgan bo'lsa
+            is_apostrophe_split = curr_text.lower() in ("o", "g", "ko", "go", "de") and nxt["text"].startswith("'")
+            is_close_part = gap < 0.3 and len(curr_text) <= 3 and not curr_text.endswith((".", "!", "?"))
             
-            if is_apostrophe_part or is_close_fragment:
+            if is_apostrophe_split or is_close_part:
                 curr_text = curr_text + nxt["text"]
                 curr["end"] = nxt["end"]
                 i += 1
             else:
                 break
                 
+        # Har qanday apostrof atrofidagi ortiqcha probellarni yo'q qilish
+        curr_text = re.sub(r"([oOgG])\s+(['‘’])", r"\1\2", curr_text)
         curr_text = re.sub(r"([oOgG])\s+'", r"\1'", curr_text)
+        curr_text = re.sub(r"\s+'", "'", curr_text)
+        curr_text = re.sub(r"'\s+", "'", curr_text)
+        curr_text = re.sub(r"\s+", " ", curr_text).strip()
+        
         curr["text"] = curr_text
-        final_words.append(curr)
+        cleaned_result.append(curr)
         i += 1
 
-    return final_words
+    return cleaned_result
 
 
 def group_into_chunks(words: List[Dict[str, Any]], max_words: int = 3, max_gap: float = 0.65, max_chars: int = 20) -> List[List[Dict[str, Any]]]:
@@ -550,7 +545,8 @@ def _format_word(word_text: str, state: str, anim_style: str, chosen_color: str,
         return (f"{{\\c{active_color}{b1}\\t(0,60,\\fscx120\\fscy120)\\t(60,130,\\fscx112\\fscy112)}}"
                 f"{word_text}{{\\fscx112\\fscy112}}")
 
-    return f"{{\\c{active_color}\\fscx112\\fscy112{b1}}}{word_text}{{\\fscx100\\fscy100{b0}}}"
+    # Smooth tracking animatsiyasi uchun faol so'zni silliq kattalashtirish
+    return f"{{\\c{active_color}\\t(0,80,\\fscx112\\fscy112){b1}}}{word_text}{{\\fscx100\\fscy100{b0}}}"
 
 
 def scaled_font_size(font_size: int, video_w: int, video_h: int) -> int:
@@ -596,9 +592,6 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
     dialogues: List[str] = []
 
     for chunk in chunks:
-        chunk_start = chunk[0]["start"]
-        chunk_end = chunk[-1]["end"]
-
         for i, current_word in enumerate(chunk):
             start = current_word["start"]
             end = chunk[i + 1]["start"] if i + 1 < len(chunk) else current_word["end"]
@@ -618,6 +611,7 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
 
             text = " ".join(word_parts)
 
+            # Silliq yoyilish va fade out effektini qo'shish
             if anim_style == "smooth_tracking":
                 dur_part = max(10, int((end - start) * 1000))
                 anim_prefix = ""
