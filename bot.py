@@ -367,7 +367,6 @@ def clean_text(raw: Any) -> str:
     return text
 
 
-# 🟢 АБСОЛЮТНО УЛЬТИМАТИВНЫЙ ФИЛЬТР: Объединяет разорванные части слов (включая o' va g' с пробелами)
 def extract_clean_words(transcript: Any, lang: Optional[str] = None) -> List[Dict[str, Any]]:
     raw_words = _get(transcript, "words", default=[]) or []
     result: List[Dict[str, Any]] = []
@@ -396,7 +395,7 @@ def extract_clean_words(transcript: Any, lang: Optional[str] = None) -> List[Dic
 
         result.append({"text": text, "start": start, "end": end})
 
-    # Склеиваем разорванные слова (например, "ko" + "rasizmi" или "o" + "'rtoqlar")
+    # Ультимативная склейка: объединяем любые разорванные куски и убираем пробелы у апострофов
     fixed_result: List[Dict[str, Any]] = []
     i = 0
     while i < len(result):
@@ -407,27 +406,26 @@ def extract_clean_words(transcript: Any, lang: Optional[str] = None) -> List[Dic
             nxt = result[i + 1]
             gap = nxt["start"] - curr["end"]
             
-            # Условия объединения фрагментов
-            is_fragment = gap < 0.45 and (len(curr_text) <= 5 or curr_text.lower() in ("o", "g", "ko", "go"))
+            is_broken = gap < 0.5 and (len(curr_text) <= 5 or curr_text.lower() in ("ko", "o", "g", "go", "to", "shu"))
             
-            if is_fragment:
+            if is_broken:
                 curr_text = curr_text + nxt["text"]
                 curr["end"] = nxt["end"]
                 i += 1
             else:
                 break
                 
-        # Исправляем любые пробелы внутри слов перед/после апострофов и дефисов
-        curr_text = re.sub(r"([oOgG])\s+(['‘’])", r"\1\2", curr_text)
-        curr_text = re.sub(r"(['‘’])\s+", r"\1", curr_text)
-        curr_text = re.sub(r"\s+(['‘’])", r"\1", curr_text)
-        curr_text = re.sub(r"\s+", " ", curr_text).strip()
+        # Исправляем буквы с апострофами, заменяя любые варианты кавычек на стандартные и удаляя пробелы
+        curr_text = curr_text.replace("‘", "'").replace("’", "'").replace("`", "'")
+        curr_text = re.sub(r"([oOgG])\s*('\s*rsataman|\s*rasizmi|\s*rtoqlar|\s*'')", r"\1'\2", curr_text)
+        curr_text = re.sub(r"([kKsShHbBmMdDtTzZpPnNlLfFvVqQxX])\s+('\w+)", r"\1\2", curr_text)
         
-        # Если слово содержит о' или g', убираем все пробелы внутри него навсегда
-        if re.search(r"[oOgG]['‘’]", curr_text):
-            curr_text = re.sub(r"\s+", "", curr_text)
-
-        curr["text"] = curr_text
+        # Гарантированно удаляем пробелы перед и после апострофа в узбекских словах
+        curr_text = re.sub(r"([oOaAeEiIoOuUuUyYgG])\s+'\s*", r"\1'", curr_text)
+        curr_text = re.sub(r"([oOgG])\s+'", r"\1'", curr_text)
+        curr_text = re.sub(r"\s+'", "'", curr_text)
+        
+        curr["text"] = re.sub(r"\s+", " ", curr_text).strip()
         fixed_result.append(curr)
         i += 1
 
