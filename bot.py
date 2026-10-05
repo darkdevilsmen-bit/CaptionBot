@@ -41,9 +41,8 @@ logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(
 log = logging.getLogger(__name__)
 
 # --- SOZLAMALAR ---
-# Kalitlar kodda saqlanmaydi: ularni muhit o'zgaruvchilari orqali bering.
-BOT_TOKEN = os.getenv("8933394511:AAHIHZNghrOOO1BZM_As6XCb6mSdOfKx6kw", "")
-ELEVENLABS_API_KEY = os.getenv("sk_2645eb8c6ab7457d5661f30bc9935e8107560bec586b14c8⁠", "")
+BOT_TOKEN = os.getenv("BOT_TOKEN", "8933394511:AAHIHZNghrOOO1BZM_As6XCb6mSdOfKx6kw")
+ELEVENLABS_API_KEY = os.getenv("ELEVENLABS_API_KEY", "sk_2645eb8c6ab7457d5661f30bc9935e8107560bec586b14c8")
 
 ADMIN_ID = 7662888182
 ADMIN_USERNAME = "Captions_Admin"
@@ -62,23 +61,6 @@ DATA_DIR.mkdir(parents=True, exist_ok=True)
 DB_FILE = DATA_DIR / "database.db"
 STT_MODEL = os.getenv("STT_MODEL", "scribe_v2")
 INITIAL_CREDITS = 1
-
-# Ketma-ket kelgan 1-3 ta tokenning "faqat lotin harflari" kaliti -> to'g'ri yozilishi.
-# Kalit apostrofsiz, kichik harfda, probelsiz yoziladi. Masalan "Bilarmidinglaro rtoqlar"
-# va "bilarmidinglar o'rtoqlar" ikkalasi ham "bilarmidinglarortoqlar" kalitiga tushadi.
-WORD_CORRECTIONS: Dict[str, List[str]] = {
-    "bilarmidinglarortoqlar": ["Bilarmidinglar", "o'rtoqlar"],
-    "bilarmidinglarrtoqlar": ["Bilarmidinglar", "o'rtoqlar"],
-    "bilarmidinglarortoqlari": ["Bilarmidinglar", "o'rtoqlar"],
-}
-
-# Shu so'zlar bilan boshlanadigan tokenlar oldingi so'zning oxirgi "o" harfini
-# o'ziga tortadi: "...laro" + "rtoqlar" -> "...lar" + "o'rtoqlar".
-SPLIT_FIX_PREFIXES = ("rtoq",)
-
-# Ikki token orasidagi shu masofadan (soniya) kichik bo'shliq bo'lsa, ular
-# bitta so'zning bo'laklari bo'lishi mumkin deb hisoblanadi.
-GLUE_GAP = 0.30
 
 HEADLIGHT_WORDS = {
     "chirchiq", "chirchiqda", "chirchiqning", "chirchiqliklar", "chirchiqqa",
@@ -111,8 +93,6 @@ HEADLIGHT_WORDS = {
     "ta'lim", "ishchi", "vakansiya", "oylik", "maosh", "karyera", "rivojlanish",
     "muvaffaqiyat", "maqsad", "reja", "strategiya", "taktika", "maslahat", "tavsiya"
 }
-# Apostrofli va apostrofsiz yozilishlarning ikkalasi ham mos kelishi uchun.
-_HEADLIGHT_NORMALIZED = {w.replace("'", "") for w in HEADLIGHT_WORDS}
 
 ANIMATION_STYLES = {
     "smooth_tracking": "✨ Smooth Tracking + Fade Out",
@@ -138,13 +118,16 @@ FONT_SIZES = {
     "xlarge": ("🔥 Juda katta (115)", 115),
 }
 
+MONTSERRAT_SPACING = -0.02
+
 FONT_OPTIONS = {
     "the_bold": {"label": "🅱 The Bold", "family": "The Bold Font", "tokens": ("thebold",), "bold_ok": False},
     "komika": {"label": "🟢 Komika Axis", "family": "Komika Axis", "tokens": ("komika",), "bold_ok": True},
+    "coolvetica": {"label": "🔵 Coolvetica", "family": "Coolvetica", "tokens": ("coolvetica",), "bold_ok": False},
+    "bangers": {"label": "💥 Bangers", "family": "Bangers", "tokens": ("bangers",), "bold_ok": False},
+    "arial_bold": {"label": "⚫ Arial Bold", "family": "Arial Bold", "tokens": ("arial", "bold"), "bold_ok": True},
 }
 DEFAULT_FONT_KEY = "the_bold"
-# Shriftlar topilmasa ishlatiladigan zaxira (foydalanuvchiga alohida variant sifatida ko'rsatilmaydi).
-FALLBACK_FONT_KEY = "arial"
 
 LANG_OPTIONS = {
     "uzb": ("🇺🇿 O'zbekcha", "uzb"),
@@ -159,7 +142,7 @@ TARIFFS = [
 ]
 
 router = Router()
-el_client = ElevenLabs(api_key=ELEVENLABS_API_KEY or None)
+el_client = ElevenLabs(api_key=ELEVENLABS_API_KEY)
 FFMPEG_PATH = imageio_ffmpeg.get_ffmpeg_exe()
 
 PROCESSING: set = set()
@@ -339,11 +322,8 @@ def _get(obj: Any, *names: str, default: Any = None) -> Any:
 _HAS_ALNUM = re.compile(r"[^\W_]", re.UNICODE)
 _EVENT_TAG = re.compile(r"^[\(\[\*<].*[\)\]\*>]$")
 
-# Apostrofga o'xshash barcha belgilar: ʻ ʼ ʹ ’ ‘ ′ ` ´
-_APOS_RE = re.compile("[\u02bb\u02bc\u02b9\u2019\u2018\u2032`\u00b4]")
-
 _CYR = {
-    "а": "a", "б": "b", "в": "v", "г": "g", "д": "d", "ж": "j", "з": "z", "и": "i", "й": "y", "к": "k",
+    "а": "a", "б": "b", "в": "v", "г": "g", "д": "d", "ж": "j", "z": "z", "з": "z", "и": "i", "й": "y", "к": "k",
     "л": "l", "м": "m", "н": "n", "о": "o", "п": "p", "р": "r", "с": "s", "т": "t", "у": "u", "ф": "f",
     "х": "x", "ц": "ts", "ч": "ch", "ш": "sh", "щ": "sh", "ъ": "'", "ы": "i", "ь": "", "э": "e",
     "ю": "yu", "я": "ya", "ё": "yo", "ў": "o'", "қ": "q", "ғ": "g'", "ҳ": "h",
@@ -376,15 +356,10 @@ def uz_cyr_to_latin(text: str) -> str:
     return res
 
 
-def normalize_apostrophes(text: str) -> str:
-    return _APOS_RE.sub("'", text)
-
-
 def clean_text(raw: Any) -> str:
     if not isinstance(raw, str):
         return ""
-    text = normalize_apostrophes(raw)
-    text = text.replace("\\N", " ").replace("\\n", " ")
+    text = raw.replace("\\N", " ").replace("\\n", " ")
     text = re.sub(r"[{}\\]", "", text)
     text = re.sub(r"\s+", " ", text).strip()
     if not text or _EVENT_TAG.match(text) or not _HAS_ALNUM.search(text):
@@ -392,146 +367,21 @@ def clean_text(raw: Any) -> str:
     return text
 
 
-def _split_spaced_token(word: Dict[str, Any]) -> List[Dict[str, Any]]:
-    """Ichida probel bor token (masalan "laro 'rtoqlar") ni vaqtini bo'lib, alohida so'zlarga ajratadi."""
-    parts = [p for p in word["text"].split(" ") if p]
-    if len(parts) <= 1:
-        return [word]
-    total = sum(len(p) for p in parts)
-    span = word["end"] - word["start"]
-    out, cursor = [], word["start"]
-    for p in parts:
-        dur = span * len(p) / total
-        out.append({"text": p, "start": cursor, "end": cursor + dur})
-        cursor += dur
-    return out
-
-
-def _is_lone_apostrophe(raw: Any) -> bool:
-    return isinstance(raw, str) and normalize_apostrophes(raw).strip() == "'"
-
-
-def merge_apostrophe_splits(words: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
-    """O'zbekcha o' va g' harflaridan bo'lingan so'zlarni qayta yig'adi.
-
-    Faqat aniq holatlar birlashtiriladi, mustaqil so'zlar hech qachon yopishtirilmaydi:
-      "o'" + "rtoqlar"      -> "o'rtoqlar"
-      "o" + "'rtoqlar"      -> "o'rtoqlar"
-      "o" + "rtoqlar"       -> "o'rtoqlar"   (yakka o/g harfi)
-      "...laro" + "rtoqlar" -> "...lar" + "o'rtoqlar"
-    """
-    out: List[Dict[str, Any]] = []
-    for w in words:
-        w = dict(w)
-        if not out:
-            out.append(w)
-            continue
-
-        prev = out[-1]
-        pt, t = prev["text"], w["text"]
-        close = (w["start"] - prev["end"]) <= GLUE_GAP
-        if not close or not t or not pt:
-            out.append(w)
-            continue
-
-        pt_core = pt.rstrip("'")
-        lone_vowel = len(pt) == 1 and pt.lower() in ("o", "g")
-        lone_with_apos = len(pt) == 2 and pt[0].lower() in ("o", "g") and pt[1] == "'"
-
-        # "o'" yoki "g'" yakka qolgan, keyingisi harf bilan boshlanadi
-        if lone_with_apos and t[0].isalpha():
-            prev["text"] = pt + t
-            prev["end"] = max(prev["end"], w["end"])
-            continue
-
-        # "o" + "'rtoqlar"
-        if lone_vowel and t[0] == "'" and len(t) > 1 and t[1].isalpha():
-            prev["text"] = pt + t
-            prev["end"] = max(prev["end"], w["end"])
-            continue
-
-        # yakka "o" yoki "g" + harf bilan boshlanuvchi so'z (apostrof tushib qolgan)
-        if lone_vowel and t[0].isalpha():
-            prev["text"] = pt + "'" + t
-            prev["end"] = max(prev["end"], w["end"])
-            continue
-
-        # "...laro" + "rtoqlar": oxirgi "o" keyingi so'zga ko'chadi
-        if (
-            len(pt_core) > 1
-            and pt_core[-1].lower() == "o"
-            and t.lower().lstrip("'").startswith(SPLIT_FIX_PREFIXES)
-        ):
-            moved = pt_core[-1]
-            prev["text"] = pt_core[:-1]
-            w["text"] = moved + "'" + t.lstrip("'")
-            out.append(w)
-            continue
-
-        out.append(w)
-    return out
-
-
-def _letters_key(text: str) -> str:
-    return re.sub(r"[^a-z]", "", text.lower())
-
-
-def _spread_timing(window: List[Dict[str, Any]], replacement: List[str]) -> List[Dict[str, Any]]:
-    if len(replacement) == len(window):
-        return [{"text": r, "start": o["start"], "end": o["end"]} for r, o in zip(replacement, window)]
-    start, end = window[0]["start"], window[-1]["end"]
-    total = sum(len(r) for r in replacement) or 1
-    out, cursor = [], start
-    for r in replacement:
-        dur = (end - start) * len(r) / total
-        out.append({"text": r, "start": cursor, "end": cursor + dur})
-        cursor += dur
-    return out
-
-
-def apply_phrase_corrections(words: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
-    """WORD_CORRECTIONS lug'ati bo'yicha 1-3 ta ketma-ket tokenni to'g'rilaydi (vaqtlari saqlanadi)."""
-    if not WORD_CORRECTIONS:
-        return words
-    out: List[Dict[str, Any]] = []
-    i = 0
-    while i < len(words):
-        matched = False
-        for n in range(min(3, len(words) - i), 0, -1):
-            window = words[i:i + n]
-            key = _letters_key("".join(w["text"] for w in window))
-            repl = WORD_CORRECTIONS.get(key)
-            if not repl:
-                continue
-            repl = list(repl)
-            # oxirgi tokendagi tinish belgilarini (vergul, nuqta...) saqlab qolamiz
-            tail = re.search(r"[^\w']+$", window[-1]["text"])
-            if tail:
-                repl[-1] += tail.group(0)
-            # bosh harf katta bo'lsa, saqlaymiz
-            if window[0]["text"][:1].isupper() and repl[0][:1].islower():
-                repl[0] = repl[0][:1].upper() + repl[0][1:]
-            out.extend(_spread_timing(window, repl))
-            i += n
-            matched = True
-            break
-        if not matched:
-            out.append(words[i])
-            i += 1
-    return out
-
-
 def extract_clean_words(transcript: Any, lang: Optional[str] = None) -> List[Dict[str, Any]]:
     raw_words = _get(transcript, "words", default=[]) or []
-    uzbek_mode = lang in ("uzb", None)
     result: List[Dict[str, Any]] = []
 
     for w in raw_words:
-        w_type = str(_get(w, "type", default="word")).lower()
-        if w_type in ("spacing", "audio_event"):
+        w_type = _get(w, "type")
+        if w_type is not None and str(w_type).lower() != "word":
             continue
 
-        raw_text = _get(w, "text", "word")
+        text = clean_text(_get(w, "text", "word"))
+        if not text:
+            continue
+            
+        if lang == "uzb":
+            text = uz_cyr_to_latin(text)
 
         start = _get(w, "start")
         end = _get(w, "end")
@@ -543,29 +393,18 @@ def extract_clean_words(transcript: Any, lang: Optional[str] = None) -> List[Dic
         if end <= start:
             end = start + 0.2
 
-        # Alohida kelgan apostrof: oldingi "o"/"g" ga yopishtiriladi
-        if uzbek_mode and _is_lone_apostrophe(raw_text):
-            if result and result[-1]["text"][-1:].lower() in ("o", "g") and (start - result[-1]["end"]) <= GLUE_GAP:
-                result[-1]["text"] += "'"
-                result[-1]["end"] = max(result[-1]["end"], end)
-            continue
+        result.append({"text": text, "start": start, "end": end})
 
-        text = clean_text(raw_text)
-        if not text:
-            continue
-        if lang == "uzb":
-            text = uz_cyr_to_latin(text)
-            text = normalize_apostrophes(text)
+    cleaned_result: List[Dict[str, Any]] = []
+    for w in result:
+        t = w["text"]
+        t = t.replace("‘", "'").replace("’", "'").replace("`", "'")
+        t = re.sub(r"([oOgG])\s+(['‘’])", r"\1\2", t)
+        t = re.sub(r"([oOgG])\s+'", r"\1'", t)
+        w["text"] = t
+        cleaned_result.append(w)
 
-        result.extend(_split_spaced_token({"text": text, "start": start, "end": end}))
-
-    result.sort(key=lambda x: x["start"])
-
-    if uzbek_mode:
-        result = merge_apostrophe_splits(result)
-        result = apply_phrase_corrections(result)
-
-    return [w for w in result if w["text"]]
+    return cleaned_result
 
 
 def group_into_chunks(words: List[Dict[str, Any]], max_words: int = 3, max_gap: float = 0.65, max_chars: int = 20) -> List[List[Dict[str, Any]]]:
@@ -667,41 +506,25 @@ async def ensure_fonts():
     FONTS_DIR.mkdir(parents=True, exist_ok=True)
 
 
-def _highlight_key(word_text: str) -> str:
-    return re.sub(r"[^\w']", "", word_text.lower()).strip("'").replace("'", "")
+def _format_word(word_text: str, state: str, anim_style: str, chosen_color: str, bold_ok: bool = True) -> str:
+    b1, b0 = ("\\b1", "\\b0") if bold_ok else ("", "")
+    clean_w = re.sub(r"[^\w]", "", word_text.lower())
+    is_headlight = clean_w in HEADLIGHT_WORDS
 
+    if state == "future":
+        return f"{{\\c{chosen_color}\\fscx100\\fscy100{b0}}}{word_text}"
 
-def _is_headlight(word_text: str) -> bool:
-    return _highlight_key(word_text) in _HEADLIGHT_NORMALIZED
+    if state == "past":
+        color = HEADLIGHT_COLOR if is_headlight else chosen_color
+        return f"{{\\c{color}\\fscx100\\fscy100{b1 if is_headlight else b0}}}{word_text}"
 
-
-def _format_word(word_text: str, state: str, anim_style: str, chosen_color: str) -> str:
-    """Bitta so'z uchun ASS override teglari.
-
-    Qalin/oddiy (\\b) va shrift o'lchami (\\fscx) so'z kengligini o'zgartiradi va matn
-    siljib ketishiga olib keladi, shuning uchun smooth_tracking da faqat rang ishlatiladi.
-    """
-    is_headlight = _is_headlight(word_text)
-
-    # Tanlangan rang sariq bo'lsa, aytilayotgan so'z ajralib turishi uchun oq bo'ladi
-    spoken_color = "&H00FFFFFF&" if chosen_color == ACTIVE_SPOKEN_COLOR else ACTIVE_SPOKEN_COLOR
-    active_color = HEADLIGHT_COLOR if is_headlight else spoken_color
-    rest_color = HEADLIGHT_COLOR if is_headlight else chosen_color
+    active_color = HEADLIGHT_COLOR if is_headlight else ACTIVE_SPOKEN_COLOR
 
     if anim_style == "mrbeast_style":
-        if state == "future":
-            return f"{{\\1c{chosen_color}\\fscx100\\fscy100}}{word_text}"
-        if state == "past":
-            return f"{{\\1c{rest_color}\\fscx100\\fscy100}}{word_text}"
-        return (f"{{\\1c{active_color}\\fscx100\\fscy100\\t(0,60,\\fscx120\\fscy120)\\t(60,130,\\fscx112\\fscy112)}}"
-                f"{word_text}{{\\fscx100\\fscy100}}")
+        return (f"{{\\c{active_color}{b1}\\t(0,60,\\fscx120\\fscy120)\\t(60,130,\\fscx112\\fscy112)}}"
+                f"{word_text}{{\\fscx112\\fscy112}}")
 
-    # smooth_tracking
-    if state == "future":
-        return f"{{\\1c{chosen_color}}}{word_text}"
-    if state == "past":
-        return f"{{\\1c{rest_color}}}{word_text}"
-    return f"{{\\1c{chosen_color}\\t(0,90,\\1c{active_color})}}{word_text}"
+    return f"{{\\c{active_color}\\fscx112\\fscy112{b1}}}{word_text}{{\\fscx100\\fscy100{b0}}}"
 
 
 def scaled_font_size(font_size: int, video_w: int, video_h: int) -> int:
@@ -726,6 +549,7 @@ def generate_word_by_word_ass(
 ) -> int:
     font_name, bold_ok, _, _ = resolve_font(font_key)
     font_size = scaled_font_size(font_size, video_w, video_h)
+    base_sp = 0.0
     bold_flag = -1 if bold_ok else 0
     chosen_color = COLOR_OPTIONS.get(color_key, COLOR_OPTIONS["white"])["bgr"]
 
@@ -738,49 +562,43 @@ WrapStyle: 0
 
 [V4+ Styles]
 Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding
-Style: Default,{font_name},{font_size},{chosen_color},&H000000FF,&H00000000,&H80000000,{bold_flag},0,0,0,100,100,0,0,1,3.5,1.5,2,40,40,{int(video_h * 0.12)},1
+Style: Default,{font_name},{font_size},{chosen_color},&H000000FF,&H00000000,&H80000000,{bold_flag},0,0,0,100,100,{base_sp},0,1,3.5,1.5,2,40,40,{int(video_h * 0.12)},1
 
 [Events]
 Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
 """
     dialogues: List[str] = []
 
-    for c_idx, chunk in enumerate(chunks):
-        next_start = chunks[c_idx + 1][0]["start"] if c_idx + 1 < len(chunks) else None
+    for chunk in chunks:
+        chunk_start = chunk[0]["start"]
         chunk_end = chunk[-1]["end"]
 
-        # Oxirgi so'z biroz ko'proq ko'rinib turadi (fade-out uchun), lekin keyingi frazaga kirib ketmaydi
-        linger_end = chunk_end + 0.15
-        if next_start is not None:
-            linger_end = min(linger_end, max(chunk_end, next_start - 0.02))
-
         for i, current_word in enumerate(chunk):
-            is_first = i == 0
-            is_last = i == len(chunk) - 1
-
             start = current_word["start"]
-            end = linger_end if is_last and anim_style == "smooth_tracking" else (
-                current_word["end"] if is_last else chunk[i + 1]["start"]
-            )
+            end = chunk[i + 1]["start"] if i + 1 < len(chunk) else current_word["end"]
             if end <= start:
                 end = start + 0.1
 
-            text = " ".join(
-                _format_word(
-                    w["text"],
-                    "past" if j < i else ("active" if j == i else "future"),
-                    anim_style,
-                    chosen_color,
-                )
-                for j, w in enumerate(chunk)
-            )
+            word_parts = []
+            for j, w in enumerate(chunk):
+                if j < i:
+                    state = "past"
+                elif j == i:
+                    state = "active"
+                else:
+                    state = "future"
+
+                word_parts.append(_format_word(w["text"], state, anim_style, chosen_color, bold_ok))
+
+            text = " ".join(word_parts)
 
             if anim_style == "smooth_tracking":
-                dur_ms = max(10, int(round((end - start) * 1000)))
-                fade_in = min(120, int(dur_ms * 0.4)) if is_first else 0
-                fade_out = min(220, max(60, int(dur_ms * 0.6)), dur_ms) if is_last else 0
-                if fade_in or fade_out:
-                    text = f"{{\\fad({fade_in},{fade_out})}}" + text
+                dur_part = max(10, int((end - start) * 1000))
+                anim_prefix = ""
+                if i == len(chunk) - 1:
+                    fade_time = min(200, max(80, int(dur_part * 0.5)))
+                    anim_prefix = f"{{\\fad(0,{fade_time})}}"
+                text = anim_prefix + text
 
             dialogues.append(
                 f"Dialogue: 0,{format_ass_time(start)},{format_ass_time(end)},Default,,0,0,0,,{text}"
@@ -1025,7 +843,7 @@ async def handle_video(message: Message, bot: Bot):
 async def load_session(callback: CallbackQuery, bot: Bot, sid: str) -> Optional[Dict[str, Any]]:
     user_id = callback.from_user.id
     sess = db_get_session(user_id)
-
+    
     if not sess:
         await callback.answer("⏳ Sessiya yangilanmoqda...", show_alert=False)
         return None
@@ -1103,7 +921,7 @@ async def callback_color(callback: CallbackQuery, bot: Bot):
     for key in fonts:
         builder.row(InlineKeyboardButton(text=FONT_OPTIONS[key]["label"], callback_data=f"font:{key}:{sid}"))
     if not fonts:
-        builder.row(InlineKeyboardButton(text="🔤 Standart shrift", callback_data=f"font:{FALLBACK_FONT_KEY}:{sid}"))
+        builder.row(InlineKeyboardButton(text="🔤 Standart shrift", callback_data=f"font:arial:{sid}"))
     await callback.message.edit_text("🔠 Subtitr <b>shriftini</b> tanlang:", reply_markup=builder.as_markup())
     await callback.answer()
 
@@ -1111,7 +929,7 @@ async def callback_color(callback: CallbackQuery, bot: Bot):
 @router.callback_query(F.data.startswith("font:"))
 async def callback_font_family(callback: CallbackQuery, bot: Bot):
     parsed = _parse_cb(callback.data)
-    if not parsed or (parsed[0] not in FONT_OPTIONS and parsed[0] != FALLBACK_FONT_KEY):
+    if not parsed or (parsed[0] not in FONT_OPTIONS and parsed[0] != "arial"):
         await callback.answer()
         return
     key, sid = parsed
@@ -1156,9 +974,6 @@ async def callback_font_size(callback: CallbackQuery, bot: Bot):
 
     font_size = FONT_SIZES[size_key][1]
     font_key = session.get("font_key") or DEFAULT_FONT_KEY
-    # Olib tashlangan shriftlar (eski sessiyalarda qolgan bo'lishi mumkin) o'rniga standart shrift
-    if font_key not in FONT_OPTIONS and font_key != FALLBACK_FONT_KEY:
-        font_key = DEFAULT_FONT_KEY
     anim_style = session.get("anim_style") or "smooth_tracking"
     color_key = session.get("color_key") or DEFAULT_COLOR_KEY
     lang_key = session.get("lang") or "uzb"
@@ -1335,7 +1150,7 @@ async def cmd_contact_admin(message: Message):
     b = InlineKeyboardBuilder()
     b.row(InlineKeyboardButton(text="💬 Telegram'da yozish", url=admin_url(f"Salom! Yordam kerak. Mening ID: {message.from_user.id}")))
     await message.answer(
-        f"👨‍💻 <b>TEXNIK YORDAM VA ADMIN</b>\n{LINE}\n"
+        f"👨‍‍💻 <b>TEXNIK YORDAM VA ADMIN</b>\n{LINE}\n"
         f"💬 Telegram: @{ADMIN_USERNAME}\n"
         f"📞 Telefon: <code>{ADMIN_PHONE}</code>\n{LINE}\n"
         "Savol, to'lov yoki muammo bo'lsa — yozing, tez javob beramiz.",
@@ -1344,9 +1159,6 @@ async def cmd_contact_admin(message: Message):
 
 
 async def main():
-    if not BOT_TOKEN or not ELEVENLABS_API_KEY:
-        raise SystemExit("BOT_TOKEN va ELEVENLABS_API_KEY muhit o'zgaruvchilarini o'rnating.")
-
     WORK_ROOT.mkdir(parents=True, exist_ok=True)
     init_db()
     cleanup_stale_sessions()
