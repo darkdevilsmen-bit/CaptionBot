@@ -48,7 +48,6 @@ ADMIN_ID = 7662888182
 ADMIN_USERNAME = "Captions_Admin"
 ADMIN_PHONE = "+998 (93) 495-10-89"
 
-# 📢 Majburiy obuna uchun kanal ulandi
 REQUIRED_CHANNEL = "@Auto_Captions"
 
 CARD_NUMBER = "5614686505428600"
@@ -64,9 +63,9 @@ STT_MODEL = os.getenv("STT_MODEL", "scribe_v2")
 INITIAL_CREDITS = 1
 
 WORD_CORRECTIONS = {
-    "bilarmi dela": "Bilarmidila",
-    "bilarmi, dela": "Bilarmidila",
-    "bilarmidela": "Bilarmidila",
+    "bilarmidinglaro rtoqlar": "Bilarmidinglar o'rtoqlar",
+    "bilarmidinglaro rtoqlari": "Bilarmidinglar o'rtoqlar",
+    "bilarmidinglar rtoqlar": "Bilarmidinglar o'rtoqlar",
 }
 
 HEADLIGHT_WORDS = {
@@ -127,16 +126,12 @@ FONT_SIZES = {
 
 MONTSERRAT_SPACING = -0.02
 
-_GF = "https://github.com/google/fonts/raw/main/ofl/montserrat/static/"
 FONT_OPTIONS = {
-    "the_bold": {"label": "🅱 The Bold", "family": "The Bold Font", "tokens": ("thebold",),
-                 "url": None, "bold_ok": False, "tight": False},
-    "komika": {"label": "🟢 Komika Axis", "family": "Komika Axis", "tokens": ("komika",),
-               "url": None, "bold_ok": True, "tight": False},
-    "mont_xb": {"label": "💪 Montserrat ExtraBold", "family": "Montserrat ExtraBold", "tokens": ("montserrat", "extrabold"),
-                "url": _GF + "Montserrat-ExtraBold.ttf", "bold_ok": False, "tight": True},
-    "mont_black": {"label": "⚫ Montserrat Black", "family": "Montserrat Black", "tokens": ("montserrat", "black"),
-                   "url": _GF + "Montserrat-Black.ttf", "bold_ok": False, "tight": True},
+    "the_bold": {"label": "🅱 The Bold", "family": "The Bold Font", "tokens": ("thebold",), "bold_ok": False},
+    "komika": {"label": "🟢 Komika Axis", "family": "Komika Axis", "tokens": ("komika",), "bold_ok": True},
+    "coolvetica": {"label": "🔵 Coolvetica", "family": "Coolvetica", "tokens": ("coolvetica",), "bold_ok": False},
+    "bangers": {"label": "💥 Bangers", "family": "Bangers", "tokens": ("bangers",), "bold_ok": False},
+    "arial_bold": {"label": "⚫ Arial Bold", "family": "Arial Bold", "tokens": ("arial", "bold"), "bold_ok": True},
 }
 DEFAULT_FONT_KEY = "the_bold"
 
@@ -388,14 +383,11 @@ def extract_clean_words(transcript: Any, lang: Optional[str] = None) -> List[Dic
             continue
 
         text = clean_text(_get(w, "text", "word"))
-        
-        if text and lang == "uzb":
-            text = uz_cyr_to_latin(text)
-
-        text = text.replace("  ", " ").strip()
-        
         if not text:
             continue
+            
+        if lang == "uzb":
+            text = uz_cyr_to_latin(text)
 
         start = _get(w, "start")
         end = _get(w, "end")
@@ -409,40 +401,25 @@ def extract_clean_words(transcript: Any, lang: Optional[str] = None) -> List[Dic
 
         result.append({"text": text, "start": start, "end": end})
 
-    # 🟢 O'zbek tilidagi bo'linib qolgan bo'laklarni (masalan, "ko", "ra", "sizmi") to'g'ri birlashtiruvchi xavfsiz filtr
-    fixed_result: List[Dict[str, Any]] = []
-    i = 0
-    while i < len(result):
-        curr = result[i]
-        curr_text = curr["text"]
-        
-        if i + 1 < len(result):
-            nxt = result[i + 1]
-            gap = nxt["start"] - curr["end"]
-            
-            # Faqatgina aniq qisqa bo'laklar va juda yaqin vaqt oralig'idagilarni birlashtiramiz
-            is_short_fragment = len(curr_text) <= 2 and gap < 0.25
-            is_broken_word = curr_text.endswith(",") or (not nxt["text"][0].isupper() and gap < 0.25 and len(curr_text) <= 4)
-            
-            if is_short_fragment or is_broken_word:
-                clean_curr = curr_text.replace(",", "").strip()
-                clean_nxt = nxt["text"].replace(",", "").strip()
-                
-                separator = "'" if len(clean_curr) == 1 else ""
-                combined_text = clean_curr + separator + clean_nxt
-                
-                fixed_result.append({
-                    "text": combined_text,
-                    "start": curr["start"],
-                    "end": nxt["end"]
-                })
-                i += 2
-                continue
-            
-        fixed_result.append(curr)
-        i += 1
+    # Xatoliklarni oldini olish uchun asosiy so'zlarni tozalash va lug'at orqali to'g'rilash
+    cleaned_result: List[Dict[str, Any]] = []
+    for w in result:
+        t = w["text"]
+        t = t.replace("‘", "'").replace("’", "'").replace("`", "'")
+        t = re.sub(r"([oOgG])\s+(['‘’])", r"\1\2", t)
+        t = re.sub(r"([oOgG])\s+'", r"\1'", t)
+        w["text"] = t
+        cleaned_result.append(w)
 
-    return fixed_result
+    # Birlashtirilgan to'liq matn tekshiruvi orqali xato so'zlarni almashtirish
+    full_text = " ".join([w["text"] for w in cleaned_result]).lower()
+    for wrong_phrase, correct_phrase in WORD_CORRECTIONS.items():
+        if wrong_phrase in full_text:
+            # Agar xato birikma topilsa, birinchi elementni to'g'risi bilan almashtirib, qolganlarini tozalaymiz
+            cleaned_result[0]["text"] = correct_phrase
+            # Qolgan ortiqcha bo'laklarni bo'shatib yubormaslik uchun oddiy holatda qoldiramiz
+
+    return cleaned_result
 
 
 def group_into_chunks(words: List[Dict[str, Any]], max_words: int = 3, max_gap: float = 0.65, max_chars: int = 20) -> List[List[Dict[str, Any]]]:
@@ -481,7 +458,8 @@ def find_font_file(key: str) -> Optional[Path]:
     opt = FONT_OPTIONS.get(key)
     if not opt:
         return None
-    for folder in (FONTS_DIR, Path(".").resolve()):
+    search_dirs = (FONTS_DIR, Path(".").resolve())
+    for folder in search_dirs:
         if not folder.exists():
             continue
         for f in sorted(folder.iterdir()):
@@ -531,7 +509,7 @@ def resolve_font(key: str) -> Tuple[str, bool, bool, Optional[Path]]:
     if opt:
         f = find_font_file(key)
         if f:
-            return read_font_family(f) or opt["family"], opt["bold_ok"], opt["tight"], f
+            return read_font_family(f) or opt["family"], opt["bold_ok"], False, f
     return "Arial", True, False, None
 
 
@@ -540,24 +518,7 @@ def available_fonts() -> List[str]:
 
 
 async def ensure_fonts():
-    import aiohttp
     FONTS_DIR.mkdir(parents=True, exist_ok=True)
-    for key, opt in FONT_OPTIONS.items():
-        url = opt["url"]
-        if not url or find_font_file(key):
-            continue
-        dest = FONTS_DIR / url.rsplit("/", 1)[-1]
-        try:
-            async with aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=60)) as sess:
-                async with sess.get(url) as resp:
-                    status = resp.status
-                    data = await resp.read()
-            if status != 200 or len(data) < 50_000 or data[:4] not in (b"\x00\x01\x00\x00", b"OTTO", b"true"):
-                raise RuntimeError(f"noto'g'ri javob (status={status}, {len(data)} bayt)")
-            dest.write_bytes(data)
-            log.info(f"Shrift yuklandi: {dest.name}")
-        except Exception as e:
-            log.warning(f"{dest.name} yuklanmadi ({e}).")
 
 
 def _format_word(word_text: str, state: str, anim_style: str, chosen_color: str, bold_ok: bool = True) -> str:
@@ -601,9 +562,9 @@ def generate_word_by_word_ass(
     font_key: str = DEFAULT_FONT_KEY,
     color_key: str = DEFAULT_COLOR_KEY,
 ) -> int:
-    font_name, bold_ok, tight, _ = resolve_font(font_key)
+    font_name, bold_ok, _, _ = resolve_font(font_key)
     font_size = scaled_font_size(font_size, video_w, video_h)
-    base_sp = round(font_size * MONTSERRAT_SPACING, 1) if tight else 0.0
+    base_sp = 0.0
     bold_flag = -1 if bold_ok else 0
     chosen_color = COLOR_OPTIONS.get(color_key, COLOR_OPTIONS["white"])["bgr"]
 
@@ -626,8 +587,6 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
     for chunk in chunks:
         chunk_start = chunk[0]["start"]
         chunk_end = chunk[-1]["end"]
-        total_dur_ms = max(250, int((chunk_end - chunk_start) * 1000))
-        target_sp = round(base_sp + 2.8, 1)
 
         for i, current_word in enumerate(chunk):
             start = current_word["start"]
@@ -649,19 +608,11 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
             text = " ".join(word_parts)
 
             if anim_style == "smooth_tracking":
-                t1 = int((start - chunk_start) * 1000)
-                t2 = int((end - chunk_start) * 1000)
-
-                sp1 = round(base_sp + (target_sp - base_sp) * (t1 / total_dur_ms), 2)
-                sp2 = round(base_sp + (target_sp - base_sp) * (t2 / total_dur_ms), 2)
-
-                dur_part = max(10, t2 - t1)
-                anim_prefix = f"{{\\fsp{sp1}\\t(0,{dur_part},\\fsp{sp2})}}"
-
+                dur_part = max(10, int((end - start) * 1000))
+                anim_prefix = ""
                 if i == len(chunk) - 1:
-                    fade_time = min(150, max(50, int(dur_part * 0.4)))
-                    anim_prefix = f"{{\\fad(0,{fade_time})}}" + anim_prefix
-
+                    fade_time = min(200, max(80, int(dur_part * 0.5)))
+                    anim_prefix = f"{{\\fad(0,{fade_time})}}"
                 text = anim_prefix + text
 
             dialogues.append(
