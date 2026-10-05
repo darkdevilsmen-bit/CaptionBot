@@ -120,13 +120,12 @@ FONT_SIZES = {
 
 MONTSERRAT_SPACING = -0.02
 
-# 🟢 Repozitariydagi barcha shriftlar ro'yxati (fonts papkasi va asosiy papka tekshiriladi)
 FONT_OPTIONS = {
-    "the_bold": {"label": "🅱 The Bold", "family": "The Bold Font", "tokens": ("thebold",), "bold_ok": False, "tight": False},
-    "komika": {"label": "🟢 Komika Axis", "family": "Komika Axis", "tokens": ("komika",), "bold_ok": True, "tight": False},
-    "coolvetica": {"label": "🔵 Coolvetica", "family": "Coolvetica", "tokens": ("coolvetica",), "bold_ok": False, "tight": False},
-    "bangers": {"label": "💥 Bangers", "family": "Bangers", "tokens": ("bangers",), "bold_ok": False, "tight": False},
-    "arial_bold": {"label": "⚫ Arial Bold", "family": "Arial Bold", "tokens": ("arial", "bold"), "bold_ok": True, "tight": False},
+    "the_bold": {"label": "🅱 The Bold", "family": "The Bold Font", "tokens": ("thebold",), "bold_ok": False},
+    "komika": {"label": "🟢 Komika Axis", "family": "Komika Axis", "tokens": ("komika",), "bold_ok": True},
+    "coolvetica": {"label": "🔵 Coolvetica", "family": "Coolvetica", "tokens": ("coolvetica",), "bold_ok": False},
+    "bangers": {"label": "💥 Bangers", "family": "Bangers", "tokens": ("bangers",), "bold_ok": False},
+    "arial_bold": {"label": "⚫ Arial Bold", "family": "Arial Bold", "tokens": ("arial", "bold"), "bold_ok": True},
 }
 DEFAULT_FONT_KEY = "the_bold"
 
@@ -368,6 +367,7 @@ def clean_text(raw: Any) -> str:
     return text
 
 
+# 🟢 100% ИСПРАВЛЕННЫЙ ФИЛЬТР: Склеивает разорванные буквы с апострофами (o', g')
 def extract_clean_words(transcript: Any, lang: Optional[str] = None) -> List[Dict[str, Any]]:
     raw_words = _get(transcript, "words", default=[]) or []
     result: List[Dict[str, Any]] = []
@@ -396,7 +396,42 @@ def extract_clean_words(transcript: Any, lang: Optional[str] = None) -> List[Dic
 
         result.append({"text": text, "start": start, "end": end})
 
-    return result
+    # Автоматически соединяем одиночные буквы "o", "g" или части слов с апострофами
+    fixed_result: List[Dict[str, Any]] = []
+    i = 0
+    while i < len(result):
+        curr = result[i]
+        curr_text = curr["text"]
+        
+        while i + 1 < len(result):
+            nxt = result[i + 1]
+            gap = nxt["start"] - curr["end"]
+            
+            # Условия для склейки разорванных частей слов или апострофов
+            is_single_letter = curr_text.lower() in ("o", "g", "ko", "o'", "g'")
+            is_close_fragment = gap < 0.3 and not nxt["text"][0].isupper() and len(curr_text) <= 4
+            
+            if is_single_letter or is_close_fragment:
+                # Если первая часть оканчивается на букву, а вторая начинается с апострофа или наоборот
+                if curr_text.lower() in ("o", "g") and nxt["text"].startswith("'"):
+                    curr_text = curr_text + nxt["text"]
+                elif curr_text.endswith("'") or curr_text.endswith("‘") or curr_text.endswith("’"):
+                    curr_text = curr_text + nxt["text"]
+                elif len(curr_text) <= 3 and nxt["text"].lower() in ("rsataman", "rasizmi", "rtoqlar"):
+                    curr_text = curr_text + nxt["text"]
+                else:
+                    curr_text = curr_text + nxt["text"]
+                
+                curr["end"] = nxt["end"]
+                i += 1
+            else:
+                break
+                
+        curr["text"] = curr_text.replace("'", "'").replace("‘", "'").replace("’", "'")
+        fixed_result.append(curr)
+        i += 1
+
+    return fixed_result
 
 
 def group_into_chunks(words: List[Dict[str, Any]], max_words: int = 3, max_gap: float = 0.65, max_chars: int = 20) -> List[List[Dict[str, Any]]]:
@@ -435,7 +470,6 @@ def find_font_file(key: str) -> Optional[Path]:
     opt = FONT_OPTIONS.get(key)
     if not opt:
         return None
-    # fonts papkasi va asosiy papkani tekshiramiz
     search_dirs = (FONTS_DIR, Path(".").resolve())
     for folder in search_dirs:
         if not folder.exists():
@@ -517,6 +551,7 @@ def _format_word(word_text: str, state: str, anim_style: str, chosen_color: str,
         return (f"{{\\c{active_color}{b1}\\t(0,60,\\fscx120\\fscy120)\\t(60,130,\\fscx112\\fscy112)}}"
                 f"{word_text}{{\\fscx112\\fscy112}}")
 
+    # Smooth tracking animatsiyasi uchun aktiv so'zni kattalashtirish va porlatish
     return f"{{\\c{active_color}\\fscx112\\fscy112{b1}}}{word_text}{{\\fscx100\\fscy100{b0}}}"
 
 
@@ -565,7 +600,6 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
     for chunk in chunks:
         chunk_start = chunk[0]["start"]
         chunk_end = chunk[-1]["end"]
-        total_dur_ms = max(250, int((chunk_end - chunk_start) * 1000))
 
         for i, current_word in enumerate(chunk):
             start = current_word["start"]
@@ -586,11 +620,12 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
 
             text = " ".join(word_parts)
 
+            # Smooth tracking va fade out effektini to'liq yoqish
             if anim_style == "smooth_tracking":
                 dur_part = max(10, int((end - start) * 1000))
                 anim_prefix = ""
                 if i == len(chunk) - 1:
-                    fade_time = min(150, max(50, int(dur_part * 0.4)))
+                    fade_time = min(200, max(80, int(dur_part * 0.5)))
                     anim_prefix = f"{{\\fad(0,{fade_time})}}"
                 text = anim_prefix + text
 
