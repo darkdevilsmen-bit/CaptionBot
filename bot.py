@@ -120,12 +120,10 @@ FONT_SIZES = {
 
 MONTSERRAT_SPACING = -0.02
 
+# Shriftlar ro'yxatidan Coolvetica, Bangers va Arial Bold olib tashlandi, faqat The Bold va Komika Axis qoldi
 FONT_OPTIONS = {
     "the_bold": {"label": "🅱 The Bold", "family": "The Bold Font", "tokens": ("thebold",), "bold_ok": False},
     "komika": {"label": "🟢 Komika Axis", "family": "Komika Axis", "tokens": ("komika",), "bold_ok": True},
-    "coolvetica": {"label": "🔵 Coolvetica", "family": "Coolvetica", "tokens": ("coolvetica",), "bold_ok": False},
-    "bangers": {"label": "💥 Bangers", "family": "Bangers", "tokens": ("bangers",), "bold_ok": False},
-    "arial_bold": {"label": "⚫ Arial Bold", "family": "Arial Bold", "tokens": ("arial", "bold"), "bold_ok": True},
 }
 DEFAULT_FONT_KEY = "the_bold"
 
@@ -395,6 +393,7 @@ def extract_clean_words(transcript: Any, lang: Optional[str] = None) -> List[Dic
 
         result.append({"text": text, "start": start, "end": end})
 
+    # Apostrofli so'zlardagi uzilishlar va probellarni xatosiz tozalash (alohida so'zlarni yopishtirib yubormasdan)
     cleaned_result: List[Dict[str, Any]] = []
     for w in result:
         t = w["text"]
@@ -404,7 +403,34 @@ def extract_clean_words(transcript: Any, lang: Optional[str] = None) -> List[Dic
         w["text"] = t
         cleaned_result.append(w)
 
-    return cleaned_result
+    # O'zbek tilidagi bo'lingan qismlarni (masalan, "ko" + "rasizmi" yoki "o" + "'rtoqlar") xavfsiz birlashtirish
+    final_words: List[Dict[str, Any]] = []
+    i = 0
+    while i < len(cleaned_result):
+        curr = cleaned_result[i]
+        curr_text = curr["text"]
+        
+        while i + 1 < len(cleaned_result):
+            nxt = cleaned_result[i + 1]
+            gap = nxt["start"] - curr["end"]
+            
+            # Agar birinchi qism juda qisqa bo'lib (masalan 'o', 'g', 'ko') keyingisi apostrof bilan boshlansa yoki yaqin bo'lsa
+            is_apostrophe_part = curr_text.lower() in ("o", "g", "ko", "go") and nxt["text"].startswith("'")
+            is_close_fragment = gap < 0.25 and len(curr_text) <= 3 and not curr_text.endswith((".", "!", "?"))
+            
+            if is_apostrophe_part or is_close_fragment:
+                curr_text = curr_text + nxt["text"]
+                curr["end"] = nxt["end"]
+                i += 1
+            else:
+                break
+                
+        curr_text = re.sub(r"([oOgG])\s+'", r"\1'", curr_text)
+        curr["text"] = curr_text
+        final_words.append(curr)
+        i += 1
+
+    return final_words
 
 
 def group_into_chunks(words: List[Dict[str, Any]], max_words: int = 3, max_gap: float = 0.65, max_chars: int = 20) -> List[List[Dict[str, Any]]]:
@@ -1150,7 +1176,7 @@ async def cmd_contact_admin(message: Message):
     b = InlineKeyboardBuilder()
     b.row(InlineKeyboardButton(text="💬 Telegram'da yozish", url=admin_url(f"Salom! Yordam kerak. Mening ID: {message.from_user.id}")))
     await message.answer(
-        f"👨‍‍💻 <b>TEXNIK YORDAM VA ADMIN</b>\n{LINE}\n"
+        f"👨‍💻 <b>TEXNIK YORDAM VA ADMIN</b>\n{LINE}\n"
         f"💬 Telegram: @{ADMIN_USERNAME}\n"
         f"📞 Telefon: <code>{ADMIN_PHONE}</code>\n{LINE}\n"
         "Savol, to'lov yoki muammo bo'lsa — yozing, tez javob beramiz.",
