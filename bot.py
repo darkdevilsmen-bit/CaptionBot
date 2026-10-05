@@ -367,7 +367,6 @@ def clean_text(raw: Any) -> str:
     return text
 
 
-# 🟢 100% ИСПРАВЛЕННЫЙ ФИЛЬТР: Склеивает разорванные буквы с апострофами (o', g')
 def extract_clean_words(transcript: Any, lang: Optional[str] = None) -> List[Dict[str, Any]]:
     raw_words = _get(transcript, "words", default=[]) or []
     result: List[Dict[str, Any]] = []
@@ -396,7 +395,7 @@ def extract_clean_words(transcript: Any, lang: Optional[str] = None) -> List[Dic
 
         result.append({"text": text, "start": start, "end": end})
 
-    # Автоматически соединяем одиночные буквы "o", "g" или части слов с апострофами
+    # Жесткий фильтр для склейки разорванных апострофов и слов
     fixed_result: List[Dict[str, Any]] = []
     i = 0
     while i < len(result):
@@ -407,27 +406,21 @@ def extract_clean_words(transcript: Any, lang: Optional[str] = None) -> List[Dic
             nxt = result[i + 1]
             gap = nxt["start"] - curr["end"]
             
-            # Условия для склейки разорванных частей слов или апострофов
-            is_single_letter = curr_text.lower() in ("o", "g", "ko", "o'", "g'")
-            is_close_fragment = gap < 0.3 and not nxt["text"][0].isupper() and len(curr_text) <= 4
+            is_apostrophe_split = curr_text.lower() in ("o", "g") and nxt["text"].startswith("'")
+            is_fragment = gap < 0.4 and len(curr_text) <= 4
             
-            if is_single_letter or is_close_fragment:
-                # Если первая часть оканчивается на букву, а вторая начинается с апострофа или наоборот
-                if curr_text.lower() in ("o", "g") and nxt["text"].startswith("'"):
-                    curr_text = curr_text + nxt["text"]
-                elif curr_text.endswith("'") or curr_text.endswith("‘") or curr_text.endswith("’"):
-                    curr_text = curr_text + nxt["text"]
-                elif len(curr_text) <= 3 and nxt["text"].lower() in ("rsataman", "rasizmi", "rtoqlar"):
-                    curr_text = curr_text + nxt["text"]
-                else:
-                    curr_text = curr_text + nxt["text"]
-                
+            if is_apostrophe_split or is_fragment:
+                curr_text = curr_text + nxt["text"]
                 curr["end"] = nxt["end"]
                 i += 1
             else:
                 break
                 
-        curr["text"] = curr_text.replace("'", "'").replace("‘", "'").replace("’", "'")
+        # Полное удаление пробелов внутри слов с апострофами
+        if "'" in curr_text or "‘" in curr_text or "’" in curr_text:
+            curr_text = re.sub(r'\s+', '', curr_text)
+            
+        curr["text"] = curr_text
         fixed_result.append(curr)
         i += 1
 
@@ -551,7 +544,6 @@ def _format_word(word_text: str, state: str, anim_style: str, chosen_color: str,
         return (f"{{\\c{active_color}{b1}\\t(0,60,\\fscx120\\fscy120)\\t(60,130,\\fscx112\\fscy112)}}"
                 f"{word_text}{{\\fscx112\\fscy112}}")
 
-    # Smooth tracking animatsiyasi uchun aktiv so'zni kattalashtirish va porlatish
     return f"{{\\c{active_color}\\fscx112\\fscy112{b1}}}{word_text}{{\\fscx100\\fscy100{b0}}}"
 
 
@@ -620,7 +612,6 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
 
             text = " ".join(word_parts)
 
-            # Smooth tracking va fade out effektini to'liq yoqish
             if anim_style == "smooth_tracking":
                 dur_part = max(10, int((end - start) * 1000))
                 anim_prefix = ""
