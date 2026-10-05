@@ -42,8 +42,8 @@ log = logging.getLogger(__name__)
 
 # --- SOZLAMALAR ---
 # Kalitlar kodda saqlanmaydi: ularni muhit o'zgaruvchilari orqali bering.
-BOT_TOKEN = os.getenv("BOT_TOKEN", "")
-ELEVENLABS_API_KEY = os.getenv("ELEVENLABS_API_KEY", "")
+BOT_TOKEN = os.getenv("8933394511:AAHIHZNghrOOO1BZM_As6XCb6mSdOfKx6kw", "")
+ELEVENLABS_API_KEY = os.getenv("sk_2645eb8c6ab7457d5661f30bc9935e8107560bec586b14c8⁠", "")
 
 ADMIN_ID = 7662888182
 ADMIN_USERNAME = "Captions_Admin"
