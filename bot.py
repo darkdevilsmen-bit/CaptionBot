@@ -134,6 +134,16 @@ BOUNCE_KEYS = ((0.30, 118), (0.55, 95), (0.80, 105), (1.00, 100))
 BOUNCE_MAX_MS = 300
 BOUNCE_MIN_MS = 150
 
+# --- Matn dizayni (Captions ilovasi uslubi) ---
+STROKE_PX = 0.0               # qora kontur (stroke) qalinligi. 0 = kontur yo'q
+SHADOW_PX = 3.0               # yumshoq soya masofasi (px)
+SHADOW_ALPHA_HEX = "70"       # soya shaffofligi: 00 = to'q qora, FF = ko'rinmas
+HIGHLIGHT_ACTIVE_WORD = False # True bo'lsa aytilayotgan so'z sariq rangga bo'yaladi
+HEADLIGHT_ENABLED = False     # True bo'lsa HEADLIGHT_WORDS dagi so'zlar yashil bo'ladi
+CHUNK_MAX_WORDS = 7           # bitta ekrandagi (2 qatorgacha) so'zlar soni
+CHUNK_MAX_GAP = 0.8           # shu pauzadan uzun bo'lsa yangi blok boshlanadi (soniya)
+REVEAL_FADE_MS = 140          # so'z paydo bo'lish (fade-in) tezligi
+
 FONT_OPTIONS = {
     "montserrat": {
         "label": "🔤 Montserrat Bold", "family": "Montserrat", "tokens": ("montserrat", "bold"),
@@ -452,15 +462,43 @@ def extract_clean_words(transcript: Any, lang: Optional[str] = None) -> List[Dic
     return cleaned_result
 
 
-def group_into_chunks(words: List[Dict[str, Any]], max_words: int = 3, max_gap: float = 0.65, max_chars: int = 20) -> List[List[Dict[str, Any]]]:
+def _fit_lines(texts: List[str], max_chars: int) -> Tuple[bool, Optional[int]]:
+    """
+    So'zlar ro'yxati 2 qatorga (har biri max_chars belgigacha) sig'adimi?
+    Qaytaradi: (sig'adimi, ikkinchi qator boshlanadigan so'z indeksi yoki None = bir qator).
+    """
+    n = len(texts)
+    if n < 2:
+        return True, None
+    total = sum(len(t) for t in texts) + n - 1
+    if total <= max_chars:
+        return True, None
+    best_k: Optional[int] = None
+    best_val: Optional[int] = None
+    for k in range(1, n):
+        l1 = sum(len(t) for t in texts[:k]) + k - 1
+        l2 = sum(len(t) for t in texts[k:]) + (n - k) - 1
+        val = max(l1, l2)
+        if best_val is None or val < best_val:
+            best_k, best_val = k, val
+    return (best_val is not None and best_val <= max_chars), best_k
+
+
+def group_into_chunks(
+    words: List[Dict[str, Any]],
+    max_words: int = CHUNK_MAX_WORDS,
+    max_gap: float = CHUNK_MAX_GAP,
+    max_chars: int = 20,
+) -> List[List[Dict[str, Any]]]:
+    """So'zlarni 2 qatorli bloklarga ajratadi (max_chars = bitta qatordagi belgilar soni)."""
     chunks: List[List[Dict[str, Any]]] = []
     current: List[Dict[str, Any]] = []
     for w in words:
         if current:
             gap = w["start"] - current[-1]["end"]
             ends_sentence = current[-1]["text"][-1] in ".!?…"
-            too_long = sum(len(x["text"]) + 1 for x in current) + len(w["text"]) > max_chars
-            if len(current) >= max_words or gap > max_gap or ends_sentence or too_long:
+            fits, _ = _fit_lines([x["text"] for x in current] + [w["text"]], max_chars)
+            if len(current) >= max_words or gap > max_gap or ends_sentence or not fits:
                 chunks.append(current)
                 current = []
         current.append(w)
@@ -597,27 +635,39 @@ def _bounce_tags(dur_ms: int) -> str:
     return tags
 
 
+def _visible_tags() -> str:
+    """Ko'rinadigan so'z: matn to'liq ko'rinadi, kontur yo'q, soya yumshoq."""
+    return f"\\1a&H00&\\3a&H00&\\4a&H{SHADOW_ALPHA_HEX}&"
+
+
+HIDDEN_TAGS = "\\alpha&HFF&"   # hali aytilmagan so'z: butunlay ko'rinmas (joyi saqlanadi)
+
+
 def _format_word(word_text: str, state: str, anim_style: str, chosen_color: str, bold_ok: bool = True, dur_ms: int = 300) -> str:
     b1, b0 = ("\\b1", "\\b0") if bold_ok else ("", "")
     clean_w = re.sub(r"[^\w]", "", word_text.lower())
-    is_headlight = clean_w in HEADLIGHT_WORDS
+    is_headlight = HEADLIGHT_ENABLED and clean_w in HEADLIGHT_WORDS
+
+    color = HEADLIGHT_COLOR if is_headlight else chosen_color
+    if state == "active" and HIGHLIGHT_ACTIVE_WORD and not is_headlight:
+        color = ACTIVE_SPOKEN_COLOR
+    base = f"\\c{color}\\fscx100\\fscy100{b1 if is_headlight else b0}"
+    vis = _visible_tags()
 
     if state == "future":
-        return f"{{\\c{chosen_color}\\fscx100\\fscy100{b0}}}{word_text}"
+        # Hali aytilmagan: ko'rinmaydi, lekin joyi band (qator "sakrab" ketmaydi)
+        return f"{{{base}{HIDDEN_TAGS}}}{word_text}"
 
     if state == "past":
-        color = HEADLIGHT_COLOR if is_headlight else chosen_color
-        return f"{{\\c{color}\\fscx100\\fscy100{b1 if is_headlight else b0}}}{word_text}"
+        return f"{{{base}{vis}}}{word_text}"
 
-    active_color = HEADLIGHT_COLOR if is_headlight else ACTIVE_SPOKEN_COLOR
-
+    # --- faol so'z: aytilgan paytda paydo bo'ladi ---
     if anim_style == "mrbeast_style":
         # Scale bounce: kichik -> katta (overshoot) -> kichikroq -> joyiga o'rnashadi
-        return f"{{\\c{active_color}{b1}{_bounce_tags(dur_ms)}}}{word_text}{{\\fscx100\\fscy100}}"
+        return f"{{\\c{color}{b1}{HIDDEN_TAGS}\\t(0,60,{vis}){_bounce_tags(dur_ms)}}}{word_text}"
 
-    # Smooth tracking: so'z o'lchami o'zgarmaydi, faqat rangi silliq almashadi
-    # (yoyilish butun qator darajasida \fsp bilan bajariladi)
-    return f"{{\\fscx100\\fscy100\\c{chosen_color}\\t(0,140,\\c{active_color}){b1}}}{word_text}{{\\fscx100\\fscy100{b0}}}"
+    # Smooth tracking: so'z silliq paydo bo'ladi (yoyilish qator darajasida \fsp bilan bajariladi)
+    return f"{{{base}{HIDDEN_TAGS}\\t(0,{REVEAL_FADE_MS},{vis})}}{word_text}"
 
 
 def _tracking_value(t: float, total: float, fs_px: int) -> float:
@@ -652,11 +702,12 @@ def scaled_font_size(font_size: int, video_w: int, video_h: int) -> int:
 
 
 def max_chars_for(font_size: int, video_w: int, video_h: int, anim_style: str = "") -> int:
+    """Bitta qatorga sig'adigan belgilar soni (2 qatorli blok uchun)."""
     fs = scaled_font_size(font_size, video_w, video_h)
-    avail = video_w - 2 * 40
-    # Montserrat Bold keng shrift (~0.68 em); tracking yoyilganda qo'shimcha joy kerak
-    char_w = fs * (0.68 + (TRACKING_END_EM if anim_style == "smooth_tracking" else 0.0))
-    return int(max(8, min(24, avail / char_w - 1)))
+    avail = (video_w - 2 * 40) * 0.92          # chetlardan xavfsiz zaxira
+    # Montserrat Bold ~0.60 em; tracking yoyilganda qo'shimcha joy kerak
+    char_w = fs * (0.60 + (TRACKING_END_EM if anim_style == "smooth_tracking" else 0.0))
+    return int(max(8, min(26, avail / char_w)))
 
 
 def generate_word_by_word_ass(
@@ -670,12 +721,14 @@ def generate_word_by_word_ass(
     color_key: str = DEFAULT_COLOR_KEY,
 ) -> int:
     font_name, bold_ok, _, _ = resolve_font(font_key)
+    line_chars = max_chars_for(font_size, video_w, video_h, anim_style)
     font_size = scaled_font_size(font_size, video_w, video_h)
     base_sp = 0.0
     bold_flag = -1 if (bold_ok or font_forces_bold(font_key)) else 0
     chosen_color = COLOR_OPTIONS.get(color_key, COLOR_OPTIONS["white"])["bgr"]
+    back_color = f"&H{SHADOW_ALPHA_HEX}000000"
 
-    # WrapStyle 2: qator hech qachon ikkiga bo'linmaydi (tracking vaqtida sakrab ketmasligi uchun)
+    # WrapStyle 2: qator faqat o'zimiz qo'ygan \N joyidan bo'linadi (tracking paytida sakramaydi)
     header = f"""[Script Info]
 ScriptType: v4.00+
 PlayResX: {video_w}
@@ -685,7 +738,7 @@ WrapStyle: 2
 
 [V4+ Styles]
 Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding
-Style: Default,{font_name},{font_size},{chosen_color},&H000000FF,&H00000000,&H80000000,{bold_flag},0,0,0,100,100,{base_sp},0,1,3.5,1.5,2,40,40,{int(video_h * 0.12)},1
+Style: Default,{font_name},{font_size},{chosen_color},&H000000FF,&H00000000,{back_color},{bold_flag},0,0,0,100,100,{base_sp},0,1,{STROKE_PX},{SHADOW_PX},2,40,40,{int(video_h * 0.12)},1
 
 [Events]
 Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
@@ -697,14 +750,15 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
         chunk_end = chunk[-1]["end"]
         next_start = chunks[c_idx + 1][0]["start"] if c_idx + 1 < len(chunks) else None
 
-        # Smooth tracking: oxirgi so'zdan keyin fade-out tugashi uchun kichik "dum" qo'shamiz
-        tail = 0.0
-        if anim_style == "smooth_tracking":
-            tail = TRACKING_TAIL_SEC
-            if next_start is not None:
-                tail = max(0.0, min(tail, next_start - chunk_end - 0.02))
+        # Blok oxirida matn biroz turib, keyin yo'qoladi (keyingi blok bilan to'qnashmaydi)
+        tail = TRACKING_TAIL_SEC
+        if next_start is not None:
+            tail = max(0.0, min(tail, next_start - chunk_end - 0.02))
 
-        track_total = max(0.6, (chunk_end + tail) - chunk_start)
+        track_total = max(0.8, (chunk_end + tail) - chunk_start)
+
+        # 2 qatorga bo'lish joyi (butun blok uchun bir marta aniqlanadi — joylashuv barqaror)
+        _, split_at = _fit_lines([w["text"] for w in chunk], line_chars)
 
         for i, current_word in enumerate(chunk):
             start = round(current_word["start"], 2) if i else chunk_start
@@ -717,7 +771,7 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
             end = round(end, 2)
             dur_ms = int(round((end - start) * 1000))
 
-            word_parts = []
+            text = ""
             for j, w in enumerate(chunk):
                 if j < i:
                     state = "past"
@@ -725,19 +779,15 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
                     state = "active"
                 else:
                     state = "future"
-
-                word_parts.append(_format_word(w["text"], state, anim_style, chosen_color, bold_ok, dur_ms))
-
-            text = " ".join(word_parts)
+                if j:
+                    text += "\\N" if (split_at is not None and j == split_at) else " "
+                text += _format_word(w["text"], state, anim_style, chosen_color, bold_ok, dur_ms)
 
             if anim_style == "smooth_tracking":
                 head_tags = _tracking_tags(start - chunk_start, end - chunk_start, track_total, font_size)
-                fade_in = min(TRACKING_FADE_IN_MS, int(dur_ms * 0.5)) if i == 0 else 0
-                fade_out = 0
                 if is_last:
-                    fade_out = min(max(80, int(dur_ms * 0.6)), max(0, dur_ms - fade_in))
-                if fade_in or fade_out:
-                    head_tags += f"\\fad({fade_in},{fade_out})"
+                    fade_out = min(dur_ms, max(100, int(tail * 1000) + 60))
+                    head_tags += f"\\fad(0,{fade_out})"
                 text = f"{{{head_tags}}}" + text
 
             dialogues.append(
@@ -1040,7 +1090,7 @@ async def callback_anim_style(callback: CallbackQuery, bot: Bot):
     builder = InlineKeyboardBuilder()
     for c_key, c_info in COLOR_OPTIONS.items():
         builder.row(InlineKeyboardButton(text=c_info["label"], callback_data=f"color:{c_key}:{sid}"))
-    await callback.message.edit_text("🎨 Asosiy matn <b>rangini</b> tanlang (aytilayotgan so'z sariq bo'ladi):", reply_markup=builder.as_markup())
+    await callback.message.edit_text("🎨 Subtitr <b>rangini</b> tanlang:", reply_markup=builder.as_markup())
     await callback.answer()
 
 
@@ -1153,7 +1203,7 @@ async def callback_font_size(callback: CallbackQuery, bot: Bot):
             await status_msg.edit_text("❌ Videodan ovoz topilmadi yoki matnga o'girib bo'lmadi.")
             return
 
-        chunks = group_into_chunks(words, max_words=3, max_chars=max_chars_for(font_size, v_width, v_height, anim_style))
+        chunks = group_into_chunks(words, max_chars=max_chars_for(font_size, v_width, v_height, anim_style))
         write_srt(chunks, srt_path)
         generate_word_by_word_ass(chunks, ass_path, anim_style, font_size, v_width, v_height, font_key, color_key)
 
@@ -1193,9 +1243,9 @@ async def cmd_sub_styles(message: Message):
         "🎬 <b>SUBTITR USLUBLARI:</b>\n"
         "━━━━━━━━━━━━━━━━\n\n"
         "✨ <b>Smooth Tracking + Fade Out</b>\n"
-        "Harflar orasi After Effects'dagi tracking kabi sekin va silliq yoyiladi, fraza oxirida erib yo'qoladi.\n\n"
+        "So'zlar aytilgan paytda silliq paydo bo'ladi, harflar orasi After Effects'dagi tracking kabi sekin yoyiladi, blok oxirida erib yo'qoladi.\n\n"
         "🟢 <b>MrBeast Pop-up</b>\n"
-        "Aytilayotgan so'z scale-bounce bilan (oshib, qaytib, joyiga o'rnashib) sakraydi va sariq rangda yonadi.\n\n"
+        "Har bir so'z aytilgan paytda scale-bounce bilan (oshib, qaytib, joyiga o'rnashib) sakrab chiqadi.\n\n"
         "━━━━━━━━━━━━━━━━\n"
         "<i>Video yuborganingizdan so'ng uslub va rangni tanlashingiz mumkin.</i>"
     )
