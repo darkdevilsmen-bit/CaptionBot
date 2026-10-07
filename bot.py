@@ -1,5 +1,6 @@
 import os
 import re
+import math
 import time
 import uuid
 import struct
@@ -7,6 +8,7 @@ import shutil
 import sqlite3
 import asyncio
 import logging
+import urllib.request
 from html import escape
 from urllib.parse import quote
 from pathlib import Path
@@ -118,13 +120,35 @@ FONT_SIZES = {
     "xlarge": ("🔥 Juda katta (115)", 115),
 }
 
-MONTSERRAT_SPACING = -0.02
+# --- Smooth Tracking (After Effects "Tracking" animatori) sozlamalari ---
+# Qiymatlar shrift o'lchamiga nisbatan (em). Matn tor holatdan boshlanib, sekin-asta yoyiladi.
+TRACKING_START_EM = -0.02
+TRACKING_END_EM = 0.08
+TRACKING_STEP_SEC = 0.06      # animatsiya bo'laklari (kichik = silliqroq)
+TRACKING_FADE_IN_MS = 200
+TRACKING_TAIL_SEC = 0.20      # oxirgi so'zdan keyin fade-out uchun qo'shimcha vaqt
+
+# --- MrBeast bounce (scale) sozlamalari: (vaqt ulushi, masshtab %) ---
+BOUNCE_START_SCALE = 80
+BOUNCE_KEYS = ((0.30, 118), (0.55, 95), (0.80, 105), (1.00, 100))
+BOUNCE_MAX_MS = 300
+BOUNCE_MIN_MS = 150
 
 FONT_OPTIONS = {
-    "the_bold": {"label": "🅱 The Bold", "family": "The Bold Font", "tokens": ("thebold",), "bold_ok": False},
+    "montserrat": {
+        "label": "🔤 Montserrat Bold", "family": "Montserrat", "tokens": ("montserrat", "bold"),
+        "exclude": ("semi", "extra", "italic"), "bold_ok": False, "force_bold": True,
+    },
     "komika": {"label": "🟢 Komika Axis", "family": "Komika Axis", "tokens": ("komika",), "bold_ok": True},
 }
-DEFAULT_FONT_KEY = "the_bold"
+DEFAULT_FONT_KEY = "montserrat"
+
+# Montserrat Bold avtomatik yuklab olinadigan manzillar (birinchisi ishlamasa keyingisi sinaladi)
+MONTSERRAT_URLS = [
+    "https://raw.githubusercontent.com/JulietaUla/Montserrat/master/fonts/ttf/Montserrat-Bold.ttf",
+    "https://github.com/JulietaUla/Montserrat/raw/master/fonts/ttf/Montserrat-Bold.ttf",
+    "https://raw.githubusercontent.com/google/fonts/main/ofl/montserrat/static/Montserrat-Bold.ttf",
+]
 
 LANG_OPTIONS = {
     "uzb": ("🇺🇿 O'zbekcha", "uzb"),
@@ -470,7 +494,12 @@ def find_font_file(key: str) -> Optional[Path]:
             continue
         for f in sorted(folder.iterdir()):
             n = _norm(f.stem)
-            if f.suffix.lower() in (".ttf", ".otf") and "italic" not in n and all(t in n for t in opt["tokens"]):
+            if (
+                f.suffix.lower() in (".ttf", ".otf")
+                and "italic" not in n
+                and all(t in n for t in opt["tokens"])
+                and not any(x in n for x in opt.get("exclude", ()))
+            ):
                 return f.resolve()
     return None
 
@@ -519,15 +548,56 @@ def resolve_font(key: str) -> Tuple[str, bool, bool, Optional[Path]]:
     return "Arial", True, False, None
 
 
+def font_forces_bold(key: str) -> bool:
+    opt = FONT_OPTIONS.get(key)
+    return bool(opt and opt.get("force_bold"))
+
+
 def available_fonts() -> List[str]:
     return [k for k in FONT_OPTIONS if find_font_file(k)]
 
 
+def _download_file(url: str, dest: Path) -> bool:
+    try:
+        req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0"})
+        with urllib.request.urlopen(req, timeout=40) as resp:
+            data = resp.read()
+        if len(data) < 50_000 or data[:4] not in (b"\x00\x01\x00\x00", b"OTTO", b"true"):
+            return False
+        dest.write_bytes(data)
+        return True
+    except Exception as e:
+        log.warning(f"Shrift yuklab olinmadi ({url}): {e}")
+        return False
+
+
 async def ensure_fonts():
     FONTS_DIR.mkdir(parents=True, exist_ok=True)
+    if not find_font_file("montserrat"):
+        dest = FONTS_DIR / "Montserrat-Bold.ttf"
+        for url in MONTSERRAT_URLS:
+            if await asyncio.to_thread(_download_file, url, dest):
+                log.info("Montserrat-Bold.ttf yuklab olindi.")
+                break
+        else:
+            log.warning("Montserrat avtomatik yuklanmadi. 'Montserrat-Bold.ttf' faylini fonts/ papkasiga qo'ying.")
 
 
-def _format_word(word_text: str, state: str, anim_style: str, chosen_color: str, bold_ok: bool = True) -> str:
+def _bounce_tags(dur_ms: int) -> str:
+    """MrBeast uslubi: so'z kichikdan boshlanib, oshib ketib (overshoot), orqaga qaytib joyiga o'rnashadi."""
+    total = int(min(BOUNCE_MAX_MS, max(BOUNCE_MIN_MS, dur_ms)))
+    tags = f"\\fscx{BOUNCE_START_SCALE}\\fscy{BOUNCE_START_SCALE}"
+    prev = 0
+    for frac, scale in BOUNCE_KEYS:
+        cur = int(total * frac)
+        if cur <= prev:
+            cur = prev + 1
+        tags += f"\\t({prev},{cur},\\fscx{scale}\\fscy{scale})"
+        prev = cur
+    return tags
+
+
+def _format_word(word_text: str, state: str, anim_style: str, chosen_color: str, bold_ok: bool = True, dur_ms: int = 300) -> str:
     b1, b0 = ("\\b1", "\\b0") if bold_ok else ("", "")
     clean_w = re.sub(r"[^\w]", "", word_text.lower())
     is_headlight = clean_w in HEADLIGHT_WORDS
@@ -542,21 +612,51 @@ def _format_word(word_text: str, state: str, anim_style: str, chosen_color: str,
     active_color = HEADLIGHT_COLOR if is_headlight else ACTIVE_SPOKEN_COLOR
 
     if anim_style == "mrbeast_style":
-        return (f"{{\\c{active_color}{b1}\\t(0,60,\\fscx120\\fscy120)\\t(60,130,\\fscx112\\fscy112)}}"
-                f"{word_text}{{\\fscx112\\fscy112}}")
+        # Scale bounce: kichik -> katta (overshoot) -> kichikroq -> joyiga o'rnashadi
+        return f"{{\\c{active_color}{b1}{_bounce_tags(dur_ms)}}}{word_text}{{\\fscx100\\fscy100}}"
 
-    # Smooth tracking animatsiyasi uchun faol so'zni silliq kattalashtirish
-    return f"{{\\c{active_color}\\t(0,80,\\fscx112\\fscy112){b1}}}{word_text}{{\\fscx100\\fscy100{b0}}}"
+    # Smooth tracking: so'z o'lchami o'zgarmaydi, faqat rangi silliq almashadi
+    # (yoyilish butun qator darajasida \fsp bilan bajariladi)
+    return f"{{\\fscx100\\fscy100\\c{chosen_color}\\t(0,140,\\c{active_color}){b1}}}{word_text}{{\\fscx100\\fscy100{b0}}}"
+
+
+def _tracking_value(t: float, total: float, fs_px: int) -> float:
+    """t (soniya) paytidagi harflar orasi masofasi (px). Ease-out: avval tezroq, keyin sekin o'rnashadi."""
+    x = 0.0 if total <= 0 else min(1.0, max(0.0, t / total))
+    eased = 1.0 - (1.0 - x) ** 2.5
+    return (TRACKING_START_EM + (TRACKING_END_EM - TRACKING_START_EM) * eased) * fs_px
+
+
+def _tracking_tags(a: float, b: float, total: float, fs_px: int) -> str:
+    """
+    [a, b] (qator boshidan hisoblangan soniyalar) oralig'i uchun \\fsp animatsiyasi.
+    Boshlang'ich qiymat oldingi hodisaning oxirgi qiymatiga teng bo'ladi, shuning uchun
+    so'zlar almashganda tracking uzilmaydi (After Effects'dagi uzluksiz animator kabi).
+    """
+    span = max(0.01, b - a)
+    steps = max(1, int(math.ceil(span / TRACKING_STEP_SEC)))
+    tags = f"\\fsp{_tracking_value(a, total, fs_px):.2f}"
+    for k in range(steps):
+        t0 = a + span * k / steps
+        t1 = a + span * (k + 1) / steps
+        ms0 = int(round((t0 - a) * 1000))
+        ms1 = int(round((t1 - a) * 1000))
+        if ms1 <= ms0:
+            continue
+        tags += f"\\t({ms0},{ms1},\\fsp{_tracking_value(t1, total, fs_px):.2f})"
+    return tags
 
 
 def scaled_font_size(font_size: int, video_w: int, video_h: int) -> int:
     return max(24, int(round(font_size * min(video_w, video_h) / 1080)))
 
 
-def max_chars_for(font_size: int, video_w: int, video_h: int) -> int:
+def max_chars_for(font_size: int, video_w: int, video_h: int, anim_style: str = "") -> int:
     fs = scaled_font_size(font_size, video_w, video_h)
     avail = video_w - 2 * 40
-    return int(max(8, min(24, avail / (fs * 0.62) - 1)))
+    # Montserrat Bold keng shrift (~0.68 em); tracking yoyilganda qo'shimcha joy kerak
+    char_w = fs * (0.68 + (TRACKING_END_EM if anim_style == "smooth_tracking" else 0.0))
+    return int(max(8, min(24, avail / char_w - 1)))
 
 
 def generate_word_by_word_ass(
@@ -572,15 +672,16 @@ def generate_word_by_word_ass(
     font_name, bold_ok, _, _ = resolve_font(font_key)
     font_size = scaled_font_size(font_size, video_w, video_h)
     base_sp = 0.0
-    bold_flag = -1 if bold_ok else 0
+    bold_flag = -1 if (bold_ok or font_forces_bold(font_key)) else 0
     chosen_color = COLOR_OPTIONS.get(color_key, COLOR_OPTIONS["white"])["bgr"]
 
+    # WrapStyle 2: qator hech qachon ikkiga bo'linmaydi (tracking vaqtida sakrab ketmasligi uchun)
     header = f"""[Script Info]
 ScriptType: v4.00+
 PlayResX: {video_w}
 PlayResY: {video_h}
 ScaledBorderAndShadow: yes
-WrapStyle: 0
+WrapStyle: 2
 
 [V4+ Styles]
 Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding
@@ -591,12 +692,30 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
 """
     dialogues: List[str] = []
 
-    for chunk in chunks:
+    for c_idx, chunk in enumerate(chunks):
+        chunk_start = round(chunk[0]["start"], 2)
+        chunk_end = chunk[-1]["end"]
+        next_start = chunks[c_idx + 1][0]["start"] if c_idx + 1 < len(chunks) else None
+
+        # Smooth tracking: oxirgi so'zdan keyin fade-out tugashi uchun kichik "dum" qo'shamiz
+        tail = 0.0
+        if anim_style == "smooth_tracking":
+            tail = TRACKING_TAIL_SEC
+            if next_start is not None:
+                tail = max(0.0, min(tail, next_start - chunk_end - 0.02))
+
+        track_total = max(0.6, (chunk_end + tail) - chunk_start)
+
         for i, current_word in enumerate(chunk):
-            start = current_word["start"]
+            start = round(current_word["start"], 2) if i else chunk_start
             end = chunk[i + 1]["start"] if i + 1 < len(chunk) else current_word["end"]
+            is_last = i == len(chunk) - 1
+            if is_last:
+                end += tail
             if end <= start:
                 end = start + 0.1
+            end = round(end, 2)
+            dur_ms = int(round((end - start) * 1000))
 
             word_parts = []
             for j, w in enumerate(chunk):
@@ -607,18 +726,19 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
                 else:
                     state = "future"
 
-                word_parts.append(_format_word(w["text"], state, anim_style, chosen_color, bold_ok))
+                word_parts.append(_format_word(w["text"], state, anim_style, chosen_color, bold_ok, dur_ms))
 
             text = " ".join(word_parts)
 
-            # Silliq yoyilish va fade out effektini qo'shish
             if anim_style == "smooth_tracking":
-                dur_part = max(10, int((end - start) * 1000))
-                anim_prefix = ""
-                if i == len(chunk) - 1:
-                    fade_time = min(200, max(80, int(dur_part * 0.5)))
-                    anim_prefix = f"{{\\fad(0,{fade_time})}}"
-                text = anim_prefix + text
+                head_tags = _tracking_tags(start - chunk_start, end - chunk_start, track_total, font_size)
+                fade_in = min(TRACKING_FADE_IN_MS, int(dur_ms * 0.5)) if i == 0 else 0
+                fade_out = 0
+                if is_last:
+                    fade_out = min(max(80, int(dur_ms * 0.6)), max(0, dur_ms - fade_in))
+                if fade_in or fade_out:
+                    head_tags += f"\\fad({fade_in},{fade_out})"
+                text = f"{{{head_tags}}}" + text
 
             dialogues.append(
                 f"Dialogue: 0,{format_ass_time(start)},{format_ass_time(end)},Default,,0,0,0,,{text}"
@@ -1033,7 +1153,7 @@ async def callback_font_size(callback: CallbackQuery, bot: Bot):
             await status_msg.edit_text("❌ Videodan ovoz topilmadi yoki matnga o'girib bo'lmadi.")
             return
 
-        chunks = group_into_chunks(words, max_words=3, max_chars=max_chars_for(font_size, v_width, v_height))
+        chunks = group_into_chunks(words, max_words=3, max_chars=max_chars_for(font_size, v_width, v_height, anim_style))
         write_srt(chunks, srt_path)
         generate_word_by_word_ass(chunks, ass_path, anim_style, font_size, v_width, v_height, font_key, color_key)
 
@@ -1073,9 +1193,9 @@ async def cmd_sub_styles(message: Message):
         "🎬 <b>SUBTITR USLUBLARI:</b>\n"
         "━━━━━━━━━━━━━━━━\n\n"
         "✨ <b>Smooth Tracking + Fade Out</b>\n"
-        "Matn ekranda qotmasdan silliq yoyilib boradi va fraza oxirida erib yo'qoladi.\n\n"
+        "Harflar orasi After Effects'dagi tracking kabi sekin va silliq yoyiladi, fraza oxirida erib yo'qoladi.\n\n"
         "🟢 <b>MrBeast Pop-up</b>\n"
-        "Aytilayotgan so'z elastik tarzda sakrab kattalashadi va sariq rangda yonadi.\n\n"
+        "Aytilayotgan so'z scale-bounce bilan (oshib, qaytib, joyiga o'rnashib) sakraydi va sariq rangda yonadi.\n\n"
         "━━━━━━━━━━━━━━━━\n"
         "<i>Video yuborganingizdan so'ng uslub va rangni tanlashingiz mumkin.</i>"
     )
