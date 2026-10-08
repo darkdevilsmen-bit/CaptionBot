@@ -97,7 +97,7 @@ HEADLIGHT_WORDS = {
 }
 
 ANIMATION_STYLES = {
-    "smooth_tracking": "✨ Smooth Tracking + Fade Out",
+    "smooth_tracking": "✨ Smooth Tracking + Fade Out Words",
     "mrbeast_style": "🟢 MrBeast Pop-up",
 }
 
@@ -125,8 +125,9 @@ FONT_SIZES = {
 TRACKING_START_EM = -0.02
 TRACKING_END_EM = 0.08
 TRACKING_STEP_SEC = 0.06      # animatsiya bo'laklari (kichik = silliqroq)
-TRACKING_FADE_IN_MS = 200
-TRACKING_TAIL_SEC = 0.20      # oxirgi so'zdan keyin fade-out uchun qo'shimcha vaqt
+TRACKING_TAIL_SEC = 0.20      # MrBeast uslubida blok oxirida matn turib qoladigan vaqt
+WORD_FADEOUT_MS = 240         # Smooth Tracking: har bir so'zning so'nish (fade-out) davomiyligi
+WORD_FADEOUT_STAGGER_MS = 80  # so'zlar ketma-ket so'nishi orasidagi kechikish (so'zlar paydo bo'lish tartibida)
 
 # --- MrBeast bounce (scale) sozlamalari: (vaqt ulushi, masshtab %) ---
 BOUNCE_START_SCALE = 80
@@ -643,7 +644,16 @@ def _visible_tags() -> str:
 HIDDEN_TAGS = "\\alpha&HFF&"   # hali aytilmagan so'z: butunlay ko'rinmas (joyi saqlanadi)
 
 
-def _format_word(word_text: str, state: str, anim_style: str, chosen_color: str, bold_ok: bool = True, dur_ms: int = 300) -> str:
+def _format_word(
+    word_text: str,
+    state: str,
+    anim_style: str,
+    chosen_color: str,
+    bold_ok: bool = True,
+    dur_ms: int = 300,
+    fade_delay_ms: int = 0,
+    fade_ms: int = 0,
+) -> str:
     b1, b0 = ("\\b1", "\\b0") if bold_ok else ("", "")
     clean_w = re.sub(r"[^\w]", "", word_text.lower())
     is_headlight = HEADLIGHT_ENABLED and clean_w in HEADLIGHT_WORDS
@@ -660,6 +670,10 @@ def _format_word(word_text: str, state: str, anim_style: str, chosen_color: str,
 
     if state == "past":
         return f"{{{base}{vis}}}{word_text}"
+
+    if state == "fadeout":
+        # So'z o'z navbati kelganda silliq so'nadi (fade out)
+        return f"{{{base}{vis}\\t({fade_delay_ms},{fade_delay_ms + fade_ms},{HIDDEN_TAGS})}}{word_text}"
 
     # --- faol so'z: aytilgan paytda paydo bo'ladi ---
     if anim_style == "mrbeast_style":
@@ -750,12 +764,36 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
         chunk_end = chunk[-1]["end"]
         next_start = chunks[c_idx + 1][0]["start"] if c_idx + 1 < len(chunks) else None
 
-        # Blok oxirida matn biroz turib, keyin yo'qoladi (keyingi blok bilan to'qnashmaydi)
-        tail = TRACKING_TAIL_SEC
-        if next_start is not None:
-            tail = max(0.0, min(tail, next_start - chunk_end - 0.02))
+        n_words = len(chunk)
+        room = max(0.0, (next_start - chunk_end - 0.02)) if next_start is not None else 99.0   # keyingi blokkacha bo'sh vaqt
+        last_start = round(chunk[-1]["start"], 2) if n_words > 1 else chunk_start
 
-        track_total = max(0.8, (chunk_end + tail) - chunk_start)
+        # Smooth Tracking: blok oxirida so'zlar paydo bo'lish tartibida birin-ketin so'nadi (fade out words).
+        # So'nish oxirgi so'z davomida boshlanadi, shuning uchun keyingi blok bilan to'qnashmaydi.
+        # MrBeast: blok oxirida matn biroz turib, keyin birdan yo'qoladi.
+        fade_active = False
+        fade_ms = WORD_FADEOUT_MS
+        stagger_ms = WORD_FADEOUT_STAGGER_MS
+        fade_start = chunk_end
+        if anim_style == "smooth_tracking":
+            hold_end = chunk_end + min(room, 0.30)
+            wanted = (stagger_ms * (n_words - 1) + fade_ms) / 1000.0
+            earliest = last_start + REVEAL_FADE_MS / 1000.0 + 0.02
+            avail = hold_end - earliest
+            if avail >= 0.10:
+                factor = min(1.0, avail / wanted)          # joy yetmasa, so'nishni tezlashtiramiz
+                fade_ms = max(50, int(fade_ms * factor))
+                stagger_ms = int(stagger_ms * factor)
+                fade_total = (stagger_ms * (n_words - 1) + fade_ms) / 1000.0
+                fade_start = round(max(earliest, hold_end - fade_total), 2)
+                fade_active = True
+            tail = hold_end - chunk_end
+            end_of_block = hold_end
+        else:
+            tail = max(0.0, min(TRACKING_TAIL_SEC, room))
+            end_of_block = chunk_end + tail
+
+        track_total = max(0.8, end_of_block - chunk_start)
 
         # 2 qatorga bo'lish joyi (butun blok uchun bir marta aniqlanadi — joylashuv barqaror)
         _, split_at = _fit_lines([w["text"] for w in chunk], line_chars)
@@ -765,7 +803,12 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
             end = chunk[i + 1]["start"] if i + 1 < len(chunk) else current_word["end"]
             is_last = i == len(chunk) - 1
             if is_last:
-                end += tail
+                if anim_style != "smooth_tracking":
+                    end += tail
+                elif fade_active:
+                    end = fade_start          # shundan so'ng so'zlar so'na boshlaydi
+                else:
+                    end += tail
             if end <= start:
                 end = start + 0.1
             end = round(end, 2)
@@ -785,14 +828,30 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
 
             if anim_style == "smooth_tracking":
                 head_tags = _tracking_tags(start - chunk_start, end - chunk_start, track_total, font_size)
-                if is_last:
-                    fade_out = min(dur_ms, max(100, int(tail * 1000) + 60))
-                    head_tags += f"\\fad(0,{fade_out})"
                 text = f"{{{head_tags}}}" + text
 
             dialogues.append(
                 f"Dialogue: 0,{format_ass_time(start)},{format_ass_time(end)},Default,,0,0,0,,{text}"
             )
+
+        # --- Smooth Tracking: so'zlarni birin-ketin so'ndiruvchi hodisa ---
+        if anim_style == "smooth_tracking" and fade_active:
+            fo_start = fade_start
+            fo_end = round(end_of_block, 2)
+            if fo_end > fo_start:
+                text = ""
+                for j, w in enumerate(chunk):
+                    if j:
+                        text += "\\N" if (split_at is not None and j == split_at) else " "
+                    text += _format_word(
+                        w["text"], "fadeout", anim_style, chosen_color, bold_ok,
+                        fade_delay_ms=stagger_ms * j, fade_ms=fade_ms,
+                    )
+                head_tags = _tracking_tags(fo_start - chunk_start, fo_end - chunk_start, track_total, font_size)
+                text = f"{{{head_tags}}}" + text
+                dialogues.append(
+                    f"Dialogue: 0,{format_ass_time(fo_start)},{format_ass_time(fo_end)},Default,,0,0,0,,{text}"
+                )
 
     ass_path.write_text(header + "\n".join(dialogues) + "\n", encoding="utf-8")
     return len(dialogues)
@@ -1242,8 +1301,8 @@ async def cmd_sub_styles(message: Message):
     text = (
         "🎬 <b>SUBTITR USLUBLARI:</b>\n"
         "━━━━━━━━━━━━━━━━\n\n"
-        "✨ <b>Smooth Tracking + Fade Out</b>\n"
-        "So'zlar aytilgan paytda silliq paydo bo'ladi, harflar orasi After Effects'dagi tracking kabi sekin yoyiladi, blok oxirida erib yo'qoladi.\n\n"
+        "✨ <b>Smooth Tracking + Fade Out Words</b>\n"
+        "So'zlar aytilgan paytda silliq paydo bo'ladi, harflar orasi After Effects'dagi tracking kabi sekin yoyiladi, blok oxirida so'zlar birin-ketin so'nib yo'qoladi.\n\n"
         "🟢 <b>MrBeast Pop-up</b>\n"
         "Har bir so'z aytilgan paytda scale-bounce bilan (oshib, qaytib, joyiga o'rnashib) sakrab chiqadi.\n\n"
         "━━━━━━━━━━━━━━━━\n"
