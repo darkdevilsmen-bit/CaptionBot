@@ -43,6 +43,7 @@ logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(
 log = logging.getLogger(__name__)
 
 # --- SOZLAMALAR ---
+CODE_VERSION = "v5 | tekis tracking + sonlar raqamda (13 ming)"
 BOT_TOKEN = os.getenv("BOT_TOKEN", "8933394511:AAHIHZNghrOOO1BZM_As6XCb6mSdOfKx6kw")
 ELEVENLABS_API_KEY = os.getenv("ELEVENLABS_API_KEY", "sk_2645eb8c6ab7457d5661f30bc9935e8107560bec586b14c8")
 
@@ -122,8 +123,8 @@ FONT_SIZES = {
 
 # --- Smooth Tracking (After Effects "Tracking" animatori) sozlamalari ---
 # Qiymatlar shrift o'lchamiga nisbatan (em). Matn tor holatdan boshlanib, sekin-asta yoyiladi.
-TRACKING_START_EM = -0.02
-TRACKING_END_EM = 0.08
+TRACKING_START_EM = -0.03
+TRACKING_END_EM = 0.10
 TRACKING_STEP_SEC = 0.06      # animatsiya bo'laklari (kichik = silliqroq)
 TRACKING_TAIL_SEC = 0.20      # MrBeast uslubida blok oxirida matn turib qoladigan vaqt
 WORD_FADEOUT_MS = 240         # Smooth Tracking: har bir so'zning so'nish (fade-out) davomiyligi
@@ -460,7 +461,175 @@ def extract_clean_words(transcript: Any, lang: Optional[str] = None) -> List[Dic
         cleaned_result.append(curr)
         i += 1
 
+    if lang in ("uzb", None):
+        cleaned_result = convert_uz_numbers(cleaned_result)
     return cleaned_result
+
+
+# ══════════════════════════════════════════════════════════════════
+# O'ZBEKCHA SONLARNI RAQAMGA AYLANTIRISH: "o'n uch ming" -> "13 ming"
+# ══════════════════════════════════════════════════════════════════
+
+_UZ_NUM: Dict[str, Tuple[str, int]] = {
+    "bir": ("unit", 1), "ikki": ("unit", 2), "uch": ("unit", 3), "tort": ("unit", 4),
+    "besh": ("unit", 5), "olti": ("unit", 6), "yetti": ("unit", 7), "sakkiz": ("unit", 8),
+    "toqqiz": ("unit", 9), "toqiz": ("unit", 9),
+    "on": ("tens", 10), "yigirma": ("tens", 20), "ottiz": ("tens", 30), "qirq": ("tens", 40),
+    "ellik": ("tens", 50), "oltmish": ("tens", 60), "yetmish": ("tens", 70), "sakson": ("tens", 80),
+    "toqson": ("tens", 90),
+    "yuz": ("hundred", 100),
+    "ming": ("scale", 1000), "million": ("scale", 10 ** 6), "milliard": ("scale", 10 ** 9),
+    "miliard": ("scale", 10 ** 9),
+}
+_UZ_NUM_KEYS = sorted(_UZ_NUM, key=len, reverse=True)
+_UZ_SUFFIXES = sorted(("ta", "lik", "ni", "ga", "dan", "da", "ning", "dir"), key=len, reverse=True)
+_UZ_APOS = "'`‘’ʻʼ´"
+_TRAIL_PUNCT = re.compile(r"^(.*?)([.,!?…;:]*)$", re.S)
+
+
+def _uz_norm(text: str) -> str:
+    low = text.lower()
+    for ch in _UZ_APOS:
+        low = low.replace(ch, "")
+    return low
+
+
+def _uz_segment(s: str) -> Optional[List[str]]:
+    """'onuchming' -> ['on', 'uch', 'ming'] (yopishib yozilgan son so'zlarini bo'laklarga ajratadi)."""
+    if not s:
+        return []
+    for key in _UZ_NUM_KEYS:
+        if s.startswith(key):
+            rest = _uz_segment(s[len(key):])
+            if rest is not None:
+                return [key] + rest
+    return None
+
+
+def _uz_parse_token(text: str) -> Optional[Dict[str, Any]]:
+    """So'z butunlay son so'zlaridan (va ixtiyoriy qo'shimchadan) iborat bo'lsa, tahlil natijasini qaytaradi."""
+    m = _TRAIL_PUNCT.match(text)
+    core, punct = (m.group(1), m.group(2)) if m else (text, "")
+    norm = _uz_norm(core)
+    if not norm or not norm.isalpha():
+        return None
+    pieces = _uz_segment(norm)
+    suffix = ""
+    if pieces is None:
+        for suf in _UZ_SUFFIXES:
+            if norm.endswith(suf) and len(norm) > len(suf):
+                pieces = _uz_segment(norm[:-len(suf)])
+                if pieces:
+                    suffix = suf
+                    break
+    if not pieces:
+        return None
+    return {"pieces": pieces, "suffix": suffix, "punct": punct}
+
+
+def _uz_convert_group(words: List[Dict[str, Any]], parsed: List[Dict[str, Any]]) -> Optional[List[Dict[str, Any]]]:
+    """Ketma-ket son so'zlari guruhini raqamlarga aylantiradi. Noto'g'ri tuzilgan bo'lsa None qaytaradi."""
+    pieces: List[Dict[str, Any]] = []
+    for w, info in zip(words, parsed):
+        names = info["pieces"]
+        total_len = sum(len(n) for n in names)
+        span = w["end"] - w["start"]
+        pos = w["start"]
+        for k, name in enumerate(names):
+            part = span * len(name) / total_len
+            pieces.append({
+                "name": name, "kind": _UZ_NUM[name][0], "val": _UZ_NUM[name][1],
+                "start": pos, "end": pos + part,
+                "suffix": info["suffix"] if k == len(names) - 1 else "",
+                "punct": info["punct"] if k == len(names) - 1 else "",
+            })
+            pos += part
+
+    # Bitta o'zi turgan noaniq so'zlar ("bir kun", "yuz", "ming") raqamga aylantirilmaydi
+    if len(pieces) == 1 and (pieces[0]["name"] == "bir" or pieces[0]["kind"] in ("hundred", "scale")):
+        return None
+
+    out: List[Dict[str, Any]] = []
+    cur = 0
+    stage = 0            # 0 boshi, 1 birlik, 2 yuzlik, 3 o'nlik, 4 o'nlik+birlik
+    block: List[Dict[str, Any]] = []
+    converted_any = False
+
+    def flush_digits() -> None:
+        nonlocal cur, stage, block, converted_any
+        if not block:
+            return
+        last = block[-1]
+        text = str(cur)
+        if last["suffix"]:
+            text += " " + last["suffix"]
+        text += last["punct"]
+        out.append({"text": text, "start": block[0]["start"], "end": last["end"]})
+        converted_any = True
+        cur, stage, block = 0, 0, []
+
+    for pc in pieces:
+        kind, val = pc["kind"], pc["val"]
+        if kind == "unit":
+            if stage not in (0, 3):
+                return None
+            cur += val
+            stage = 1 if stage == 0 else 4
+            block.append(pc)
+        elif kind == "tens":
+            if stage not in (0, 2):
+                return None
+            cur += val
+            stage = 3
+            block.append(pc)
+        elif kind == "hundred":
+            if stage not in (0, 1):
+                return None
+            cur = (cur if stage == 1 else 1) * 100
+            stage = 2
+            block.append(pc)
+        else:  # scale: ming / million / milliard
+            if block:
+                # raqam qismi oxirida qo'shimcha/tinish belgisi bo'lmaydi (u masshtab so'zida)
+                block[-1] = dict(block[-1], suffix="", punct="")
+                flush_digits()
+            else:
+                cur = 1
+                out.append({"text": "1", "start": pc["start"], "end": pc["start"] + 0.01})
+                converted_any = True
+                out[-1]["end"] = max(out[-1]["end"], pc["start"])
+            label = pc["name"] + pc["suffix"] + pc["punct"]
+            out.append({"text": label, "start": pc["start"], "end": pc["end"]})
+    flush_digits()
+    return out if converted_any else None
+
+
+def convert_uz_numbers(words: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    """'o'n uch ming' -> '13 ming', 'yigirma besh' -> '25', 'onuchming' -> '13 ming'."""
+    parsed = [_uz_parse_token(w["text"]) for w in words]
+    result: List[Dict[str, Any]] = []
+    i = 0
+    while i < len(words):
+        if parsed[i] is None:
+            result.append(words[i])
+            i += 1
+            continue
+        j = i + 1
+        while (
+            j < len(words)
+            and parsed[j] is not None
+            and not parsed[j - 1]["punct"]
+            and words[j]["start"] - words[j - 1]["end"] < 0.9
+        ):
+            j += 1
+        group = _uz_convert_group(words[i:j], parsed[i:j])
+        if group is None:
+            result.extend(words[i:j])
+        else:
+            result.extend(group)
+        i = j
+    return result
+
 
 
 def _fit_lines(texts: List[str], max_chars: int) -> Tuple[bool, Optional[int]]:
@@ -685,10 +854,12 @@ def _format_word(
 
 
 def _tracking_value(t: float, total: float, fs_px: int) -> float:
-    """t (soniya) paytidagi harflar orasi masofasi (px). Ease-out: avval tezroq, keyin sekin o'rnashadi."""
+    """
+    t (soniya) paytidagi harflar orasi masofasi (px).
+    Chiziqli: yoyilish animatsiya boshidan oxirigacha bir tekis, sekin davom etadi (oldin tugab qotib qolmaydi).
+    """
     x = 0.0 if total <= 0 else min(1.0, max(0.0, t / total))
-    eased = 1.0 - (1.0 - x) ** 2.5
-    return (TRACKING_START_EM + (TRACKING_END_EM - TRACKING_START_EM) * eased) * fs_px
+    return (TRACKING_START_EM + (TRACKING_END_EM - TRACKING_START_EM) * x) * fs_px
 
 
 def _tracking_tags(a: float, b: float, total: float, fs_px: int) -> str:
@@ -793,7 +964,7 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
             tail = max(0.0, min(TRACKING_TAIL_SEC, room))
             end_of_block = chunk_end + tail
 
-        track_total = max(0.8, end_of_block - chunk_start)
+        track_total = max(0.3, end_of_block - chunk_start)
 
         # 2 qatorga bo'lish joyi (butun blok uchun bir marta aniqlanadi — joylashuv barqaror)
         _, split_at = _fit_lines([w["text"] for w in chunk], line_chars)
@@ -1306,7 +1477,8 @@ async def cmd_sub_styles(message: Message):
         "🟢 <b>MrBeast Pop-up</b>\n"
         "Har bir so'z aytilgan paytda scale-bounce bilan (oshib, qaytib, joyiga o'rnashib) sakrab chiqadi.\n\n"
         "━━━━━━━━━━━━━━━━\n"
-        "<i>Video yuborganingizdan so'ng uslub va rangni tanlashingiz mumkin.</i>"
+        "<i>Video yuborganingizdan so'ng uslub va rangni tanlashingiz mumkin.</i>\n\n"
+        f"<code>{escape(CODE_VERSION)}</code>"
     )
     await message.answer(text, reply_markup=get_main_keyboard())
 
@@ -1426,7 +1598,7 @@ async def main():
         BotCommand(command="start", description="Botni ishga tushirish / Asosiy menyu")
     ])
 
-    log.info("Bot ishga tushdi...")
+    log.info(f"Bot ishga tushdi... KOD VERSIYASI: {CODE_VERSION}")
     await bot.delete_webhook(drop_pending_updates=True)
     await dp.start_polling(bot)
 
