@@ -44,7 +44,7 @@ log = logging.getLogger(__name__)
 
 # --- SOZLAMALAR ---
 CODE_VERSION = "v6 | + Highlight Box uslubi"
-BOT_TOKEN = os.getenv("BOT_TOKEN", "8933394511:AAHIHZNghrOOO1BZM_As6XCb6mSdOfKx6kw")
+BOT_TOKEN = os.getenv("BOT_TOKEN", "8933394511:AAGnEaOM2jtWCvV2_JPm-ygNJ0_tUTwaLQY")
 ELEVENLABS_API_KEY = os.getenv("ELEVENLABS_API_KEY", "sk_2645eb8c6ab7457d5661f30bc9935e8107560bec586b14c8")
 
 ADMIN_ID = 7662888182
