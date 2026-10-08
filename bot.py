@@ -43,7 +43,7 @@ logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(
 log = logging.getLogger(__name__)
 
 # --- SOZLAMALAR ---
-CODE_VERSION = "v5 | tekis tracking + sonlar raqamda (13 ming)"
+CODE_VERSION = "v6 | + Highlight Box uslubi"
 BOT_TOKEN = os.getenv("BOT_TOKEN", "8933394511:AAHIHZNghrOOO1BZM_As6XCb6mSdOfKx6kw")
 ELEVENLABS_API_KEY = os.getenv("ELEVENLABS_API_KEY", "sk_2645eb8c6ab7457d5661f30bc9935e8107560bec586b14c8")
 
@@ -100,6 +100,7 @@ HEADLIGHT_WORDS = {
 ANIMATION_STYLES = {
     "smooth_tracking": "✨ Smooth Tracking + Fade Out Words",
     "mrbeast_style": "🟢 MrBeast Pop-up",
+    "box_highlight": "🟣 Highlight Box (Captions)",
 }
 
 COLOR_OPTIONS = {
@@ -145,6 +146,14 @@ HEADLIGHT_ENABLED = False     # True bo'lsa HEADLIGHT_WORDS dagi so'zlar yashil 
 CHUNK_MAX_WORDS = 7           # bitta ekrandagi (2 qatorgacha) so'zlar soni
 CHUNK_MAX_GAP = 0.8           # shu pauzadan uzun bo'lsa yangi blok boshlanadi (soniya)
 REVEAL_FADE_MS = 140          # so'z paydo bo'lish (fade-in) tezligi
+
+# --- Highlight Box (Captions ilovasi uslubi): aytilayotgan so'z rangli yumaloq quti ichida ---
+BOX_COLOR = "&H00D73B6C&"     # quti rangi (BGR): binafsha
+BOX_PAD_X_EM = 0.20           # quti chetlari (shrift o'lchamiga nisbatan)
+BOX_PAD_Y_EM = 0.20
+BOX_RADIUS_EM = 0.26
+BOX_POP_START = 82            # quti paydo bo'lganda boshlang'ich masshtab (%)
+BOX_POP_OVER = 106            # va oshib ketish (%)
 
 FONT_OPTIONS = {
     "montserrat": {
@@ -756,6 +765,105 @@ def resolve_font(key: str) -> Tuple[str, bool, bool, Optional[Path]]:
     return "Arial", True, False, None
 
 
+class FontMetrics:
+    """TTF/OTF shriftdan harf kengliklari va balandliklarini o'qiydi (quti joylashuvini aniq hisoblash uchun)."""
+
+    def __init__(self, path: Path):
+        d = path.read_bytes()
+        self.data = d
+        base = 0
+        if d[:4] == b"ttcf":
+            base = struct.unpack(">I", d[12:16])[0]
+        n = struct.unpack(">H", d[base + 4:base + 6])[0]
+        self.tables: Dict[str, int] = {}
+        for i in range(n):
+            tag, _, off, _ln = struct.unpack(">4sIII", d[base + 12 + 16 * i: base + 28 + 16 * i])
+            self.tables[tag.decode("latin1")] = off
+        head = self.tables["head"]
+        self.upm = struct.unpack(">H", d[head + 18:head + 20])[0] or 1000
+        hhea = self.tables["hhea"]
+        self.asc, self.desc = struct.unpack(">hh", d[hhea + 4:hhea + 8])
+        self.n_hm = max(1, struct.unpack(">H", d[hhea + 34:hhea + 36])[0])
+        self.cap = 0
+        if "OS/2" in self.tables:
+            o = self.tables["OS/2"]
+            if struct.unpack(">H", d[o:o + 2])[0] >= 2:
+                self.cap = struct.unpack(">h", d[o + 88:o + 90])[0]
+        if not self.cap:
+            self.cap = int(self.upm * 0.72)
+        self._cmap = self._find_cmap()
+        self._adv: Dict[str, int] = {}
+
+    def _find_cmap(self) -> Optional[Tuple[int, int]]:
+        d = self.data
+        off = self.tables["cmap"]
+        num = struct.unpack(">H", d[off + 2:off + 4])[0]
+        best: Optional[Tuple[int, int, int]] = None
+        for i in range(num):
+            plat, enc, sub = struct.unpack(">HHI", d[off + 4 + 8 * i: off + 12 + 8 * i])
+            fmt = struct.unpack(">H", d[off + sub:off + sub + 2])[0]
+            score = 3 if (plat, enc) == (3, 10) else 2 if (plat, enc) == (3, 1) else 1 if plat == 0 else 0
+            if fmt in (4, 12) and (best is None or score > best[0]):
+                best = (score, off + sub, fmt)
+        return (best[1], best[2]) if best else None
+
+    def _glyph(self, ch: str) -> int:
+        if not self._cmap:
+            return 0
+        d = self.data
+        off, fmt = self._cmap
+        c = ord(ch)
+        if fmt == 12:
+            groups = struct.unpack(">I", d[off + 12:off + 16])[0]
+            for i in range(groups):
+                a, b, g = struct.unpack(">III", d[off + 16 + 12 * i: off + 28 + 12 * i])
+                if a <= c <= b:
+                    return g + c - a
+            return 0
+        seg2 = struct.unpack(">H", d[off + 6:off + 8])[0]
+        ends = off + 14
+        starts = ends + seg2 + 2
+        deltas = starts + seg2
+        ranges = deltas + seg2
+        for i in range(seg2 // 2):
+            end = struct.unpack(">H", d[ends + 2 * i:ends + 2 * i + 2])[0]
+            if c <= end:
+                start = struct.unpack(">H", d[starts + 2 * i:starts + 2 * i + 2])[0]
+                if c < start:
+                    return 0
+                delta = struct.unpack(">h", d[deltas + 2 * i:deltas + 2 * i + 2])[0]
+                ro = struct.unpack(">H", d[ranges + 2 * i:ranges + 2 * i + 2])[0]
+                if ro == 0:
+                    return (c + delta) & 0xFFFF
+                pos = ranges + 2 * i + ro + 2 * (c - start)
+                g = struct.unpack(">H", d[pos:pos + 2])[0]
+                return ((g + delta) & 0xFFFF) if g else 0
+        return 0
+
+    def advance(self, ch: str) -> int:
+        if ch not in self._adv:
+            idx = min(self._glyph(ch), self.n_hm - 1)
+            hm = self.tables["hmtx"]
+            self._adv[ch] = struct.unpack(">H", self.data[hm + 4 * idx: hm + 4 * idx + 2])[0]
+        return self._adv[ch]
+
+
+_METRICS_CACHE: Dict[str, Optional[FontMetrics]] = {}
+
+
+def get_font_metrics(path: Optional[Path]) -> Optional[FontMetrics]:
+    if path is None:
+        return None
+    key = str(path)
+    if key not in _METRICS_CACHE:
+        try:
+            _METRICS_CACHE[key] = FontMetrics(path)
+        except Exception as e:
+            log.warning(f"Shrift o'lchamlarini o'qib bo'lmadi ({path.name}): {e}")
+            _METRICS_CACHE[key] = None
+    return _METRICS_CACHE[key]
+
+
 def font_forces_bold(key: str) -> bool:
     opt = FONT_OPTIONS.get(key)
     return bool(opt and opt.get("force_bold"))
@@ -849,6 +957,10 @@ def _format_word(
         # Scale bounce: kichik -> katta (overshoot) -> kichikroq -> joyiga o'rnashadi
         return f"{{\\c{color}{b1}{HIDDEN_TAGS}\\t(0,60,{vis}){_bounce_tags(dur_ms)}}}{word_text}"
 
+    # Highlight Box: so'z tez paydo bo'ladi (quti bilan birga)
+    if anim_style == "box_highlight":
+        return f"{{{base}{HIDDEN_TAGS}\\t(0,60,{vis})}}{word_text}"
+
     # Smooth tracking: so'z silliq paydo bo'ladi (yoyilish qator darajasida \fsp bilan bajariladi)
     return f"{{{base}{HIDDEN_TAGS}\\t(0,{REVEAL_FADE_MS},{vis})}}{word_text}"
 
@@ -891,8 +1003,80 @@ def max_chars_for(font_size: int, video_w: int, video_h: int, anim_style: str = 
     fs = scaled_font_size(font_size, video_w, video_h)
     avail = (video_w - 2 * 40) * 0.92          # chetlardan xavfsiz zaxira
     # Montserrat Bold ~0.60 em; tracking yoyilganda qo'shimcha joy kerak
-    char_w = fs * (0.60 + (TRACKING_END_EM if anim_style == "smooth_tracking" else 0.0))
+    if anim_style == "box_highlight":
+        char_w = fs * 0.78                       # BOSH HARFLAR keng + quti chetlari
+    else:
+        char_w = fs * (0.60 + (TRACKING_END_EM if anim_style == "smooth_tracking" else 0.0))
     return int(max(8, min(26, avail / char_w)))
+
+
+def _layout_words(
+    texts: List[str],
+    split_at: Optional[int],
+    fs_px: int,
+    metrics: Optional[FontMetrics],
+    video_w: int,
+    video_h: int,
+    margin_v: int,
+) -> Tuple[List[Tuple[float, float, float]], float]:
+    """
+    Har bir so'zning ekrandagi joyi: (x_chap, x_o'ng, baseline_y) va bosh harf balandligi (px).
+    libass: qator balandligi = shrift o'lchami, baseline = qator tepasi + fs * ascent / (ascent - descent).
+    """
+    if metrics:
+        upm, asc, desc, cap = metrics.upm, metrics.asc, metrics.desc, metrics.cap
+    else:
+        upm, asc, desc, cap = 1000, 905, -212, 716
+    height = max(1, asc - desc)
+    em = fs_px * upm / height
+    asc_px = fs_px * asc / height
+
+    def adv_px(ch: str) -> float:
+        units = metrics.advance(ch) if metrics else (280 if ch == " " else 660)
+        return units / upm * em
+
+    n = len(texts)
+    lines = [list(range(n))] if split_at is None else [list(range(split_at)), list(range(split_at, n))]
+    out: List[Tuple[float, float, float]] = [(0.0, 0.0, 0.0)] * n
+    space = adv_px(" ")
+    for li, idxs in enumerate(lines):
+        widths = [sum(adv_px(ch) for ch in texts[k]) for k in idxs]
+        total = sum(widths) + space * (len(idxs) - 1)
+        x = video_w / 2 - total / 2
+        baseline = video_h - margin_v - (len(lines) - li) * fs_px + asc_px
+        for k, wpx in zip(idxs, widths):
+            out[k] = (x, x + wpx, baseline)
+            x += wpx + space
+    return out, cap / upm * em
+
+
+def _rounded_rect_path(w: float, h: float, r: float) -> str:
+    """ASS vektor chizmasi (\\p1): yumaloq burchakli to'rtburchak."""
+    r = max(0.0, min(r, w / 2, h / 2))
+    k = r * (1 - 0.5523)
+    f = lambda v: f"{v:.1f}"
+    return (
+        f"m {f(r)} 0 l {f(w - r)} 0 b {f(w - k)} 0 {f(w)} {f(k)} {f(w)} {f(r)} "
+        f"l {f(w)} {f(h - r)} b {f(w)} {f(h - k)} {f(w - k)} {f(h)} {f(w - r)} {f(h)} "
+        f"l {f(r)} {f(h)} b {f(k)} {f(h)} 0 {f(h - k)} 0 {f(h - r)} "
+        f"l 0 {f(r)} b 0 {f(k)} {f(k)} 0 {f(r)} 0"
+    )
+
+
+def _box_event_text(x0: float, x1: float, baseline: float, cap_px: float, fs_px: int) -> str:
+    pad_x = BOX_PAD_X_EM * fs_px
+    pad_y = BOX_PAD_Y_EM * fs_px
+    bx0, bx1 = x0 - pad_x, x1 + pad_x
+    by0, by1 = baseline - cap_px - pad_y, baseline + pad_y
+    w, h = bx1 - bx0, by1 - by0
+    cx, cy = (bx0 + bx1) / 2, (by0 + by1) / 2
+    path = _rounded_rect_path(w, h, BOX_RADIUS_EM * fs_px)
+    return (
+        f"{{\\an5\\pos({cx:.1f},{cy:.1f})\\bord0\\shad0\\1c{BOX_COLOR}\\alpha&HFF&"
+        f"\\fscx{BOX_POP_START}\\fscy{BOX_POP_START}"
+        f"\\t(0,90,\\alpha&H00&\\fscx{BOX_POP_OVER}\\fscy{BOX_POP_OVER})"
+        f"\\t(90,170,\\fscx100\\fscy100)\\p1}}{path}{{\\p0}}"
+    )
 
 
 def generate_word_by_word_ass(
@@ -905,9 +1089,16 @@ def generate_word_by_word_ass(
     font_key: str = DEFAULT_FONT_KEY,
     color_key: str = DEFAULT_COLOR_KEY,
 ) -> int:
-    font_name, bold_ok, _, _ = resolve_font(font_key)
+    font_name, bold_ok, _, font_file = resolve_font(font_key)
     line_chars = max_chars_for(font_size, video_w, video_h, anim_style)
     font_size = scaled_font_size(font_size, video_w, video_h)
+    margin_v = int(video_h * 0.12)
+    use_box = anim_style == "box_highlight"
+    metrics = get_font_metrics(font_file) if use_box else None
+    text_layer = 1 if use_box else 0          # quti 0-qatlamda, matn uning ustida (1-qatlam)
+    if use_box:
+        # Captions uslubi: BOSH HARFLAR
+        chunks = [[dict(w, text=w["text"].upper()) for w in chunk] for chunk in chunks]
     base_sp = 0.0
     bold_flag = -1 if (bold_ok or font_forces_bold(font_key)) else 0
     chosen_color = COLOR_OPTIONS.get(color_key, COLOR_OPTIONS["white"])["bgr"]
@@ -923,7 +1114,7 @@ WrapStyle: 2
 
 [V4+ Styles]
 Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding
-Style: Default,{font_name},{font_size},{chosen_color},&H000000FF,&H00000000,{back_color},{bold_flag},0,0,0,100,100,{base_sp},0,1,{STROKE_PX},{SHADOW_PX},2,40,40,{int(video_h * 0.12)},1
+Style: Default,{font_name},{font_size},{chosen_color},&H000000FF,&H00000000,{back_color},{bold_flag},0,0,0,100,100,{base_sp},0,1,{STROKE_PX},{SHADOW_PX},2,40,40,{margin_v},1
 
 [Events]
 Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
@@ -968,6 +1159,10 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
 
         # 2 qatorga bo'lish joyi (butun blok uchun bir marta aniqlanadi — joylashuv barqaror)
         _, split_at = _fit_lines([w["text"] for w in chunk], line_chars)
+        boxes: List[Tuple[float, float, float]] = []
+        cap_px = 0.0
+        if use_box:
+            boxes, cap_px = _layout_words([w["text"] for w in chunk], split_at, font_size, metrics, video_w, video_h, margin_v)
 
         for i, current_word in enumerate(chunk):
             start = round(current_word["start"], 2) if i else chunk_start
@@ -1001,8 +1196,17 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
                 head_tags = _tracking_tags(start - chunk_start, end - chunk_start, track_total, font_size)
                 text = f"{{{head_tags}}}" + text
 
+            if use_box:
+                # Aytilayotgan so'z orqasidagi yumaloq quti (so'z gapirilib bo'lgach yo'qoladi)
+                box_end = round(min(end, max(start + 0.08, current_word["end"])), 2)
+                x0, x1, base = boxes[i]
+                dialogues.append(
+                    f"Dialogue: 0,{format_ass_time(start)},{format_ass_time(box_end)},Default,,0,0,0,,"
+                    + _box_event_text(x0, x1, base, cap_px, font_size)
+                )
+
             dialogues.append(
-                f"Dialogue: 0,{format_ass_time(start)},{format_ass_time(end)},Default,,0,0,0,,{text}"
+                f"Dialogue: {text_layer},{format_ass_time(start)},{format_ass_time(end)},Default,,0,0,0,,{text}"
             )
 
         # --- Smooth Tracking: so'zlarni birin-ketin so'ndiruvchi hodisa ---
@@ -1474,6 +1678,8 @@ async def cmd_sub_styles(message: Message):
         "━━━━━━━━━━━━━━━━\n\n"
         "✨ <b>Smooth Tracking + Fade Out Words</b>\n"
         "So'zlar aytilgan paytda silliq paydo bo'ladi, harflar orasi After Effects'dagi tracking kabi sekin yoyiladi, blok oxirida so'zlar birin-ketin so'nib yo'qoladi.\n\n"
+        "🟣 <b>Highlight Box (Captions)</b>\n"
+        "KATTA HARFLAR, aytilayotgan so'z yumaloq rangli quti ichida chiqadi va keyingisiga o'tadi.\n\n"
         "🟢 <b>MrBeast Pop-up</b>\n"
         "Har bir so'z aytilgan paytda scale-bounce bilan (oshib, qaytib, joyiga o'rnashib) sakrab chiqadi.\n\n"
         "━━━━━━━━━━━━━━━━\n"
